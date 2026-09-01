@@ -76,7 +76,12 @@
     });
     CURRENT_SCREEN = name;
     var fn = handlers['__screen__' + name];
-    if (fn) { try { fn(); } catch (e) { console.error(e); } }
+    if (fn) {
+      Promise.resolve().then(fn).catch(function (e) {
+        console.error(e);
+        toast('Error: ' + (e && e.message ? e.message : e), true);
+      });
+    }
     updateBindings();
   }
 

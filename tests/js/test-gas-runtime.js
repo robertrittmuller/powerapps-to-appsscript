@@ -54,9 +54,10 @@ test('goBack without history is a no-op, not a crash', () => {
   assert.ok(true);
 });
 
-test('registerScreenHandler + showScreen invokes handler', () => {
+test('registerScreenHandler + showScreen invokes handler', async () => {
   let called = false;
   RT.registerScreenHandler('S1', () => { called = true; });
   RT.showScreen('S1');
+  await new Promise((r) => setTimeout(r, 0));
   assert.ok(called);
 });
