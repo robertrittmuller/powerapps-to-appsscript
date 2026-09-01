@@ -205,6 +205,30 @@
     split: function (text, separator) {
       return String(text == null ? '' : text).split(String(separator == null ? '' : separator));
     },
+    showColumns: function (t, cols) {
+      return FX.forAll(t, function (row) {
+        var out = {};
+        cols.forEach(function (c) { if (row[c] !== undefined) out[c] = row[c]; });
+        return out;
+      });
+    },
+    dropColumns: function (t, cols) {
+      return FX.forAll(t, function (row) {
+        var out = Object.assign({}, row);
+        cols.forEach(function (c) { delete out[c]; });
+        return out;
+      });
+    },
+    renameColumns: function (t, pairs) {
+      // pairs = [old1, new1, old2, new2, ...]
+      return FX.forAll(t, function (row) {
+        var out = Object.assign({}, row);
+        for (var i = 0; i + 1 < pairs.length; i += 2) {
+          if (out[pairs[i]] !== undefined) { out[pairs[i + 1]] = out[pairs[i]]; delete out[pairs[i]]; }
+        }
+        return out;
+      });
+    },
 
     // --- dates ---------------------------------------------------------------
     today: function () { return startOfDay(new Date()); },

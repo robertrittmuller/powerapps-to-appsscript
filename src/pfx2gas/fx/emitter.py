@@ -194,6 +194,11 @@ class Emitter:
             return self.with_call(node)
         if name in {"Patch", "Remove", "RemoveIf", "Collect", "ClearCollect", "Refresh"}:
             return self.data_call(name, node)
+        if name == "Clear":
+            target = args[0]
+            if target.kind != "ident":
+                raise lx.FxSyntaxError("Clear target must be an identifier")
+            return f"state.{target.value} = []"
         if name in {"SubmitForm", "Reset", "Select"}:
             target = args[0]
             ctrl = str(target.value) if target.kind == "ident" else self.expr(target)

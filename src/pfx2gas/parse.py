@@ -18,6 +18,14 @@ def _make_expr(prop_value: str, prop_name: str) -> FxExpr:
     return FxExpr(raw=raw, kind=kind)
 
 
+# Modern control names normalize onto classic equivalents (case-insensitive).
+_CONTROL_ALIASES = {
+    "dropdown": "Dropdown",
+    "text": "Label",          # modern 'Text' control is a text block
+    "textlabel": "Label",
+}
+
+
 def _control_type(raw: object) -> str:
     """Normalize 'Classic/TextInput@2.3.2' -> 'TextInput', 'Label@2.5.1' -> 'Label'."""
     s = str(raw or "Unknown")
@@ -25,7 +33,7 @@ def _control_type(raw: object) -> str:
         s = s.split("/")[-1]
     if "@" in s:
         s = s.split("@")[0]
-    return s
+    return _CONTROL_ALIASES.get(s.lower(), s)
 
 
 def _parse_control(name: str, node: dict) -> ControlNode:

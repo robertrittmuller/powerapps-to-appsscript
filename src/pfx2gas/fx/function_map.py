@@ -66,6 +66,9 @@ FUNCTION_MAP: dict[str, FnSpec] = {
     "Launch": FnSpec("window.open({a0}, '_blank')"),
     "Sequence": FnSpec("FX.sequence({args})"),
     "Split": FnSpec("FX.split({a0}, {a1})"),
+    "ShowColumns": FnSpec("FX.showColumns({a0}, [{a1}])"),
+    "DropColumns": FnSpec("FX.dropColumns({a0}, [{a1}])"),
+    "RenameColumns": FnSpec("FX.renameColumns({a0}, [{a1}])"),
     # date/time
     "Today": FnSpec("FX.today()"),
     "Now": FnSpec("FX.now()"),
