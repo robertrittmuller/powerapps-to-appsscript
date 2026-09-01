@@ -36,12 +36,23 @@ def tokenize(src: str) -> list[Tok]:
                 j += 1
             word = src[i:j]
             # Power Fx allows dotted identifiers (control names, ThisItem.field)
-            while j < n - 1 and src[j] == "." and src[j + 1] in IDENT_START:
+            # and quoted enum members like Font.'Open Sans'
+            while j < n - 1 and src[j] == "." and (src[j + 1] in IDENT_START or src[j + 1] in "\"'"):
                 k = j + 1
-                while k < n and src[k] in IDENT_CHARS:
+                if src[k] in "\"'":
+                    quote = src[k]
                     k += 1
-                word += src[j:k]
-                j = k
+                    while k < n and src[k] != quote:
+                        k += 1
+                    if k < n:
+                        k += 1  # include closing quote
+                    word += src[j:k]
+                    j = k
+                else:
+                    while k < n and src[k] in IDENT_CHARS:
+                        k += 1
+                    word += src[j:k]
+                    j = k
             toks.append(Tok("keyword" if word in KEYWORDS else "ident", word, i))
             i = j
             continue
@@ -52,8 +63,17 @@ def tokenize(src: str) -> list[Tok]:
                 if src[j] == ".":
                     seen_dot = True
                 j += 1
+            if j < n and src[j] == "%":  # percent literal: 20% == 0.2
+                j += 1
+                toks.append(Tok("number", src[i:j], i))
+                i = j
+                continue
             toks.append(Tok("number", src[i:j], i))
             i = j
+            continue
+        if src.startswith("//", i):  # Power Fx line comment
+            while i < n and src[i] != "\n":
+                i += 1
             continue
         if c in "\"'":
             quote = c
@@ -202,6 +222,8 @@ class Parser:
         t = self.peek()
         if t.kind == "number":
             self.next()
+            if str(t.value).endswith("%"):
+                return Node("num", float(t.value[:-1]) / 100.0)
             return Node("num", float(t.value) if "." in t.value else int(t.value))
         if t.kind == "string":
             self.next()

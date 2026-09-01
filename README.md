@@ -152,20 +152,24 @@ Rule-transpiled today (~70 functions via the `FX.*` stdlib):
 - **Logic** `If`, `Switch`, `IfError`, `IsBlank`, `IsEmpty`, `Coalesce`, `With`
 - **Tables** `Filter`, `ForAll`, `LookUp`, `CountRows`, `CountIf`, `Concat`,
   `First`, `Last`, `Sort`, `SortByColumns`, `Distinct`, `Sum`, `Average`,
-  `AddColumns`
+  `AddColumns`, `Sequence`, `Split`
 - **Text** `Concatenate`, `Upper`, `Lower`, `Trim`, `Left`, `Right`, `Mid`,
   `Len`, `Find`, `Substitute`, `Replace`, `Text` (number/date formats),
-  `Proper`, `Char`, `GUID`
+  `Proper`, `Char`, `GUID`, `EncodeUrl`, `PlainText`
 - **Math** `Abs`, `Int`, `Round`/`RoundUp`/`RoundDown`, `Mod`, `Sqrt`, `Power`,
   `Min`, `Max`, `Value`, `Rand`
 - **Dates** `Today`, `Now`, `Year`, `Month`, `Day`, `Hour`, `Minute`,
   `Weekday`, `DateAdd`, `DateDiff`, `Date`, `Time`
+- **Colors** `RGBA`, `ColorFade`; **enums** (`Color.X`, `Font.X`,
+  `Font.'Open Sans'`, …) emitted as literals
 - **Behavior** `Set`, `UpdateContext`, `Navigate`, `Back`, `Notify`,
   `Patch`, `Remove`, `RemoveIf`, `Collect`, `ClearCollect`, `Refresh`,
-  `SubmitForm` (as data-layer calls)
+  `SubmitForm`, `Select` (as data-layer/control calls), `Launch`
+  (opens a new tab)
 
-Anything not in the map (e.g. `TimeZoneOffset`) becomes a documented stub via
-the coverage ledger — never silently wrong. Adding functions is one entry in
+Anything not in the map (e.g. `Choices()`, custom `Environment.*` functions,
+`ShowHostInfo`) becomes a documented stub via the coverage ledger — never
+silently wrong. Adding functions is one entry in
 `src/pfx2gas/fx/function_map.py` plus a JS helper in `static/fx-stdlib.js`.
 
 **Controls:** Label, Button, TextInput, TextArea, Dropdown, CheckBox,
@@ -184,15 +188,24 @@ DatePicker, Gallery (row template), Image, Icon, HtmlText, Form.
 ## Development
 
 ```bash
-uv run pytest -q                    # Python suite (46 tests)
+uv run pytest -q                    # Python suite (55 tests)
 node --test tests/js/*.js           # JS runtime suite (18 tests)
 uv run pytest tests/test_e2e.py -q  # end-to-end CLI runs on synthetic fixtures
 ```
 
 The test fixtures are synthetic `.msapp` files built by
 `tests/fixtures/build.py` (A: navigation/state, B: data sources + gallery,
-C: exotic functions for the stub path). The Power Fx transpiler is
-table-driven — add cases to `tests/test_fx_transpiler.py`.
+C: exotic functions for the stub path, D: a real Studio-export shape —
+`Properties.json` manifest, `Src\` paths, `Screens:` wrapper, `_EditorState`
+auxiliary file, versioned control types like `Classic/Icon@2.5.0`). The Power
+Fx transpiler is table-driven — add cases to `tests/test_fx_transpiler.py`.
+
+**Real-app samples:** `samples/real/` (gitignored) holds real `.msapp` files
+for soak testing, fetched from the public
+[sunilshetty07/Microsoft-PowerApps-Canvas](https://github.com/sunilshetty07/Microsoft-PowerApps-Canvas)
+repo (editable-grid, expandable-nav, modern-card, svg-app, sentiment-feedback —
+1,100+ formulas total, 97%+ rule-transpiled). Download any `.msapp` into that
+folder to test against it.
 
 Layout:
 

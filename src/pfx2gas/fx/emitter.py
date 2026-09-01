@@ -23,21 +23,29 @@ def _q(s: str) -> str:
 
 
 def _snake(name: str) -> str:
-    """snake_case a Power Fx field name for property access."""
+    """Sanitize a Power Fx field name for JS property access:
+    'File name with extension' -> file_name_with_extension, FullName -> full_name."""
     out: list[str] = []
     prev_upper = False
     for i, ch in enumerate(name):
         if ch.isupper() and i > 0 and not prev_upper:
             out.append("_")
-        out.append(ch.lower())
+        if ch.isalnum():
+            out.append(ch.lower())
+        elif out and out[-1] != "_":
+            out.append("_")
         prev_upper = ch.isupper()
-    return "".join(out)
+    return "".join(out).strip("_") or "field"
 
 
 # Functions whose later arguments are evaluated per-row (lambda context):
 # bare identifiers matching known data-source fields resolve to `item.field`.
 LAMBDA_FNS = {"Filter", "ForAll", "LookUp", "CountIf", "Concat", "Distinct",
               "Sort", "Sum", "Average", "RemoveIf", "AddColumns"}
+
+# Enum types whose members are emitted as string literals (Color.Red -> 'Red').
+ENUM_TYPES = {"Color", "Icon", "Font", "FontWeight", "Align", "Image",
+              "LayoutSize", "DisplayMode", "FormStatus", "SortOrder"}
 
 
 class Emitter:
@@ -102,12 +110,29 @@ class Emitter:
             return "item"
         if name == "Parent":
             return "parent"
+        if name == "Self":
+            return "selfRef"
+        if "'" in name:
+            base, _, member = name.partition(".")
+            member = member.strip("'\"")
+            if base == "ThisItem":
+                return f"item.{_snake(member)}"
+            if base in ENUM_TYPES:
+                return _q(member)
+            # control-scoped quoted member or generic quoted access
+            if base[0:1].isupper():
+                return f"val({_q(base)}).{_snake(member)}"
+            return f"item.{_snake(member)}"
         if "." in name:
             base, rest = name.split(".", 1)
             if base == "ThisItem":
                 return f"item.{_snake(rest)}"
             if base == "Parent":
                 return f"parent.{_snake(rest)}"
+            if base == "Self":
+                return f"selfRef.{_snake(rest)}"
+            if base in ENUM_TYPES:
+                return _q(rest)
             if base[0].isupper():
                 # Control.Property reference -> val('Ctrl').prop
                 return f"val({_q(base)}).{_snake(rest)}"
@@ -169,10 +194,11 @@ class Emitter:
             return self.with_call(node)
         if name in {"Patch", "Remove", "RemoveIf", "Collect", "ClearCollect", "Refresh"}:
             return self.data_call(name, node)
-        if name in {"SubmitForm", "Reset"}:
+        if name in {"SubmitForm", "Reset", "Select"}:
             target = args[0]
             ctrl = str(target.value) if target.kind == "ident" else self.expr(target)
-            return f"submitForm({_q(ctrl)})"
+            fn = "selectControl" if name == "Select" else "submitForm"
+            return f"{fn}({_q(ctrl)})"
         spec = FUNCTION_MAP.get(name)
         if spec is None:
             self.res.unmapped.append(name)

@@ -172,6 +172,11 @@
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
     });
   };
+  global.selectControl = function (name) {
+    var el = document.querySelector('[data-control="' + name + '"]');
+    if (el) el.click();
+  };
+  global.selfRef = null; // bound per-control during evaluator registration
 
   if (typeof document !== 'undefined') {
     document.addEventListener('DOMContentLoaded', function () {

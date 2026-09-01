@@ -124,6 +124,32 @@ APP_C_YAML = """App:
     OnStart: '=Collect(LocalCache, {key: "tz", value: TimeZoneOffset()}); Set(mode, If(Hour(Now()) < 12, "am", "pm"))'
 """
 
+# Fixture D mimics a real Studio export: Properties.json manifest, `Src\\`
+# backslash entry names, a top-level `Screens:` wrapper, and an auxiliary
+# _EditorState.pa.yaml.
+APP_D_YAML = """Screens:
+  HomeScreen:
+    Properties:
+      Fill: =RGBA(39, 113, 194, 1)
+    Children:
+      - Icon1:
+          Control: Classic/Icon@2.5.0
+          Properties:
+            Color: =Switch(lblFeedback1.Text,"positive",Color.ForestGreen,Color.Bisque)
+            Font: =Font.'Open Sans'
+            X: =ColorFade(RGBA(56, 96, 178, 1), -20%) // trailing comment
+      - TextInput1:
+          Control: Classic/TextInput@2.3.2
+          Properties:
+            Default: =
+            Reset: =gblReset
+"""
+
+EDITORSTATE_YAML = """EditorState:
+  Container1:
+    IsLocked: false
+"""
+
 
 def _write_msapp(path: Path, files: dict[str, str]) -> None:
     with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as zf:
@@ -165,6 +191,19 @@ def build_fixtures() -> None:
             ),
             "src/App.pa.yaml": APP_C_YAML,
             "src/Screen1.pa.yaml": SCREEN1_YAML,
+        },
+    )
+    # Fixture D: real Studio-export shape (Properties.json, Src\, Screens:,
+    # _EditorState auxiliary, versioned control types, empty '=' formulas)
+    _write_msapp(
+        FIXTURE_DIR / "fixtureD.msapp",
+        {
+            "Header.json": json.dumps({"DocVersion": "1.347"}),
+            "Properties.json": json.dumps(
+                {"Name": "FixtureD Studio Export", "Id": "d1d0"}
+            ),
+            "Src\\HomeScreen.pa.yaml": APP_D_YAML,
+            "Src\\_EditorState.pa.yaml": EDITORSTATE_YAML,
         },
     )
 

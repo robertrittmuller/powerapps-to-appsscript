@@ -180,6 +180,32 @@
       });
     },
 
+    // --- colors / encoding --------------------------------------------------
+    rgba: function (r, g, b, a) {
+      var hex = function (n) {
+        var v = Math.max(0, Math.min(255, Math.round(toNum(n))));
+        return v.toString(16).padStart(2, '0');
+      };
+      return '#' + hex(r) + hex(g) + hex(b);
+    },
+    colorFade: function (color, percentage) {
+      return color; // approximation: fade not implemented, color passes through
+    },
+    plainText: function (html) {
+      var el = typeof document !== 'undefined' ? document.createElement('div') : null;
+      if (el) { el.innerHTML = String(html == null ? '' : html); return el.textContent || ''; }
+      return String(html == null ? '' : html).replace(/<[^>]*>/g, '');
+    },
+    sequence: function (count, start, step) {
+      var n = Math.max(0, Math.floor(toNum(count))), s = toNum(start == null ? 1 : start),
+        d = toNum(step == null ? 1 : step), out = [];
+      for (var i = 0; i < n; i++) out.push(s + i * d);
+      return out;
+    },
+    split: function (text, separator) {
+      return String(text == null ? '' : text).split(String(separator == null ? '' : separator));
+    },
+
     // --- dates ---------------------------------------------------------------
     today: function () { return startOfDay(new Date()); },
     now: function () { return new Date(); },

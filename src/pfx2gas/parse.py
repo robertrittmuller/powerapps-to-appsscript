@@ -18,9 +18,19 @@ def _make_expr(prop_value: str, prop_name: str) -> FxExpr:
     return FxExpr(raw=raw, kind=kind)
 
 
+def _control_type(raw: object) -> str:
+    """Normalize 'Classic/TextInput@2.3.2' -> 'TextInput', 'Label@2.5.1' -> 'Label'."""
+    s = str(raw or "Unknown")
+    if "/" in s:
+        s = s.split("/")[-1]
+    if "@" in s:
+        s = s.split("@")[0]
+    return s
+
+
 def _parse_control(name: str, node: dict) -> ControlNode:
     node = node if isinstance(node, dict) else {}
-    ctrl_type = str(node.get("Control", "Unknown"))
+    ctrl_type = _control_type(node.get("Control"))
     variant = node.get("Variant")
     props = node.get("Properties") or {}
     fx_props: dict[str, FxExpr] = {}
@@ -43,26 +53,38 @@ def _parse_control(name: str, node: dict) -> ControlNode:
                        properties=fx_props, children=children)
 
 
-def _controls_of(screen_yaml: dict) -> list[ControlNode]:
+def _screen_entries(screen_yaml: dict) -> list[tuple[str, dict]]:
+    """Yield (screen_name, screen_node) pairs from one pa.yaml document.
+
+    Real Studio exports wrap screens in a top-level ``Screens:`` mapping;
+    older/packed layouts put the screen name at the document root.
+    """
     if not screen_yaml:
         return []
-    screen_name, screen_node = next(iter(screen_yaml.items()))
-    screen_node = screen_node if isinstance(screen_node, dict) else {}
+    if isinstance(screen_yaml.get("Screens"), dict):
+        return [(str(name), node if isinstance(node, dict) else {})
+                for name, node in screen_yaml["Screens"].items()]
+    name, node = next(iter(screen_yaml.items()))
+    return [(str(name), node if isinstance(node, dict) else {})]
+
+
+def _controls_of(screen_yaml: dict) -> list[ControlNode]:
     controls: list[ControlNode] = []
-    for child in screen_node.get("Children") or []:
-        if isinstance(child, dict):
-            for cname, cnode in child.items():
-                controls.append(_parse_control(str(cname), cnode))
+    for _, screen_node in _screen_entries(screen_yaml):
+        for child in screen_node.get("Children") or []:
+            if isinstance(child, dict):
+                for cname, cnode in child.items():
+                    controls.append(_parse_control(str(cname), cnode))
     return controls
 
 
 def _screen_on_visible(screen_yaml: dict) -> FxExpr | None:
-    if not screen_yaml:
-        return None
-    _, screen_node = next(iter(screen_yaml.items()))
-    props = (screen_node or {}).get("Properties") or {}
-    ov = props.get("OnVisible")
-    return _make_expr(str(ov), "OnVisible") if ov else None
+    for _, screen_node in _screen_entries(screen_yaml):
+        props = (screen_node or {}).get("Properties") or {}
+        ov = props.get("OnVisible")
+        if ov:
+            return _make_expr(str(ov), "OnVisible")
+    return None
 
 
 def parse(unpacked: UnpackedApp) -> AppIR:
