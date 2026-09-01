@@ -95,7 +95,7 @@ SCREEN1B_YAML = """Screen1:
         Control: Button
         Properties:
           Text: ="Add"
-          OnSelect: =Patch(Tasks, Defaults(Tasks), {Name: TextInputName.Text, Amount: Value(TextInputAmount.Text), Status: "Open"}); Refresh(Tasks)
+          OnSelect: '=Patch(Tasks, Defaults(Tasks), {Name: TextInputName.Text, Amount: Value(TextInputAmount.Text), Status: "Open"}); Refresh(Tasks)'
     - LabelCount:
         Control: Label
         Properties:
@@ -121,7 +121,7 @@ TASKS_JSON = json.dumps(
 APP_C_YAML = """App:
   Control: AppHost
   Properties:
-    OnStart: =Collect(LocalCache, {key: "tz", value: TimeZoneOffset()}); Set(mode, If(Hour(Now()) < 12, "am", "pm"))
+    OnStart: '=Collect(LocalCache, {key: "tz", value: TimeZoneOffset()}); Set(mode, If(Hour(Now()) < 12, "am", "pm"))'
 """
 
 

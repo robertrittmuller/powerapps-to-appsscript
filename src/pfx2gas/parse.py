@@ -71,7 +71,7 @@ def parse(unpacked: UnpackedApp) -> AppIR:
     # App-level OnStart
     app_props = ((unpacked.app_yaml or {}).get("App") or {}).get("Properties") or {}
     if app_props.get("OnStart"):
-        ir.global_vars  # (analysis happens in analyze.py; kept for IR completeness)
+        ir.on_start = _make_expr(str(app_props["OnStart"]), "OnStart")
 
     for screen_name in sorted(unpacked.screens):
         screen_yaml = unpacked.screens[screen_name]

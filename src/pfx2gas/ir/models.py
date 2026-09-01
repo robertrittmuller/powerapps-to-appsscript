@@ -58,6 +58,7 @@ class ScreenNode(BaseModel):
 
 class AppIR(BaseModel):
     name: str
+    on_start: FxExpr | None = None
     screens: list[ScreenNode] = Field(default_factory=list)
     data_sources: list[DataSource] = Field(default_factory=list)
     global_vars: list[str] = Field(default_factory=list)
