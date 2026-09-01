@@ -129,21 +129,26 @@ accordingly).
 
 ## LLM fallback (optional)
 
-Unmapped formulas can be translated by any OpenAI-compatible chat API. Configure
-via environment variables, then run without `--no-llm`:
+Unmapped formulas can be translated by any OpenAI-compatible chat API.
+Configure via environment variables, then run without `--no-llm`:
 
 ```bash
-export PFX2GAS_LLM_BASE_URL="https://api.openai.com/v1"   # or any compatible endpoint
-export PFX2GAS_LLM_API_KEY="sk-..."
-export PFX2GAS_LLM_MODEL="gpt-4o-mini"                    # default
+export PFX2GAS_LLM_BASE_URL="https://openrouter.ai/api/v1"  # or api.openai.com/v1
+export PFX2GAS_LLM_API_KEY="sk-or-..."                      # provider key
+export PFX2GAS_LLM_MODEL="openai/gpt-5.6-luna"              # any chat model
 
 uv run pfx2gas convert YourApp.msapp
 ```
 
 Guarantees: the model receives the function-coverage table (single source of
-truth with the transpiler), returns one JSON object per formula, and its JS is
-accepted only if it passes `node --check`; otherwise the formula stays a
-documented stub. All calls are logged to `.runs/llm-calls.jsonl`.
+truth with the transpiler) plus the generated app's real globals (`state`,
+data-layer `api*` calls, `val()`, navigation, `toast`), returns one JSON object
+per formula, and its JS is accepted only if it passes `node --check` (value
+formulas must be single expressions; behavior formulas may be statements).
+It may refuse when translation is genuinely impossible — the formula then
+stays a documented stub. All calls are logged to `.runs/llm-calls.jsonl`
+with confidence and notes; LLM-touched formulas appear in the report as
+*partial* with their confidence so you know what to review first.
 
 ## Supported Power Fx surface (v1)
 
@@ -188,7 +193,7 @@ DatePicker, Gallery (row template), Image, Icon, HtmlText, Form.
 ## Development
 
 ```bash
-uv run pytest -q                    # Python suite (55 tests)
+uv run pytest -q                    # Python suite (61 tests)
 node --test tests/js/*.js           # JS runtime suite (18 tests)
 uv run pytest tests/test_e2e.py -q  # end-to-end CLI runs on synthetic fixtures
 ```

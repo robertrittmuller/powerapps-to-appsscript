@@ -114,9 +114,12 @@ def _llm_fallback(ir, client) -> None:
     from .fx import transpile  # noqa: F401  (context import)
 
     def try_fix(expr, context: str) -> None:
+        if not expr.raw:
+            return
         if expr.js is not None and "FX.unsupported" not in expr.js:
             return
-        result = client.translate_formula(expr.raw, context)
+        result = client.translate_formula(expr.raw, context,
+                                          behavior=(expr.kind == "behavior"))
         if result and result["js"]:
             expr.js = result["js"]
             from .ir import SupportEntry
