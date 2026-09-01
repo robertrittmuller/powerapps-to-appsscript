@@ -73,11 +73,36 @@ def _js_acceptable(js: str, behavior: bool) -> bool:
     return ok
 
 
+def _apply_env_file() -> None:
+    """Load PFX2GAS_* keys from a .env file (cwd upward), without overriding
+    real environment variables. Stdlib-only; silent if no file exists."""
+    import os as _os
+    from pathlib import Path as _Path
+
+    cwd = _Path.cwd()
+    for candidate in [cwd, *cwd.parents]:
+        env_file = candidate / ".env"
+        if env_file.exists():
+            try:
+                for raw in env_file.read_text().splitlines():
+                    line = raw.strip()
+                    if not line or line.startswith("#") or "=" not in line:
+                        continue
+                    key, _, value = line.partition("=")
+                    key, value = key.strip(), value.strip().strip("'\"")
+                    if key.startswith("PFX2GAS_") and key not in _os.environ:
+                        _os.environ[key] = value
+            except OSError:
+                pass
+            break  # only the nearest .env applies
+
+
 class LlmClient:
-    """Thin OpenAI-compatible client; provider/key come from env."""
+    """Thin OpenAI-compatible client; provider/key come from env (or .env)."""
 
     def __init__(self, base_url: str | None = None, api_key: str | None = None,
                  model: str | None = None, log_dir: str | Path = ".runs"):
+        _apply_env_file()
         self.base_url = base_url or os.environ.get("PFX2GAS_LLM_BASE_URL")
         self.api_key = api_key or os.environ.get("PFX2GAS_LLM_API_KEY", "")
         self.model = model or os.environ.get("PFX2GAS_LLM_MODEL", "gpt-4o-mini")

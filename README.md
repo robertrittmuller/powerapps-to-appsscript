@@ -130,12 +130,16 @@ accordingly).
 ## LLM fallback (optional)
 
 Unmapped formulas can be translated by any OpenAI-compatible chat API.
-Configure via environment variables, then run without `--no-llm`:
+Configure via environment variables **or a `.env` file** in the repo root
+(see `.env.example`; `.env` is gitignored and never committed; real
+environment variables take precedence):
 
 ```bash
-export PFX2GAS_LLM_BASE_URL="https://openrouter.ai/api/v1"  # or api.openai.com/v1
-export PFX2GAS_LLM_API_KEY="sk-or-..."                      # provider key
-export PFX2GAS_LLM_MODEL="openai/gpt-5.6-luna"              # any chat model
+cp .env.example .env
+# then edit .env:
+#   PFX2GAS_LLM_BASE_URL=https://openrouter.ai/api/v1
+#   PFX2GAS_LLM_API_KEY=sk-or-...
+#   PFX2GAS_LLM_MODEL=openai/gpt-5.6-luna
 
 uv run pfx2gas convert YourApp.msapp
 ```
