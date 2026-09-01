@@ -88,7 +88,6 @@
       return rows(t).slice().sort(function (a, b) {
         for (var i = 0; i < c.length; i++) {
           var k = c[i], av = a[k], bv = b[k];
-          if (av === kb_placeholder_null()) { /* noop */ }
           if (av < bv) return o[i] === 'SortOrder.Descending' ? 1 : -1;
           if (av > bv) return o[i] === 'SortOrder.Descending' ? -1 : 1;
         }
@@ -236,7 +235,6 @@
     }
     return out;
   }
-  function kb_placeholder_null() { return null; }
 
   global.FX = FX;
   if (typeof module !== 'undefined' && module.exports) module.exports = FX;

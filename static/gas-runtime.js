@@ -162,6 +162,11 @@
   global.val = val;
   global.submitForm = submitForm;
   global.refreshData = refreshData;
+  global.esc = function (s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  };
 
   if (typeof document !== 'undefined') {
     document.addEventListener('DOMContentLoaded', function () {
