@@ -110,10 +110,73 @@
     };
   }
 
+  function styleControl(name, cssProp, valueFn, unit) {
+    evaluators.push({
+      apply: function () {
+        var el = document.querySelector('[data-control="' + name + '"]');
+        if (!el) return;
+        var v;
+        try { v = valueFn(); } catch (e) { return; }
+        if (v === null || v === undefined || v === '') return;
+        if (unit === 'px' && /^\d+(\.\d+)?$/.test(String(v))) v = String(v) + 'px';
+        else if (unit === 'lower') v = String(v).toLowerCase();
+        el.style[cssProp] = String(v);
+      },
+    });
+  }
+
+  /**
+   * Gallery rendering: itemsFn returns the row array, rowFn fills a cloned
+   * row template, handlers maps child control name -> async fn(item).
+   * Re-renders on every state change (registered as an evaluator).
+   */
+  function gallery(name, itemsFn, rowFn, handlers) {
+    evaluators.push({
+      apply: function () {
+        var host = document.querySelector('[data-control="' + name + '"]');
+        if (!host) return;
+        var tpl = host.querySelector('template');
+        var rowsEl = host.querySelector('.fx-rows');
+        if (!tpl || !rowsEl) return;
+        var items;
+        try { items = itemsFn() || []; } catch (e) { items = []; }
+        if (!Array.isArray(items)) items = [];
+        rowsEl.innerHTML = '';
+        items.forEach(function (item) {
+          var row = tpl.content.firstElementChild.cloneNode(true);
+          row.style.position = 'relative';
+          rowsEl.appendChild(row);
+          if (rowFn) {
+            try { rowFn(item, row); } catch (e) { console.error('gallery row error', e); }
+          }
+          Object.keys(handlers || {}).forEach(function (ctrl) {
+            var el = row.querySelector('[data-control="' + ctrl + '"]');
+            if (el) {
+              el.addEventListener('click', function () {
+                Promise.resolve().then(function () { return handlers[ctrl](item); })
+                  .catch(function (err) {
+                    console.error(err);
+                    toast('Error: ' + (err && err.message ? err.message : err), true);
+                  });
+              });
+            }
+          });
+        });
+      },
+    });
+  }
+
   function submitForm(name) {
     // Converted apps do not use real <form> posts; the generated handler
     // calls apiCreate/apiPatch directly. Kept for formula compatibility.
     return Promise.resolve();
+  }
+
+  function setFormMode(name, mode) {
+    // Approximation: NewForm/EditForm/ViewForm set a mode flag on state.
+    // Data-entry behavior is driven by the generated apiCreate/apiPatch calls.
+    state['__formMode_' + name] = mode;
+    updateBindings();
   }
 
   function refreshData(ds) {
@@ -157,6 +220,9 @@
     submitForm: submitForm,
     refreshData: refreshData,
     updateBindings: updateBindings,
+    styleControl: styleControl,
+    gallery: gallery,
+    setFormMode: setFormMode,
     addEvaluator: function (apply) { evaluators.push({ apply: apply }); apply(); },
     registerScreenHandler: function (name, fn) { handlers['__screen__' + name] = fn; },
   };

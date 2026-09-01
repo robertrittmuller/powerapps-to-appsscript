@@ -21,6 +21,34 @@ def _screen_table(ir: AppIR) -> str:
     return "\n".join(lines) if len(lines) > 2 else "_No formulas found._"
 
 
+def _risk_section(review_rows: list[dict]) -> str:
+    if not review_rows:
+        return ("_Behavioral review not run_ (LLM not configured or `--no-review` / "
+                "`--no-llm` used). Every converted formula should still be smoke-tested.\n")
+    lines = ["| Risk | Where | Why | What to do |", "|---|---|---|---|"]
+    order = {"high": 0, "medium": 1, "low": 2}
+    for row in sorted(review_rows, key=lambda r: order.get(r["risk"], 3)):
+        reason = row["reason"].replace("|", "\\|")[:120]
+        suggestion = row["suggestion"].replace("|", "\\|")[:120]
+        lines.append(f"| **{row['risk']}** | {row['context']} | {reason} | {suggestion} |")
+    return "\n".join(lines) + "\n"
+
+
+def _qa_section(qa_scenarios: list[dict]) -> str:
+    if not qa_scenarios:
+        return ("_No QA scenarios generated_ (LLM not configured or review disabled).\n")
+    parts = []
+    for i, s in enumerate(qa_scenarios, 1):
+        steps = "\n".join(f"   {n}. {step}" for n, step in enumerate(s.get("steps", []), 1))
+        parts.append(
+            f"### {i}. {s.get('title', 'Scenario')}\n"
+            f"Covers: {s.get('covers', '—')}\n\n"
+            f"1. Steps:\n{steps}\n"
+            f"1. **Expected:** {s.get('expected', '—')}\n"
+        )
+    return "\n".join(parts)
+
+
 def _data_table(ir: AppIR) -> str:
     if not ir.data_sources:
         return "_No external data sources._"
@@ -41,7 +69,9 @@ def _followups(ir: AppIR) -> str:
     return "\n".join(items)
 
 
-def render_report(ir: AppIR, validation: dict | None = None) -> str:
+def render_report(ir: AppIR, validation: dict | None = None,
+                  review_rows: list[dict] | None = None,
+                  qa_scenarios: list[dict] | None = None) -> str:
     counts = Counter(e.status for e in ir.support_matrix)
     total_formulas = sum(
         1 for s in ir.screens for c in s.walk_controls() for e in c.properties.values() if e.raw
@@ -79,6 +109,14 @@ Original data sources are mapped to tabs of one Google Sheet workbook
 ## Screens & formulas
 
 {_screen_table(ir)}
+
+## Behavioral-equivalence review
+
+{_risk_section(review_rows or [])}
+
+## Manual QA scenarios
+
+{_qa_section(qa_scenarios or [])}
 
 ## Manual follow-ups
 

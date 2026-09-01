@@ -199,6 +199,11 @@ class Emitter:
             ctrl = str(target.value) if target.kind == "ident" else self.expr(target)
             fn = "selectControl" if name == "Select" else "submitForm"
             return f"{fn}({_q(ctrl)})"
+        if name in {"NewForm", "EditForm", "ViewForm"}:
+            target = args[0]
+            ctrl = str(target.value) if target.kind == "ident" else self.expr(target)
+            mode = {"NewForm": "new", "EditForm": "edit", "ViewForm": "view"}[name]
+            return f"setFormMode({_q(ctrl)}, {_q(mode)})"
         spec = FUNCTION_MAP.get(name)
         if spec is None:
             self.res.unmapped.append(name)

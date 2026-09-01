@@ -90,6 +90,7 @@ pfx2gas validate <project_dir>
 | `-o, --output DIR` | Output directory (default `./output/<AppName>`) |
 | `--report-only` | Produce only `conversion-report.md`, no project files |
 | `--no-llm` | Disable the LLM fallback; unmapped formulas stay stubs |
+| `--no-review` | Disable the LLM behavioral-equivalence review + QA scenarios |
 | `validate <dir>` | Re-run structural/syntax checks on a converted project |
 
 Exit codes: `0` success (validator PASS), `1` validation failure or bad input.
@@ -126,6 +127,43 @@ The report also contains the data mapping (original source → Sheet tab +
 inferred fields) and Apps Script capacity notes (6-min executions, 30
 concurrent, 30-s web-app response budget — read whole-tab data sizes
 accordingly).
+
+## UI parity
+
+Converted apps aim to match the original visually and behaviorally:
+
+- **Layout** — static `X/Y/Width/Height/ZIndex` become absolutely-positioned
+  inline styles; reactive ones (e.g. `X: =Parent.Width/2 - 40`) become
+  `styleControl` evaluators re-applied on every state change.
+- **Visuals** — `Fill`, `Color`, `Size`, `FontWeight`, `Align` map to CSS
+  (`backgroundColor`, `color`, `fontSize`, …) reactively.
+- **Galleries** — the row template renders per item with `ThisItem` bound to
+  the row; child handlers receive the item, preserving per-row actions.
+- **Forms** — `NewForm`/`EditForm`/`ViewForm` set a mode flag; `SubmitForm`
+  routes through the generated data layer.
+
+What is *not* reproduced pixel-perfect: app themes/typography (a clean system
+stylesheet is used), responsive reflow behavior, and exotic container nesting
+(these are layout regressions to check first in QA).
+
+## Review seams (how the LLM helps without touching code)
+
+When the LLM is configured (`.env` or env vars) and review is enabled, two
+review-only passes run after synthesis — they can **never modify generated
+code**:
+
+1. **Behavioral-equivalence review** — for every transpiled *behavior*
+   formula, the model receives the (original formula, generated JS) pair and
+   judges whether behavior is preserved (blank handling, number coercion,
+   Patch merge semantics, Set vs UpdateContext scope, stale bindings...).
+   Findings land in the report's *Behavioral-equivalence review* table sorted
+   by risk, each with a concrete verification suggestion.
+2. **QA scenario authoring** — the model reads the app's screens, controls,
+   and formulas and writes 6–12 manual test scenarios (referencing actual
+   control names) for the report's *Manual QA scenarios* section: run the same
+   steps in the original app and the converted app and compare.
+
+Use `--no-review` to skip both.
 
 ## LLM fallback (optional)
 
@@ -197,7 +235,7 @@ DatePicker, Gallery (row template), Image, Icon, HtmlText, Form.
 ## Development
 
 ```bash
-uv run pytest -q                    # Python suite (61 tests)
+uv run pytest -q                    # Python suite (70 tests)
 node --test tests/js/*.js           # JS runtime suite (18 tests)
 uv run pytest tests/test_e2e.py -q  # end-to-end CLI runs on synthetic fixtures
 ```

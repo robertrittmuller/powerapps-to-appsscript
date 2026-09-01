@@ -26,6 +26,8 @@ def main(argv: list[str] | None = None) -> int:
                       help="produce the conversion report without synthesizing the project")
     conv.add_argument("--no-llm", action="store_true",
                       help="disable the LLM fallback (stubbed formulas stay stubs)")
+    conv.add_argument("--no-review", action="store_true",
+                      help="disable the LLM behavioral-equivalence review + QA scenarios")
 
     validate_p = sub.add_parser("validate", help="validate a synthesized project directory")
     validate_p.add_argument("project_dir")
@@ -92,7 +94,23 @@ def main(argv: list[str] | None = None) -> int:
     from .synth.build import synthesize
     synthesize(ir, out_dir)
     validation = validate_project(out_dir)
-    (out_dir / "conversion-report.md").write_text(render_report(ir, validation))
+
+    # LLM review seams (review-only; never modify generated code)
+    review_rows: list[dict] = []
+    qa_scenarios: list[dict] = []
+    if not args.no_llm and not args.no_review:
+        from .llm import LlmClient
+        from .review import author_qa_scenarios, review_behavioral_equivalence
+        review_client = LlmClient()
+        if review_client.available:
+            out.print("[dim]LLM review: checking behavioral equivalence...[/dim]")
+            review_rows = review_behavioral_equivalence(ir, review_client)
+            qa_scenarios = author_qa_scenarios(ir, review_client)
+            highs = sum(1 for r in review_rows if r["risk"] == "high")
+            out.print(f"  review: {len(review_rows)} formulas reviewed, {highs} high-risk")
+
+    (out_dir / "conversion-report.md").write_text(
+        render_report(ir, validation, review_rows=review_rows, qa_scenarios=qa_scenarios))
 
     if validation["ok"]:
         out.print(f"[green]converted:[/green] {out_dir}")
