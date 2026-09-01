@@ -98,6 +98,7 @@ def test_translate_formula_handles_unparseable_response(tmp_path):
 def test_unavailable_client_short_circuits(tmp_path, monkeypatch):
     for var in ("PFX2GAS_LLM_BASE_URL", "PFX2GAS_LLM_API_KEY"):
         monkeypatch.delenv(var, raising=False)
+    monkeypatch.chdir(tmp_path)  # keep the repo's real .env out of the lookup
     client = LlmClient(base_url=None, api_key=None, log_dir=tmp_path)
     assert not client.available
     assert client.translate_formula("X()", "ctx") is None

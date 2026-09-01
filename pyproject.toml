@@ -25,3 +25,4 @@ packages = ["src/pfx2gas"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = "--ignore=tests/fixtures/build.py"
