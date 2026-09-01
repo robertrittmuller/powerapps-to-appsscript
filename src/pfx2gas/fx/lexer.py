@@ -35,9 +35,10 @@ def tokenize(src: str) -> list[Tok]:
             while j < n and src[j] in IDENT_CHARS:
                 j += 1
             word = src[i:j]
-            # Power Fx allows dotted identifiers (control names, ThisItem.field)
-            # and quoted enum members like Font.'Open Sans'
-            while j < n - 1 and src[j] == "." and (src[j + 1] in IDENT_START or src[j + 1] in "\"'"):
+            # Power Fx allows dotted identifiers (control names, ThisItem.field),
+            # quoted enum members (Font.'Open Sans'), and numeric enum
+            # members (FillPortions.1)
+            while j < n - 1 and src[j] == "." and (src[j + 1] in IDENT_START or src[j + 1] in "\"'" or src[j + 1].isdigit()):
                 k = j + 1
                 if src[k] in "\"'":
                     quote = src[k]

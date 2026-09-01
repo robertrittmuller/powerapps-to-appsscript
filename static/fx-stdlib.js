@@ -229,6 +229,29 @@
         return out;
       });
     },
+    search: function (t, needle, cols) {
+      var n = String(needle == null ? '' : needle).toLowerCase();
+      return FX.filter(t, function (row) {
+        return cols.some(function (c) {
+          return String(row[c] == null ? '' : row[c]).toLowerCase().indexOf(n) >= 0;
+        });
+      });
+    },
+    colorValue: function (v) {
+      if (v == null) return '';
+      var s = String(v).trim();
+      if (/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(s)) return s;
+      var named = { red: '#f00', green: '#008000', blue: '#00f', yellow: '#ff0',
+        white: '#fff', black: '#000', gray: '#808080', grey: '#808080',
+        orange: '#ffa500', purple: '#800080', pink: '#ffc0cb', brown: '#a52a2a' };
+      var key = s.toLowerCase();
+      if (named[key]) return named[key];
+      var el = typeof document !== 'undefined' ? document.createElement('div') : null;
+      if (el) { el.style.color = s; return el.style.color; }
+      return s;
+    },
+    allOf: function (list) { return list.every(Boolean); },
+    anyOf: function (list) { return list.some(Boolean); },
 
     // --- dates ---------------------------------------------------------------
     today: function () { return startOfDay(new Date()); },

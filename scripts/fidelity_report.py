@@ -22,11 +22,23 @@ HANDLED_PROPS = {
     "X", "Y", "Width", "Height", "ZIndex",                       # static position
     "Text", "Default", "Items", "Visible",                        # content/behavior
     "OnSelect", "OnChange", "OnVisible", "OnHidden", "OnStart",   # behavior
-    "Fill", "Color", "Size", "FontSize", "FontWeight", "Align",   # reactive style
+    "Fill", "Color", "FontColor", "Size", "FontSize",             # reactive style
+    # auto-layout (flexbox) + cosmetics
+    "LayoutDirection", "LayoutAlignItems", "LayoutJustifyContent", "LayoutWrap",
+    "LayoutGap", "LayoutMinWidth", "LayoutMinHeight", "FillPortions",
+    "PaddingLeft", "PaddingRight", "PaddingTop", "PaddingBottom",
+    "RadiusTopLeft", "RadiusTopRight", "RadiusBottomLeft", "RadiusBottomRight",
+    "BorderColor", "BorderThickness", "DropShadow",
+    "Font", "Weight", "Align", "VerticalAlign",
+    "HoverFill", "HoverColor", "HoverBorderColor",
+    "PressedFill", "PressedColor", "PressedBorderColor", "DisabledFill",
+    "Image", "Icon", "Content", "HtmlText",   # static content attributes
 }
 KNOWN_CTRL_TYPES = {"Button", "Label", "TextInput", "TextArea", "Dropdown",
                     "ComboBox", "CheckBox", "DatePicker", "Gallery", "Image",
-                    "Icon", "HtmlText", "Form", "Screen", "AppHost"}
+                    "Icon", "HtmlText", "Form", "Screen", "AppHost",
+                    "GroupContainer", "VerticalContainer", "HorizontalContainer",
+                    "Header", "Timer", "Text", "DropDown"}
 
 SPECIAL_FNS = {"Set", "UpdateContext", "Navigate", "Back", "Patch", "Remove",
                "RemoveIf", "Collect", "ClearCollect", "Refresh", "SubmitForm",

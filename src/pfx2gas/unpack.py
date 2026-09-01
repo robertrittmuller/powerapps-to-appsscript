@@ -91,6 +91,17 @@ def unpack(msapp_path: str | Path) -> UnpackedApp:
 
     src_files = sorted(n for n in entries if is_src(n))
     if not src_files:
+        has_legacy = any(n.lower().replace("\\", "/").startswith("controls/")
+                         and n.lower().endswith(".json") for n in entries)
+        if has_legacy:
+            from .legacy import convert_legacy_msapp
+            try:
+                legacy = convert_legacy_msapp(path)
+            except ValueError as exc:
+                raise UnpackError(f"legacy .msapp unreadable: {exc}") from exc
+            legacy["warnings"].extend(
+                [f"skipped auxiliary source file: {w}" for w in []])
+            return UnpackedApp(**legacy)
         if any(n.lower().endswith(".fx.yaml") for n in entries):
             raise UnpackError(
                 "this .msapp only contains retired *.fx.yaml sources. "

@@ -45,7 +45,10 @@ LAMBDA_FNS = {"Filter", "ForAll", "LookUp", "CountIf", "Concat", "Distinct",
 
 # Enum types whose members are emitted as string literals (Color.Red -> 'Red').
 ENUM_TYPES = {"Color", "Icon", "Font", "FontWeight", "Align", "Image",
-              "LayoutSize", "DisplayMode", "FormStatus", "SortOrder"}
+              "LayoutSize", "DisplayMode", "FormStatus", "SortOrder",
+              "LayoutDirection", "LayoutAlignItems", "LayoutJustifyContent",
+              "LayoutWrap", "VerticalAlign", "FillPortions", "Overflow",
+              "ImagePosition", "TextPosition", "FontWeight2"}
 
 
 class Emitter:
@@ -204,6 +207,13 @@ class Emitter:
             ctrl = str(target.value) if target.kind == "ident" else self.expr(target)
             fn = "selectControl" if name == "Select" else "submitForm"
             return f"{fn}({_q(ctrl)})"
+        if name == "Search":
+            # Search(t, needle, col1, col2, ...) -> rows where any col contains needle
+            js_args = [self.expr(a) for a in args]
+            table = js_args[0] if js_args else "[]"
+            needle = js_args[1] if len(js_args) > 1 else "''"
+            cols = ", ".join(self._col_literal(a) for a in args[2:])
+            return f"FX.search({table}, {needle}, [{cols}])"
         if name in {"NewForm", "EditForm", "ViewForm"}:
             target = args[0]
             ctrl = str(target.value) if target.kind == "ident" else self.expr(target)
@@ -238,6 +248,12 @@ class Emitter:
         out = out.replace("{args}", ", ".join(js_args))
         out = out.replace("{it}", "item")
         return out
+
+    def _col_literal(self, node) -> str:
+        """Column-name argument of Search(): bare ident or string -> quoted name."""
+        if node.kind == "ident":
+            return _q(str(node.value))
+        return self.expr(node)
 
     def switch_call(self, node) -> str:
         subject = self.expr(node.children[0])

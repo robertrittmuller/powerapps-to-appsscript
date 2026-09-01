@@ -48,7 +48,11 @@ def collect_row_fields(ir: AppIR) -> set[str]:
 
     def scan_props(ctrl: ControlNode) -> None:
         for expr in ctrl.properties.values():
-            for tok in lx.tokenize(expr.raw):
+            try:
+                toks = lx.tokenize(expr.raw)
+            except lx.FxSyntaxError:
+                continue  # unlexable formulas are handled (as stubs) later
+            for tok in toks:
                 if tok.kind == "ident" and "." in tok.value:
                     base, field_name = tok.value.split(".", 1)
                     if base == "ThisItem":
@@ -110,14 +114,15 @@ def infer_data_source_fields(ir: AppIR) -> None:
         for ctrl in screen.walk_controls():
             for expr in ctrl.properties.values():
                 try:
-                    for tok in lx.tokenize(expr.raw):
-                        if tok.kind == "ident" and "." in tok.value:
-                            ds_name, field_name = tok.value.split(".", 1)
-                            ds = by_name.get(ds_name)
-                            if ds is not None and field_name and all(f.name != field_name for f in ds.fields):
-                                ds.fields.append(FieldDef(name=field_name, type="text"))
+                    toks = lx.tokenize(expr.raw)
                 except lx.FxSyntaxError:
                     continue
+                for tok in toks:
+                    if tok.kind == "ident" and "." in tok.value:
+                        ds_name, field_name = tok.value.split(".", 1)
+                        ds = by_name.get(ds_name)
+                        if ds is not None and field_name and all(f.name != field_name for f in ds.fields):
+                            ds.fields.append(FieldDef(name=field_name, type="text"))
 
 
 def verdict_for_property(prop: FxExpr, control_names: set[str], row_fields: set[str]) -> SupportEntry:

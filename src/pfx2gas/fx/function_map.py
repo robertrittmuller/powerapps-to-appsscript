@@ -69,6 +69,12 @@ FUNCTION_MAP: dict[str, FnSpec] = {
     "ShowColumns": FnSpec("FX.showColumns({a0}, [{a1}])"),
     "DropColumns": FnSpec("FX.dropColumns({a0}, [{a1}])"),
     "RenameColumns": FnSpec("FX.renameColumns({a0}, [{a1}])"),
+    "Search": FnSpec("FX.search({a0}, {a1}, [{rest}])", "special-cased in emitter"),
+    "ColorValue": FnSpec("FX.colorValue({a0})"),
+    "And": FnSpec("FX.allOf([{args}])"),
+    "Or": FnSpec("FX.anyOf([{args}])"),
+    "Not": FnSpec("!({a0})"),
+    "User": FnSpec("FXUser()"),
     # date/time
     "Today": FnSpec("FX.today()"),
     "Now": FnSpec("FX.now()"),
