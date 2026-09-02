@@ -1,133 +1,148 @@
-# pfx2gas — Gap Assessment (2026-09-02)
+# pfx2gas — Gap Assessment & Roadmap (updated 2026-09-02, after fix batch)
 
-What stands between the current converter and "fully converts a Power Apps canvas
-app to a working Apps Script web app." Every claim below was verified against the
-code and the real-app corpus (`samples/real/`, 10 apps, ~22k formulas) on this date.
+Forward-looking view: what to work on next. Historical findings and the P0
+fixes they produced are at the bottom. Everything here was re-verified against
+the code and the real-app corpus (10 apps, ~22k formulas) on this date.
 
-## Current state (verified)
+## Where we stand (verified)
 
 | Check | Result |
 |---|---|
-| Python suite (`uv run pytest -q`) | 90 passed |
-| JS runtime suite (`node --test tests/js/*.js`) | 18 passed, 0 fail |
-| Formula coverage on 10-app corpus | **21,905 / 21,940 rule-transpiled (99.8%)** |
-| Distinct unmapped functions in corpus | 2 (`Environment.cr4d6_sumofnaturalnumber`, `ShowHostInfo` — both host/Dataverse-bound, fine as stubs) |
+| Python suite (`uv run pytest -q`) | 80 passed |
+| JS runtime suite (`node --test tests/js/*.js`) | 35 passed, 0 fail |
+| Formula coverage on 10-app corpus | 21,905 / 21,940 rule-transpiled (99.8%) |
 | Ignored properties | 538 / 21,955 (2.5%) |
-| E2E convert (helpdesk.msapp, 6 screens, 5,535 formulas) | exits 0, validator PASS |
-| Deployed a converted app via clasp | **never done** (clasp not installed; plan milestone M4 open) |
+| Real-app soak (`scripts/soak_check.py`) | **10/10 convert + validate** under the strict validator |
+| Emitter↔runtime consistency (`scripts/check_runtime_consistency.py`) | pass |
+| Generated server code syntax | all `.gs` node --check clean (validated every soak app) |
+| Data layer | external sources → typed, sample-seeded Sheet tabs; collections → client-side state |
+| Deployed a converted app via clasp | **never done** (M4 open, clasp not installed) |
 | CI | none (no `.github/`) |
 
 Plan milestones: M1–M3 done. M4 ("two real apps converted, deployed via clasp,
-report reviewed, v0.1.0 tag") **not achieved** — no tag, no deploy.
+report reviewed") is the only open milestone.
 
-The headline 99.8% is formula *transpilation* coverage, not app fidelity. The gaps
-below are why a "100% converted" app can still be non-functional.
-
----
-
-## P0 — Correctness of what "converted" means
-
-### 1. Every conversion ships a broken `DataInit.gs` (verified bug)
-`src/pfx2gas/synth/server.py:147` emits `SpreadsheetApp.create({app_name!r} — data);`
-— a literal em-dash inside a JS statement. `node --check` on the generated file:
-`SyntaxError: missing ) after argument list`. The intended code was presumably
-`SpreadsheetApp.create('<name> — data')` with the em-dash inside the string literal.
-One-line template fix.
-
-### 2. The validator never syntax-checks `.gs` files (verified blind spot)
-`src/pfx2gas/validate.py` runs `node --check` only on `*.js.html` (it strips
-`<script>` wrappers first). `Code.gs` / `DataInit.gs` are checked for structure
-only (`function doGet()` present), so bug #1 sailed through as "validator PASS".
-Fix: copy each `.gs` to a temp `.js` and run the same `js_syntax_ok()` check.
-
-### 3. Legacy `.msapp`: every TextInput becomes a Label (verified)
-The legacy template map (`src/pfx2gas/legacy.py`) maps template name `text` →
-`Label` unconditionally. In legacy apps the `text` template is a **TextInput**
-whenever it has `Mode` / `Default` / `HintText` properties (verified in
-helpdesk.msapp: `TextInputTitle_2`, template `text`, has all three → rendered as
-a `<span>` you cannot type into). Every form input in the 3 legacy corpus apps
-(helpdesk, clean-ui, and any other binary-format app) is affected. Fix: map
-`text` → `TextInput` when those properties are present, else `Label`.
-
-### 4. Data layer is skeletal: zero inferred fields on every real app
-- helpdesk.msapp: 12 data sources, **0 inferred fields on all 12** → generated
-  `DataInit.gs` creates a workbook with **no tabs** (`specs = []`), and every
-  `api(ds, …)` call throws `no sheet named …` at runtime.
-- wordle / tic-tac-toe: all `col*` collections also land as 0-field "data sources".
-- The authoritative schema is present and unused: legacy
-  `References\DataSources.json` carries `Schema: *[Field:type]`,
-  `OrderedColumnNames`, and embedded sample `Data` per source. Modern pa.yaml
-  apps' `Collect`/`ClearCollect` shapes are likewise not turned into field defs.
-- Also missing: the **collection vs external source distinction**. `col*`
-  collections are client-side state arrays and should NOT become Sheet tabs;
-  external sources (SharePoint/Excel/static sample tables) should.
-
-### 5. No real modern (pa.yaml) app with external data in the corpus
-All three data-bearing real samples are legacy binary format. The data layer is
-only exercised by synthetic fixtures. Acceptance bar ("works the same way as the
-original") is unproven for the most common real-world case: a modern app backed
-by a SharePoint list. Add such a sample (or convert one of the user's own) to the
-soak set.
-
-## P1 — Behavior & delivery
-
-### 6. First-party component templates render as empty divs (37 instances)
-ProgressBar-horiz/vert, MENU, TILES1, TILES2, BUSCADOR (helpdesk, clean-ui).
-Their custom properties transpile as "converted" but mean nothing without
-component rendering — the helpdesk nav menu and tile dashboards are blank boxes.
-Needed: a component-template emulation layer driven by `ComponentsMetadata.json`
-+ `References\Templates.json` (each template is a small control tree with custom
-properties), or at minimum report-level surfacing of exactly what each component
-did.
-
-### 7. Deploy path (M4) never exercised end-to-end
-Nothing verifies the generated project actually deploys and serves: clasp
-create/push/deploy, HtmlService include names, `appsscript.json` webapp config,
-oauth scopes vs what `setup()` needs, `setup()` actually creating the workbook.
-This is the single biggest unknown between "validator PASS" and "works".
-
-### 8. User() fidelity
-`Code.gs whoami()` returns `email` only; `fullName` / `pictureUrl` are always
-empty, so helpdesk's header shows a blank user name and missing avatar. Fix:
-derive a display name from the email local part at minimum; optionally Directory
-API (Workspace) for real names/avatars, documented as consumer-account-limited.
-
-### 9. No CI
-Both suites are green locally but run nowhere automatically. A GitHub Actions
-workflow (pytest + node --test on push/PR) is cheap and protects the ledger.
-
-## P2 — Parity polish (known, documented, lower stakes)
-
-- **Ignored props, top offenders:** `LayoutMode` x81, `Format` x20, `Mode` x19,
-  `DataField`/`DisplayName`/`Required`/`Update` x11 each (form semantics),
-  chart-series props (`barMaxValue`, `ItemColorSet`, `Explode`…), `TemplateSize`,
-  `WrapCount`, `Transition`, `LoadingSpinner`.
-- **Theme/typography parity:** clean system stylesheet instead of app theme.
-- **Responsive reflow** not reproduced (absolute positioning only).
-- **Chart interiors** now render (Pie/Bar/Line via fx-charts.js) but series
-  styling props ignored.
-- **Delegation:** whole-tab reads, ~5k-row guidance — fine for the corpus, needs
-  server-side filtering for bigger data.
-- **Power Automate flows** inside apps: out of scope, flagged only.
-- **LLM review seams barely exercised:** 16 logged LLM calls ever; behavioral-
-  equivalence review + QA scenarios have not run against a real app at scale
-  (needs a configured `.env` + full convert without `--no-llm`).
+State-checking before this rewrite caught one more real bug: the runtime
+collection helpers were defined with a different parameter order than the
+emitter emits (`function (ds)` vs emitted `powerapps_collect(state, 'Name', …)`
+) — invisible to syntax checks and to tests that exercise each side in
+isolation. Fixed in `89ddd58`, with signature-pinning tests plus
+`scripts/check_runtime_consistency.py` as a permanent gate. Lesson: generated
+code ↔ static runtime contracts need a cross-check in CI, not just unit tests.
 
 ---
 
-## Recommended order of attack
+## Next up, in recommended order
 
-| # | Item | Effort | Impact |
+### 1. M4 — deploy a converted app end-to-end (highest value, needs you)
+
+Everything upstream of deployment is now verified; deployment is the single
+biggest untested boundary. "Validator PASS" has never been shown to equal
+"works in a browser".
+
+Next actions (you + me):
+1. `npm install -g @google/clasp` and `clasp login` (one-time, your Google account).
+2. I deploy `/tmp` output of helpdesk: `clasp create` → `push --force` → run
+   `setup()` in the editor → `clasp deploy`.
+3. Verify: workbook created with 6 tabs + 44 seeded rows; web app URL loads;
+   navigation, galleries, the 56 text inputs, and collection-backed screens work.
+
+Acceptance: helpdesk usable in a browser from the deployed URL; gaps found
+during the smoke test filed as the next fix list. This unlocks the v0.1.0 tag.
+
+### 2. CI workflow (small, no dependencies)
+
+Both suites + soak + consistency checker run locally but nowhere automatically.
+After this week's drift bug, the consistency gate especially belongs on every push.
+
+Next actions: `.github/workflows/ci.yml` — pytest, `node --test tests/js/*.js`,
+`soak_check.py` (needs samples; guard with a samples-present condition since
+they're gitignored), `check_runtime_consistency.py`.
+Acceptance: green run on GitHub Actions; red when a check is broken.
+
+### 3. Component-template emulation (large, biggest remaining fidelity gap)
+
+37 first-party component instances render as empty divs: MENU, TILES1/TILES2,
+BUSCADOR (helpdesk), ProgressBar horiz/vert (clean-ui). Their custom properties
+transpile fine but mean nothing without the component's inner control tree —
+helpdesk's nav and tile dashboards are blank.
+
+Next actions: read `ComponentsMetadata.json` + `References\Templates.json`
+(each template is a small control tree with custom properties, already in the
+archive); synthesize component instances by inlining the template tree with
+instance properties bound. Start with ProgressBar (simplest visual), then MENU.
+Acceptance: helpdesk nav renders and navigates; progress bars render in clean-ui.
+
+### 4. Modern pa.yaml app with real external data (corpus gap)
+
+All data-bearing corpus apps are legacy binary format. The Sheet-backed data
+layer for modern Studio exports (the most common real-world case: pa.yaml +
+SharePoint list) is exercised only by synthetic fixtures.
+
+Next actions: export one of your own apps backed by a real SharePoint list /
+Excel table into `samples/real/`; run the soak + deploy flow on it.
+Acceptance: CRUD against the real list works through the Sheet layer; report
+fields match the list columns.
+
+### 5. User() enrichment (small)
+
+`whoami()` returns email only; `fullName`/`pictureUrl` are always blank, so
+helpdesk's header user name/avatar are empty.
+
+Next actions: derive display name from the email local part at minimum;
+optionally Directory API on Workspace accounts (document the consumer-account
+limitation). Acceptance: header shows a sensible name for the deployed app.
+
+### 6. LLM review seams at scale (medium, needs configured `.env`)
+
+Behavioral-equivalence review and QA-scenario authoring have run 16 times ever.
+They're the project's answer to "the transpiler says converted, is it *right*?"
+and have never been exercised on a full real app.
+
+Next actions: full `pfx2gas convert samples/real/helpdesk.msapp` (no
+`--no-llm`) with the OpenRouter config; triage the review findings; feed
+confirmed issues back into the function map / emitter.
+Acceptance: review table populated for a real app; every high-risk finding
+either fixed or documented.
+
+### 7. Parity tail (P2, opportunistic)
+
+Known, documented, lower stakes — pick up as user demand appears:
+- Ignored props: `LayoutMode` x81, form semantics (`DataField`/`Update`/
+  `Required`/`DisplayName` x11 each), chart series styling (`barMaxValue`,
+  `ItemColorSet`, `Explode`), `TemplateSize`, `WrapCount`, `Transition`.
+- App theme/typography (clean system stylesheet instead), responsive reflow.
+- Delegation: server-side filtering for tabs > ~5k rows.
+- Power Automate flows: still out of scope, flagged only.
+
+---
+
+## Suggested sequence
+
+| Step | Item | Effort | Depends on |
 |---|---|---|---|
-| 1 | Fix em-dash `DataInit.gs` template bug (#1) | minutes | unbreaks every deployment |
-| 2 | Add `.gs` node --check to validator (#2) | small | closes the blind spot permanently |
-| 3 | Legacy `text`+Mode → TextInput disambiguation (#3) | small | legacy forms usable |
-| 4 | Field inference from `References\DataSources.json` Schema + collection field inference; collection-vs-source distinction (#4) | medium | data layer actually works |
-| 5 | Clasp deploy smoke test on helpdesk (#7) | small–medium | closes M4; first live app |
-| 6 | Component-template emulation for MENU/TILES/ProgressBar (#6) | large | restores real UI on 2 corpus apps |
-| 7 | CI workflow (#9), User() enrichment (#8) | small | protects + polishes |
-| 8 | Modern data-app sample, LLM review at scale, remaining props (#5, P2) | ongoing | raises the bar toward pixel/behavior parity |
+| 1 | CI workflow (#2) | small | — |
+| 2 | clasp install + login (you), then deploy smoke test (#1) | small–medium | you (5 min) |
+| 3 | v0.1.0 tag | minutes | 1–2 green |
+| 4 | Component-template emulation (#3) | large | — |
+| 5 | Real modern data app into soak (#4) | small + your export | you |
+| 6 | User() enrichment (#5), LLM review at scale (#6) | small / medium | .env present |
+| 7 | Parity tail (#7) | ongoing | demand |
 
-Items 1–4 turn "99.8% formulas transpiled" into "the converted app actually
-runs with data", which is the user's stated acceptance bar. Items 5–7 make that
-true for the corpus's two most business-like apps.
+---
+
+## Historical: the September 2026 assessment & what it produced
+
+Original findings, all fixed in `6bc7e7b` + `89ddd58`:
+
+1. ✅ `DataInit.gs` emitted invalid JS (literal em-dash) — fixed; `.gs` now
+   syntax-checked by the validator (was a blind spot).
+2. ✅ Legacy `text` template → every TextInput rendered as a Label — fixed with
+   input-property disambiguation (24 corpus inputs, 0 false positives).
+3. ✅ Zero inferred fields on every real app — fixed via
+   `References\DataSources.json` schema parsing + snake_case headers (matching
+   transpiled records) + embedded sample-data seeding.
+4. ✅ Collections treated as Sheet tables — now client-side state with
+   Power Apps Patch/Remove subset-matching semantics.
+5. ✅ Emitter↔runtime signature drift (found during the post-fix state check) —
+   fixed + consistency gate added.
