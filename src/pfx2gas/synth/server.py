@@ -40,6 +40,34 @@ function sheetFor(ds) {{
   return sh;
 }}
 
+/** Identity for User() (Session user; blank on anonymous deployments). */
+function whoami() {{
+  try {{
+    var user = Session.getActiveUser();
+    return {{
+      email: user.getEmail() || '',
+      fullName: '',
+      pictureUrl: ''
+    }};
+  }} catch (err) {{
+    return {{ email: '', fullName: '', pictureUrl: '' }};
+  }}
+}}
+
+/** Choice metadata for Choices(): rows are [{{Name, Value}}] per field. */
+function apiChoices(ds, field) {{
+  var sh = ss().getSheetByName('__Choices');
+  if (!sh) return [];
+  var values = sh.getDataRange().getValues();
+  var headers = values[0] || [];
+  var col = headers.indexOf(ds + '.' + field);
+  if (col < 0) return [];
+  return values.slice(1)
+    .map(function (row) {{ return row[col]; }})
+    .filter(function (v) {{ return v !== ''; }})
+    .map(function (v) {{ return {{ Name: v, Value: v }}; }});
+}}
+
 function listRows(ds) {{
   var sh = sheetFor(ds);
   var values = sh.getDataRange().getValues();
@@ -125,6 +153,15 @@ function setup() {{
     sh.getRange(1, 1, 1, headers.length).setValues([headers]);
     sh.setFrozenRows(1);
   }});
+  var choiceFields = {choices_json};
+  if (choiceFields.length) {{
+    var ch = workbook.insertSheet('__Choices');
+    ch.getRange(1, 1, 1, choiceFields.length).setValues([choiceFields]);
+    ch.setFrozenRows(1);
+    SpreadsheetApp.getUi().alert(
+      'A __Choices tab was created. Enter the allowed values under each ' +
+      'column (one per row), then reload the app.');
+  }}
   workbook.deleteSheet(workbook.getSheetByName('Sheet1'));
   props.setProperty('DATA_SPREADSHEET_ID', workbook.getId());
   return 'created ' + workbook.getUrl();
@@ -162,7 +199,8 @@ def render_data_init(ir: AppIR) -> str:
         {"name": ds.name, "fields": [[f.name, f.type] for f in ds.fields]}
         for ds in data_sources_with_fields(ir)
     ]
-    return DATA_INIT_GS.format(app_name=ir.name, tabs_json=json.dumps(tabs))
+    return DATA_INIT_GS.format(app_name=ir.name, tabs_json=json.dumps(tabs),
+                               choices_json=json.dumps(ir.choice_fields))
 
 
 def render_manifest(ir: AppIR) -> str:

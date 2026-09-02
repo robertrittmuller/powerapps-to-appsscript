@@ -62,4 +62,5 @@ class AppIR(BaseModel):
     screens: list[ScreenNode] = Field(default_factory=list)
     data_sources: list[DataSource] = Field(default_factory=list)
     global_vars: list[str] = Field(default_factory=list)
+    choice_fields: list[str] = Field(default_factory=list)  # 'DataSource.Field'
     support_matrix: list[SupportEntry] = Field(default_factory=list)

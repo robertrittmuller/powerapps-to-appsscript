@@ -23,6 +23,10 @@ _CONTROL_ALIASES = {
     "dropdown": "Dropdown",
     "text": "Label",          # modern 'Text' control is a text block
     "textlabel": "Label",
+    "badge": "Label",
+    "moderncard": "GroupContainer",
+    "dropdowndatafield": "Dropdown",
+    "moderntablecontrol": "DataTable",
 }
 
 

@@ -252,6 +252,20 @@
     },
     allOf: function (list) { return list.every(Boolean); },
     anyOf: function (list) { return list.some(Boolean); },
+    randBetween: function (lo, hi) {
+      var a = Math.ceil(toNum(lo)), b = Math.floor(toNum(hi));
+      return a + Math.floor(Math.random() * (b - a + 1));
+    },
+    firstN: function (t, n) { return rows(t).slice(0, Math.max(0, toNum(n))); },
+    lastN: function (t, n) {
+      var r = rows(t), k = Math.max(0, toNum(n));
+      return k === 0 ? [] : r.slice(Math.max(0, r.length - k));
+    },
+    removeItems: function (t, remove) {
+      var drop = new Set(rows(remove).map(function (r) { return JSON.stringify(r); }));
+      return rows(t).filter(function (r) { return !drop.has(JSON.stringify(r)); });
+    },
+    concurrent: function (fns) { return Promise.all(fns); },
 
     // --- dates ---------------------------------------------------------------
     today: function () { return startOfDay(new Date()); },

@@ -179,6 +179,28 @@
     updateBindings();
   }
 
+  function exitApp() {
+    // Web apps cannot close their tab reliably; show a farewell overlay.
+    toast('You may now close this window.');
+  }
+
+  // User() equivalent. The server side injects the identity at deploy time:
+  // Session.getActiveUser().getEmail() (empty for anonymous deployments).
+  var _cachedUser = null;
+  function fxUser() {
+    if (_cachedUser) return _cachedUser;
+    _cachedUser = { email: '', full_name: '', image: '' };
+    serverRun('whoami').then(function (info) {
+      _cachedUser = {
+        email: info && info.email || '',
+        full_name: info && info.fullName || '',
+        image: info && info.pictureUrl || '',
+      };
+      updateBindings();
+    }).catch(function () { /* anonymous deployment: blanks stand */ });
+    return _cachedUser;
+  }
+
   function refreshData(ds) {
     return serverRun('api', ds, 'list', {}).then(function (data) {
       state[ds] = data || [];
@@ -223,6 +245,8 @@
     styleControl: styleControl,
     gallery: gallery,
     setFormMode: setFormMode,
+    exitApp: exitApp,
+    fxUser: fxUser,
     addEvaluator: function (apply) { evaluators.push({ apply: apply }); apply(); },
     registerScreenHandler: function (name, fn) { handlers['__screen__' + name] = fn; },
   };
@@ -243,6 +267,8 @@
     if (el) el.click();
   };
   global.selfRef = null; // bound per-control during evaluator registration
+  global.FXUser = fxUser;
+  global.exitApp = exitApp;
 
   if (typeof document !== 'undefined') {
     document.addEventListener('DOMContentLoaded', function () {

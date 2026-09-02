@@ -109,7 +109,7 @@ class Emitter:
         raise RuntimeError(f"unhandled node kind {k!r}")
 
     def ident(self, name: str) -> str:
-        if name == "ThisItem":
+        if name in ("ThisItem", "ThisRecord"):
             return "item"
         if name == "Parent":
             return "parent"
@@ -214,6 +214,25 @@ class Emitter:
             needle = js_args[1] if len(js_args) > 1 else "''"
             cols = ", ".join(self._col_literal(a) for a in args[2:])
             return f"FX.search({table}, {needle}, [{cols}])"
+        if name == "Table":
+            # Table(record1, record2, ...) -> array of records
+            js_args = [self.expr(a) for a in args]
+            return "[" + ", ".join(js_args) + "]"
+        if name == "Exit":
+            return "exitApp()"
+        if name == "Choices":
+            # Choices('Data Source'.Field) -> await apiChoices('DS', 'Field')
+            arg = args[0] if args else None
+            ds_name = field = None
+            if arg is not None and arg.kind == "ident" and "." in str(arg.value):
+                ds_name, field = str(arg.value).split(".", 1)
+            elif arg is not None and arg.kind == "member" and arg.children \
+                    and arg.children[0].kind == "str":
+                ds_name, field = str(arg.children[0].value), str(arg.value)
+            if ds_name and field:
+                return f"await apiChoices({_q(ds_name)}, {_q(field)})"
+            self.res.unmapped.append("Choices")
+            return "FX.unsupported('Choices')"
         if name in {"NewForm", "EditForm", "ViewForm"}:
             target = args[0]
             ctrl = str(target.value) if target.kind == "ident" else self.expr(target)
@@ -231,11 +250,17 @@ class Emitter:
         """Emit table functions, treating args[1:] as per-row expressions."""
         saved = self.in_row
         js_args: list[str] = []
+        has_await = False
         for i, a in enumerate(args):
             self.in_row = i >= 1 and name != "AddColumns" or (name == "AddColumns" and i >= 2)
             js_args.append(self.expr(a))
+            if i >= 1 and "await " in js_args[-1]:
+                has_await = True
         self.in_row = saved
-        return self._fill(spec.js, js_args)
+        tmpl = spec.js
+        if has_await and "({it}) =>" in tmpl:
+            tmpl = tmpl.replace("({it}) =>", "async ({it}) =>")
+        return self._fill(tmpl, js_args)
 
     def mapped_call(self, name: str, args: list, spec) -> str:
         js_args = [self.expr(a) for a in args]
@@ -243,6 +268,10 @@ class Emitter:
 
     def _fill(self, tmpl: str, js_args: list[str]) -> str:
         out = tmpl
+        if "{rest}" in out:
+            rest = ", ".join(js_args[1:])
+            out = out.replace("[{rest}]", "[" + rest + "]")
+            out = out.replace("{rest}", rest)
         for idx, a in enumerate(js_args):
             out = out.replace("{a%d}" % idx, a)
         out = out.replace("{args}", ", ".join(js_args))
@@ -303,7 +332,10 @@ class Emitter:
             return f"await apiCreate({_q(ds)}, {ex(1) if len(args) > 1 else '{}'})"
         if name == "ClearCollect":
             rec = ex(1) if len(args) > 1 else "{}"
-            return f"state.{ds} = []; await apiCreate({_q(ds)}, {rec})"
+            # async IIFE so ClearCollect is valid in expression position
+            # (e.g. inside Concurrent(...)) as well as a statement
+            return (f"(async () => {{ state.{ds} = []; "
+                    f"await apiCreate({_q(ds)}, {rec}); return refreshData({_q(ds)}); }})()")
         if name == "Refresh":
             return f"await refreshData({_q(ds)})"
         return f"FX.unsupported({_q(name)})"

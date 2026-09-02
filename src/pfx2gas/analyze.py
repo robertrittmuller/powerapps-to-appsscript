@@ -1,6 +1,8 @@
 """Stage 3: derive global vars, data-source fields, and per-control verdicts."""
 from __future__ import annotations
 
+import re
+
 from .fx import lexer as lx
 from .fx import transpile
 from .fx.emitter import LAMBDA_FNS
@@ -170,5 +172,22 @@ def analyze(ir: AppIR, uncovered: list[dict] | None = None) -> AppIR:
         for ctrl in screen.walk_controls():
             for prop in ctrl.properties.values():
                 convert_formula(prop)
+
+    # Collect Choices('DS'.Field) references for the generated Choices table.
+    choice_refs: set[str] = set()
+
+    def find_choices(expr: FxExpr | None) -> None:
+        if not expr or not expr.raw:
+            return
+        for m in re.finditer(r"Choices\(\s*'([^'.]+)'\s*\.\s*([^')]+?)\s*\)", expr.raw):
+            choice_refs.add(f"{m.group(1)}.{m.group(2)}")
+
+    find_choices(ir.on_start)
+    for screen in ir.screens:
+        find_choices(screen.on_visible)
+        for ctrl in screen.walk_controls():
+            for prop in ctrl.properties.values():
+                find_choices(prop)
+    ir.choice_fields = sorted(choice_refs)
 
     return ir

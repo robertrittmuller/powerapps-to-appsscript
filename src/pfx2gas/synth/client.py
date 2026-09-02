@@ -29,6 +29,7 @@ ELEMENT_MAP = {
     "CheckBox": "input",
     "DatePicker": "input",
     "Gallery": "div",
+    "GalleryTemplate": "div",
     "Image": "img",
     "Icon": "span",
     "HtmlText": "div",
@@ -37,7 +38,18 @@ ELEMENT_MAP = {
     "GroupContainer": "div",
     "Header": "header",
     "Timer": "div",
+    "Slider": "input",
+    "Rectangle": "div",
+    "Chart": "div",
+    "InfoButton": "span",
+    "DataCard": "div",
+    "DataTable": "div",
+    "CanvasComponent": "div",
+    "Legend": "div",
 }
+
+# Render as semantic HTML but suppress children (self-contained visuals).
+VOID_CONTENT_TYPES = {"Rectangle", "Chart", "InfoButton"}
 
 CONTAINER_TYPES = {"GroupContainer"}
 
@@ -277,8 +289,10 @@ def _render_control(ctrl: ControlNode, depth: int, in_flex: bool, rules: list[st
         extra = ' type="checkbox"'
     elif ctrl.type == "DatePicker":
         extra = ' type="date"'
+    elif ctrl.type == "Slider":
+        extra = ' type="range"'
 
-    if ctrl.type == "Gallery":
+    if ctrl.type == "Gallery" or ctrl.type == "GalleryTemplate":
         inner_row = "\n".join(_render_control(c, depth + 2, flex, rules) for c in ctrl.children)
         return (
             f'{indent}<div data-control="{ctrl.name}"{style_attr} class="fx-gallery">\n'
@@ -291,7 +305,7 @@ def _render_control(ctrl: ControlNode, depth: int, in_flex: bool, rules: list[st
 
     inner = ""
     close = f"</{tag}>" if tag not in {"input", "img", "br", "hr"} else ""
-    if ctrl.children:
+    if ctrl.children and ctrl.type not in VOID_CONTENT_TYPES:
         child_html = "\n".join(_render_control(c, depth + 1, flex, rules) for c in ctrl.children)
         inner = "\n" + child_html + "\n" + indent
     attrs = _static_extra_attrs(ctrl)
@@ -379,6 +393,27 @@ def render_app_js(ir: AppIR) -> str:
                     else:
                         lines.append("    null")
                     lines.append("  );")
+
+            # --- dropdown/combobox Items -> <option> population -------------
+            if ctrl.type in {"Dropdown", "ComboBox", "ListBox"}:
+                items_expr = ctrl.properties.get("Items")
+                if items_expr and items_expr.js:
+                    needs_async = "await " in items_expr.js
+                    fn_head = "async function () {" if needs_async else "function () {"
+                    lines.append(f"  // {ctrl.name}.Items (options)")
+                    lines.append("  FXRuntime.addEvaluator(" + fn_head)
+                    lines.append(f'    var el = document.querySelector(\'[data-control="{ctrl.name}"]\');')
+                    lines.append("    if (!el || el.tagName !== 'SELECT') return;")
+                    lines.append("    var current = el.value;")
+                    lines.append(f"    var rows = {items_expr.js};" if needs_async
+                                 else f"    var rows = {items_expr.js};")
+                    lines.append("    var opts = (rows || []).map(function (r) {")
+                    lines.append("        var v = (r && r.Value !== undefined && r.Value !== null) ? r.Value : r;")
+                    lines.append("        var n = (r && r.Name !== undefined && r.Name !== null) ? r.Name : r;")
+                    lines.append("        return '<option value=\"' + esc(v) + '\">' + esc(n) + '</option>';")
+                    lines.append("    }).join('');")
+                    lines.append("    if (el.__fxOpts !== opts) { el.__fxOpts = opts; el.innerHTML = opts; if (current) el.value = current; }")
+                    lines.append("  });")
 
             text_expr = ctrl.properties.get("Text")
             if (text_expr and text_expr.js and not text_expr.js.startswith("'")

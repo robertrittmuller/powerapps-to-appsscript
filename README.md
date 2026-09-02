@@ -219,8 +219,12 @@ Anything not in the map (e.g. `Choices()`, custom `Environment.*` functions,
 silently wrong. Adding functions is one entry in
 `src/pfx2gas/fx/function_map.py` plus a JS helper in `static/fx-stdlib.js`.
 
-**Controls:** Label, Button, TextInput, TextArea, Dropdown, CheckBox,
-DatePicker, Gallery (row template), Image, Icon, HtmlText, Form.
+**Controls:** Label, Button, TextInput, TextArea, Dropdown/ComboBox, CheckBox,
+DatePicker, Gallery (row template, per-item handlers), Image, Icon, HtmlText,
+Form, GroupContainer/auto-layout containers (flexbox: direction, align,
+justify, gap, wrap, FillPortions, min sizes), Rectangle, Header, Timer, Slider,
+Chart/Legend (placeholder), InfoButton, DataCard/DataTable (generic), Badge;
+legacy binary-`.msapp` format via adapter.
 
 ## Out of scope (flagged, not silently dropped)
 

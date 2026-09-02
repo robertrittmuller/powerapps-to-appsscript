@@ -38,7 +38,9 @@ KNOWN_CTRL_TYPES = {"Button", "Label", "TextInput", "TextArea", "Dropdown",
                     "ComboBox", "CheckBox", "DatePicker", "Gallery", "Image",
                     "Icon", "HtmlText", "Form", "Screen", "AppHost",
                     "GroupContainer", "VerticalContainer", "HorizontalContainer",
-                    "Header", "Timer", "Text", "DropDown"}
+                    "Header", "Timer", "Text", "DropDown", "Rectangle", "Chart",
+                    "Legend", "InfoButton", "DataCard", "DataTable",
+                    "GalleryTemplate", "Slider", "CanvasComponent"}
 
 SPECIAL_FNS = {"Set", "UpdateContext", "Navigate", "Back", "Patch", "Remove",
                "RemoveIf", "Collect", "ClearCollect", "Refresh", "SubmitForm",
