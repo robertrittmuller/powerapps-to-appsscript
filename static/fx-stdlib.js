@@ -323,6 +323,106 @@
     return out;
   }
 
+  // --- collections (client-side state arrays, like Power Apps collections) ---
+  // Collections live in the generated app's `state` object under their exact
+  // Power Fx name; every helper takes that state object explicitly so the
+  // functions stay testable outside the runtime.
+
+  function shallowEq(a, b) {
+    if (a === b) return true;
+    if (!a || !b || typeof a !== 'object' || typeof b !== 'object') return a == b;
+    var ka = Object.keys(a), kb = Object.keys(b);
+    if (ka.length !== kb.length) return false;
+    for (var i = 0; i < ka.length; i++) {
+      if (a[ka[i]] !== b[ka[i]] && !(a[ka[i]] == null && b[ka[i]] == null)) return false;
+    }
+    return true;
+  }
+
+  /** Power Apps Patch/Remove matching: every field of `base` equals the row's. */
+  function matchesBase(row, base) {
+    if (!row || !base || typeof base !== 'object') return false;
+    var keys = Object.keys(base);
+    for (var i = 0; i < keys.length; i++) {
+      if (!(row[keys[i]] == base[keys[i]])) return false;
+    }
+    return true;
+  }
+
+  function asRecords(args) {
+    var out = [];
+    var flat = flattenArgs(args);
+    for (var i = 0; i < flat.length; i++) {
+      if (flat[i] == null) continue;
+      if (Array.isArray(flat[i])) { out = out.concat(flat[i]); continue; }
+      out.push(flat[i]);
+    }
+    return out;
+  }
+
+  var FXCollections = {
+    /** Collect(coll, records...) — append records/tables to state[name]. */
+    collect: function (st, name) {
+      var arr = st[name] = st[name] || [];
+      var recs = asRecords(Array.prototype.slice.call(arguments, 2));
+      for (var i = 0; i < recs.length; i++) arr.push(recs[i]);
+      return arr;
+    },
+    /** ClearCollect(coll, records...) — reset then append. */
+    clearCollect: function (st, name) {
+      st[name] = [];
+      var args = Array.prototype.slice.call(arguments);
+      args[1] = name; args[0] = st;
+      return FXCollections.collect.apply(null, args);
+    },
+    /** Clear(coll) — remove all rows. */
+    clearCollection: function (st, name) {
+      st[name] = [];
+      return st[name];
+    },
+    /** RemoveIf(coll, predicate) — drop rows where pred(item) is truthy. */
+    removeItems: function (st, name, predFn) {
+      var arr = st[name] = st[name] || [];
+      st[name] = arr.filter(function (x) { return !predFn(x); });
+      return st[name];
+    },
+    /** Remove(coll, record) — drop the first row matching by identity, then by value. */
+    dropRecord: function (st, name, rec) {
+      var arr = st[name] = st[name] || [];
+      for (var i = 0; i < arr.length; i++) {
+        if (arr[i] === rec) { arr.splice(i, 1); return arr; }
+      }
+      for (var j = 0; j < arr.length; j++) {
+        if (matchesBase(arr[j], rec)) { arr.splice(j, 1); return arr; }
+      }
+      return arr;
+    },
+    /** Patch(coll, base, changes) — merge into the matching row; no base = append. */
+    patchCollection: function (st, name, base, changes) {
+      var arr = st[name] = st[name] || [];
+      if (base && typeof base === 'object') {
+        var target = null;
+        for (var i = 0; i < arr.length; i++) { if (arr[i] === base) { target = arr[i]; break; } }
+        if (!target) {
+          for (var j = 0; j < arr.length; j++) { if (matchesBase(arr[j], base)) { target = arr[j]; break; } }
+        }
+        if (target) { Object.assign(target, changes || {}); return target; }
+        var rec = Object.assign({}, base, changes || {});
+        arr.push(rec);
+        return rec;
+      }
+      var rec2 = Object.assign({}, changes || {});
+      arr.push(rec2);
+      return rec2;
+    },
+    /** Refresh(coll) — no-op read for local collections; returns the rows. */
+    refreshCollection: function (st, name) {
+      return st[name] = st[name] || [];
+    },
+  };
+
   global.FX = FX;
+  global.FXCollections = FXCollections;
+  FX.collections = FXCollections;  // convenient namespaced access
   if (typeof module !== 'undefined' && module.exports) module.exports = FX;
 })(typeof window !== 'undefined' ? window : globalThis);

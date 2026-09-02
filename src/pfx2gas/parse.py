@@ -1,7 +1,8 @@
 """Stage 2: parse unpacked pa.yaml sources into the AppIR."""
 from __future__ import annotations
 
-from .ir import AppIR, ControlNode, DataSource, FxExpr, ScreenNode
+from .fx.naming import snake as _snake
+from .ir import AppIR, ControlNode, DataSource, FieldDef, FxExpr, ScreenNode
 from .unpack import UnpackedApp
 
 BEHAVIOR_PROPS = {"OnSelect", "OnChange", "OnVisible", "OnHidden", "OnStart", "OnSuccess", "OnFailure"}
@@ -99,6 +100,20 @@ def _screen_on_visible(screen_yaml: dict) -> FxExpr | None:
     return None
 
 
+def _origin_of(ds: dict) -> str:
+    """Best-effort origin classification from legacy source metadata."""
+    info = str(ds.get("DataSourceInfo", "")).lower()
+    if "sharepoint" in info:
+        return "sharepoint"
+    if "excel" in info or "onedrive" in info:
+        return "excel"
+    if "dataverse" in info or "crm" in info:
+        return "dataverse"
+    if str(ds.get("Type", "")).lower() == "staticdatasourceinfo":
+        return "static"
+    return "other"
+
+
 def parse(unpacked: UnpackedApp) -> AppIR:
     ir = AppIR(name=unpacked.app_name)
 
@@ -118,6 +133,17 @@ def parse(unpacked: UnpackedApp) -> AppIR:
         )
 
     for ds in unpacked.data_sources:
-        origin = "sharepoint" if "sharepoint" in str(ds.get("DataSourceInfo", "")).lower() else "other"
-        ir.data_sources.append(DataSource(name=str(ds.get("Name", "DataSource")), origin=origin))
+        # Sources arriving via the modern unpacker carry explicit markers;
+        # the legacy adapter sets IsCollection itself. Anything else that is
+        # not a declared collection is treated as an external table.
+        is_collection = bool(ds.get("IsCollection")) or "collection" in str(ds.get("Type", "")).lower()
+        origin = "collection" if is_collection else _origin_of(ds)
+        fields = [FieldDef(name=f.get("name", ""), type=f.get("type", "text"))
+                  for f in ds.get("Fields", []) if f.get("name")]
+        sample = ds.get("SampleData") if isinstance(ds.get("SampleData"), list) else []
+        sample = [{_snake(str(k)): v for k, v in row.items()} if isinstance(row, dict) else row
+                  for row in sample]
+        ir.data_sources.append(DataSource(name=str(ds.get("Name", "DataSource")),
+                                          origin=origin, fields=fields,
+                                          sample_data=sample))
     return ir

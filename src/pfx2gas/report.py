@@ -52,10 +52,15 @@ def _qa_section(qa_scenarios: list[dict]) -> str:
 def _data_table(ir: AppIR) -> str:
     if not ir.data_sources:
         return "_No external data sources._"
-    lines = ["| Data source | Origin | Inferred fields | Google Sheet tab |", "|---|---|---|---|"]
+    lines = ["| Data source | Kind | Origin | Fields | Storage in converted app |",
+             "|---|---|---|---|---|"]
     for ds in ir.data_sources:
+        if ds.origin == "collection":
+            kind, storage = "collection", "client-side state array (not persisted)"
+        else:
+            kind, storage = "table", f"Google Sheet tab `{ds.name}`"
         fields = ", ".join(f"{f.name} ({f.type})" for f in ds.fields) or "_none inferred_"
-        lines.append(f"| {ds.name} | {ds.origin} | {fields} | `{ds.name}` |")
+        lines.append(f"| {ds.name} | {kind} | {ds.origin} | {fields} | {storage} |")
     return "\n".join(lines)
 
 

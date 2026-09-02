@@ -38,6 +38,12 @@ def validate_project(out_dir: str | Path) -> dict:
             problems.append(f"{js_html.name} fails node --check: {err.splitlines()[0] if err else 'unknown'}")
         stub_count += body.count("FX.unsupported(")
 
+    # Server-side .gs files are plain JS (V8); syntax-check them like the client.
+    for gs_file in sorted(out.glob("*.gs")):
+        ok, err = js_syntax_ok(gs_file.read_text())
+        if not ok:
+            problems.append(f"{gs_file.name} fails node --check: {err.splitlines()[0] if err else 'unknown'}")
+
     index = (out / "Index.html").read_text() if (out / "Index.html").exists() else ""
     if index and "data-screen" not in index and "include('Screens')" not in index:
         problems.append("Index.html does not reference Screens")

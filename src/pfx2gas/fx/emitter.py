@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from . import lexer as lx
 from .function_map import FUNCTION_MAP
+from .naming import snake as _snake
 
 
 class TranspileResult:
@@ -20,22 +21,6 @@ class TranspileResult:
 def _q(s: str) -> str:
     """JS-escape a string literal."""
     return "'" + s.replace("\\", "\\\\").replace("'", "\\'").replace("\n", "\\n") + "'"
-
-
-def _snake(name: str) -> str:
-    """Sanitize a Power Fx field name for JS property access:
-    'File name with extension' -> file_name_with_extension, FullName -> full_name."""
-    out: list[str] = []
-    prev_upper = False
-    for i, ch in enumerate(name):
-        if ch.isupper() and i > 0 and not prev_upper:
-            out.append("_")
-        if ch.isalnum():
-            out.append(ch.lower())
-        elif out and out[-1] != "_":
-            out.append("_")
-        prev_upper = ch.isupper()
-    return "".join(out).strip("_") or "field"
 
 
 # Functions whose later arguments are evaluated per-row (lambda context):
@@ -53,11 +38,14 @@ ENUM_TYPES = {"Color", "Icon", "Font", "FontWeight", "Align", "Image",
 
 class Emitter:
     def __init__(self, res: TranspileResult, behavior: bool, row_fields: set[str] | None = None,
-                 control_names: set[str] | None = None):
+                 control_names: set[str] | None = None, collections: set[str] | None = None):
         self.res = res
         self.behavior = behavior
         self.row_fields = row_fields or set()
         self.control_names = control_names or set()
+        # Data-source names that are Power Apps collections (client-side
+        # state arrays); data calls against them run locally, not server-side.
+        self.collections = collections or set()
         self.in_row = False
 
     # ---- top level ---------------------------------------------------------
@@ -320,6 +308,12 @@ class Emitter:
             finally:
                 self.in_row = saved
 
+        # Power Apps collections are client-side state: mutate the local
+        # array synchronously (powerapps_collect fires the binding update)
+        # instead of round-tripping through the Sheet API.
+        if ds in self.collections:
+            return self.collection_call(name, ds, node, ex)
+
         if name == "Patch":
             base = ex(1) if len(args) >= 3 else "null"
             rec = ex(2) if len(args) >= 3 else (ex(1) if len(args) == 2 else "{}")
@@ -338,6 +332,26 @@ class Emitter:
                     f"await apiCreate({_q(ds)}, {rec}); return refreshData({_q(ds)}); }})()")
         if name == "Refresh":
             return f"await refreshData({_q(ds)})"
+        return f"FX.unsupported({_q(name)})"
+
+    def collection_call(self, name: str, ds: str, node, ex) -> str:
+        """Transpile a data call against a collection (client-side array)."""
+        args = node.children
+        if name == "Patch":
+            base = ex(1) if len(args) >= 3 else "null"
+            rec = ex(2) if len(args) >= 3 else (ex(1) if len(args) == 2 else "{}")
+            return f"FX.collections.patchCollection(state, {ds!r}, {base}, {rec})"
+        if name == "Remove":
+            return f"powerapps_remove(state, {ds!r}, {ex(1) if len(args) > 1 else 'item'})"
+        if name == "RemoveIf":
+            return f"powerapps_removeIf(state, {ds!r}, (item) => ({ex(1, row_ctx=True) if len(args) > 1 else 'true'}))"
+        if name == "Collect":
+            return f"powerapps_collect(state, {ds!r}, {ex(1) if len(args) > 1 else '{}'})"
+        if name == "ClearCollect":
+            rec = ex(1) if len(args) > 1 else "{}"
+            return f"powerapps_clearCollect(state, {ds!r}, {rec})"
+        if name == "Refresh":
+            return f"FX.collections.refreshCollection(state, {ds!r})"
         return f"FX.unsupported({_q(name)})"
 
 

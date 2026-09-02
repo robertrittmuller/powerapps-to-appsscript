@@ -45,8 +45,8 @@ app.msapp ──▶ unpack ──▶ parse ──▶ analyze ──▶ synthesiz
 git clone <this repo>
 cd powerapps-to-appsscript
 uv sync          # creates .venv and installs dependencies
-uv run pytest -q # verify: 46 tests pass
-node --test tests/js/test-fx-stdlib.js tests/js/test-gas-runtime.js  # 18 more
+uv run pytest -q # verify: 80 tests pass
+node --test tests/js/*.js  # 31 more
 ```
 
 ## Quick start
@@ -75,8 +75,12 @@ clasp open-script                            # run setup() once in the editor
 clasp deploy                                 # prints the web app URL
 ```
 
-The first `setup()` run creates one Google Sheet workbook with a tab per data
-source and stores its ID in script properties; the API layer reads/writes it.
+The first `setup()` run creates one Google Sheet workbook with a tab per
+external data source (seeded with the app's embedded sample data when the
+export carries it) and stores its ID in script properties; the API layer
+reads/writes it. Power Apps **collections** (`Collect`/`ClearCollect`) are
+client-side state, not external tables: they become in-memory arrays in the
+converted app and never hit the Sheet.
 
 ## CLI reference
 
@@ -253,9 +257,10 @@ legacy binary-`.msapp` format via adapter.
 ## Development
 
 ```bash
-uv run pytest -q                    # Python suite (70 tests)
-node --test tests/js/*.js           # JS runtime suite (18 tests)
+uv run pytest -q                    # Python suite (80 tests)
+node --test tests/js/*.js           # JS runtime suite (31 tests)
 uv run pytest tests/test_e2e.py -q  # end-to-end CLI runs on synthetic fixtures
+uv run python scripts/soak_check.py # convert + validate every app in samples/real
 ```
 
 The test fixtures are synthetic `.msapp` files built by

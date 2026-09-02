@@ -79,6 +79,35 @@ def test_remove():
     assert "apiRemove('Tasks'" in out
 
 
+def test_collection_calls_route_to_local_runtime():
+    """Data calls against a collection mutate state, not the Sheet API."""
+    colls = {"colCache"}
+    out = transpile("Collect(colCache, {Key: TextInput1.Text, Value: 5})",
+                    behavior=True, collections=colls).js
+    assert "powerapps_collect(state, 'colCache'" in out
+    assert "apiCreate" not in out
+    out = transpile("ClearCollect(colCache, {Key: \"a\"})", behavior=True,
+                    collections=colls).js
+    assert "powerapps_clearCollect(state, 'colCache'" in out
+    out = transpile("Remove(colCache, ThisItem)", behavior=True,
+                    collections=colls).js
+    assert "powerapps_remove(state, 'colCache'" in out
+    out = transpile("RemoveIf(colCache, Key = \"a\")", behavior=True,
+                    collections=colls).js
+    assert "powerapps_removeIf(state, 'colCache'" in out
+    # a non-collection source keeps server routing
+    out = transpile("Collect(Tasks, {Name: \"x\"})", behavior=True,
+                    collections=colls).js
+    assert "apiCreate('Tasks'" in out
+
+
+def test_refresh_on_collection_is_local():
+    out = transpile("Refresh(colCache)", behavior=True,
+                    collections={"colCache"}).js
+    assert "refreshCollection(state, 'colCache')" in out
+    assert "refreshData" not in out
+
+
 def test_unmapped_function_recorded():
     res = transpile("TimeZoneOffset()")
     assert res.js == "FX.unsupported('TimeZoneOffset')"

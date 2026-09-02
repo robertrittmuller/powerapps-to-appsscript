@@ -144,13 +144,19 @@ DATA_INIT_GS = """/**
 function setup() {{
   var props = PropertiesService.getScriptProperties();
   if (props.getProperty('DATA_SPREADSHEET_ID')) return 'already initialized';
-  var workbook = SpreadsheetApp.create({app_name!r} — data);
+  var workbook = SpreadsheetApp.create({app_name!r} + ' — data');
   var specs = {tabs_json};
   specs.forEach(function (spec) {{
     var sh = workbook.getSheetByName(spec.name) || workbook.insertSheet(spec.name);
     sh.clear();
     var headers = spec.fields.map(function (f) {{ return f[0]; }});
     sh.getRange(1, 1, 1, headers.length).setValues([headers]);
+    if (spec.rows && spec.rows.length) {{
+      var body = spec.rows.map(function (row) {{
+        return headers.map(function (h, i) {{ return row[i] === undefined ? '' : row[i]; }});
+      }});
+      sh.getRange(2, 1, body.length, headers.length).setValues(body);
+    }}
     sh.setFrozenRows(1);
   }});
   var choiceFields = {choices_json};
@@ -186,7 +192,8 @@ MANIFEST = """{{
 
 
 def data_sources_with_fields(ir: AppIR) -> list:
-    return [ds for ds in ir.data_sources if ds.fields]
+    """External (non-collection) sources that should get a generated Sheet tab."""
+    return [ds for ds in ir.data_sources if ds.origin != "collection" and ds.fields]
 
 
 def render_code_gs(ir: AppIR) -> str:
@@ -195,10 +202,18 @@ def render_code_gs(ir: AppIR) -> str:
 
 def render_data_init(ir: AppIR) -> str:
     import json
-    tabs = [
-        {"name": ds.name, "fields": [[f.name, f.type] for f in ds.fields]}
-        for ds in data_sources_with_fields(ir)
-    ]
+
+    from ..fx.naming import snake as _snake
+
+    tabs = []
+    for ds in data_sources_with_fields(ir):
+        headers = [_snake(f.name) for f in ds.fields]
+        rows = []
+        for row in ds.sample_data[:100]:
+            rows.append([row.get(h, "") for h in headers])
+        tabs.append({"name": ds.name, "fields": [[h, f.type]
+                                                 for f, h in zip(ds.fields, headers)],
+                     "rows": rows})
     return DATA_INIT_GS.format(app_name=ir.name, tabs_json=json.dumps(tabs),
                                choices_json=json.dumps(ir.choice_fields))
 

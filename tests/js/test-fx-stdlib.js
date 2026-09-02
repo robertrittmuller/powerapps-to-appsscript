@@ -78,3 +78,59 @@ test('sort ascending/descending', () => {
 test('unsupported throws with function name', () => {
   assert.throws(() => FX.unsupported('TimeZoneOffset'), /TimeZoneOffset/);
 });
+
+// --- collections (client-side Power Apps collections) -----------------------
+const C = FX.collections;
+
+test('collections: collect appends records and tables', () => {
+  const state = {};
+  C.collect(state, 'colLetters', { id: 1 });
+  C.collect(state, 'colLetters', [{ id: 2 }, { id: 3 }]);
+  assert.deepStrictEqual(state.colLetters, [{ id: 1 }, { id: 2 }, { id: 3 }]);
+});
+
+test('collections: clearCollect resets then appends', () => {
+  const state = { colLetters: [{ id: 9 }] };
+  C.clearCollect(state, 'colLetters', { id: 1 }, { id: 2 });
+  assert.deepStrictEqual(state.colLetters, [{ id: 1 }, { id: 2 }]);
+});
+
+test('collections: clearCollection empties the array', () => {
+  const state = { cache: [1, 2, 3] };
+  C.clearCollection(state, 'cache');
+  assert.deepStrictEqual(state.cache, []);
+});
+
+test('collections: removeItems drops only matching rows', () => {
+  const state = { col: [{ n: 1 }, { n: 2 }, { n: 3 }] };
+  C.removeItems(state, 'col', (item) => item.n > 1);
+  assert.deepStrictEqual(state.col, [{ n: 1 }]);
+});
+
+test('collections: dropRecord removes by identity then by value', () => {
+  const rec = { id: 2 };
+  const state = { col: [{ id: 1 }, rec, { id: 2, extra: true }] };
+  C.dropRecord(state, 'col', { id: 2, extra: true }); // value match (last row)
+  assert.deepStrictEqual(state.col, [{ id: 1 }, rec]);
+  C.dropRecord(state, 'col', rec); // identity match
+  assert.deepStrictEqual(state.col, [{ id: 1 }]);
+});
+
+test('collections: patchCollection merges into matching row, appends otherwise', () => {
+  const state = { col: [{ id: 1, status: 'OPEN' }] };
+  const out = C.patchCollection(state, 'col', { id: 1 }, { status: 'CLOSED' });
+  assert.deepStrictEqual(state.col, [{ id: 1, status: 'CLOSED' }]);
+  assert.strictEqual(out.status, 'CLOSED');
+  C.patchCollection(state, 'col', null, { id: 2, status: 'NEW' });
+  assert.strictEqual(state.col.length, 2);
+  // no matching row + base given: Power Apps appends a merged record
+  C.patchCollection(state, 'col', { id: 3 }, { status: 'X' });
+  assert.deepStrictEqual(state.col[2], { id: 3, status: 'X' });
+});
+
+test('collections: refreshCollection returns existing rows (no server call)', () => {
+  const state = { col: [{ n: 7 }] };
+  assert.strictEqual(C.refreshCollection(state, 'col'), state.col);
+  C.refreshCollection(state, 'empty');
+  assert.deepStrictEqual(state.empty, []);
+});

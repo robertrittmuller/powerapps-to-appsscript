@@ -31,6 +31,9 @@ class DataSource(BaseModel):
     name: str
     origin: str = "other"  # sharepoint | excel | dataverse | collection | other
     fields: list[FieldDef] = Field(default_factory=list)
+    # Embedded rows from StaticDataSourceInfo sources (keys already normalized
+    # to the JS field-name convention) — used to seed the generated workbook.
+    sample_data: list[dict] = Field(default_factory=list)
 
 
 class ControlNode(BaseModel):

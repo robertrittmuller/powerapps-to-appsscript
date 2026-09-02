@@ -143,13 +143,15 @@ def analyze(ir: AppIR, uncovered: list[dict] | None = None) -> AppIR:
 
     control_names = {c.name for s in ir.screens for c in s.walk_controls()}
     row_fields = collect_row_fields(ir)
+    collections = {ds.name for ds in ir.data_sources if ds.origin == "collection"}
 
     def convert_formula(expr: FxExpr) -> None:
         if not expr.raw:
             return
         try:
             res = transpile(expr.raw, behavior=(expr.kind == "behavior"),
-                            row_fields=row_fields, control_names=control_names)
+                            row_fields=row_fields, control_names=control_names,
+                            collections=collections)
             expr.js = res.js
             if res.unmapped:
                 for fn in res.unmapped:

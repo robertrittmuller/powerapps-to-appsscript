@@ -85,4 +85,7 @@ def test_data_init_lists_fields(ir_b, tmp_path):
     out = synthesize(ir_b, tmp_path / "FixtureB")
     init = (out / "DataInit.gs").read_text()
     assert "Tasks" in init
-    assert "Amount" in init
+    # headers are snake_case so transpiled {name: ..., amount: ...} records
+    # land in the right columns
+    assert "amount" in init
+    assert "status" in init

@@ -77,6 +77,31 @@ def _normalize_template(t: dict | str | None) -> str:
     return TEMPLATE_ALIASES.get(name.lower(), name or "Unknown")
 
 
+# Properties that only exist on legacy ``text`` controls that are actually
+# text inputs. Legacy template names conflate labels and inputs; the
+# ``label`` template is the true static text control, so a ``text`` control
+# carrying any of these properties is an editable input.
+_TEXT_INPUT_PROPS = {"Mode", "Default", "HintText", "Format", "DelayOutput"}
+
+
+def _normalize_template_for(node: dict) -> str:
+    """Template-name normalization with input/label disambiguation.
+
+    Legacy exports use template ``text`` for both static labels and text
+    inputs. When input-only properties (Mode/Default/HintText/...) are
+    present, the control is a TextInput (single-line) or TextArea
+    (``Mode: TextMode.MultiLine``); otherwise it renders as a Label.
+    """
+    name = node.get("Template", {}).get("Name", "") if isinstance(node.get("Template"), dict) else ""
+    base = TEMPLATE_ALIASES.get(name.lower(), name or "Unknown")
+    if name.lower() == "text":
+        props = _rules_to_properties(node.get("Rules") or [])
+        if _TEXT_INPUT_PROPS & props.keys():
+            mode = props.get("Mode", "")
+            return "TextArea" if "MultiLine" in mode else "TextInput"
+    return base
+
+
 def _rules_to_properties(rules: list) -> dict[str, str]:
     props: dict[str, str] = {}
     for rule in rules or []:
@@ -93,7 +118,7 @@ def _rules_to_properties(rules: list) -> dict[str, str]:
 def _control_to_yaml(node: dict) -> dict:
     """Legacy control node -> pa.yaml-style control mapping."""
     out: dict = {
-        "Control": _normalize_template(node.get("Template")),
+        "Control": _normalize_template_for(node),
         "Properties": _rules_to_properties(node.get("Rules")),
     }
     variant = node.get("VariantName")
@@ -119,12 +144,44 @@ def _data_sources_from(zf: zipfile.ZipFile, names: list[str]) -> list[dict]:
     except json.JSONDecodeError:
         return []
     items = data.get("DataSources", data) if isinstance(data, dict) else data
+
+    # Type letters in the schema string: *[Field:s, ...]
+    _SCHEMA_TYPES = {"s": "text", "n": "number", "d": "date", "b": "bool", "i": "text", "h": "text"}
+
+    def parse_schema(schema: str | None) -> list[dict]:
+        if not schema or not schema.startswith("*[") or not schema.endswith("]"):
+            return []
+        out = []
+        for part in schema[2:-1].split(","):
+            if ":" not in part:
+                continue
+            fname, _, ftype = part.strip().partition(":")
+            out.append({"name": fname.strip(),
+                        "type": _SCHEMA_TYPES.get(ftype.strip().lower(), "text")})
+        return out
+
     out = []
     for ds in items or []:
-        if isinstance(ds, dict) and ds.get("Name"):
-            out.append({"Name": ds["Name"],
-                        "Type": ds.get("Type", "LegacyDataSource"),
-                        "DataSourceInfo": ds.get("DataSourceInfo", "")})
+        if not (isinstance(ds, dict) and ds.get("Name")):
+            continue
+        # A Power Apps collection is client-side state, not an external table.
+        is_collection = ds.get("Type") == "CollectionDataSourceInfo"
+        entry: dict = {"Name": ds["Name"],
+                       "Type": ds.get("Type", "LegacyDataSource"),
+                       "DataSourceInfo": ds.get("DataSourceInfo", ""),
+                       "IsCollection": is_collection}
+        if not is_collection:
+            entry["Fields"] = parse_schema(ds.get("Schema"))
+            sample = ds.get("Data")
+            if isinstance(sample, str):
+                # the Data payload is a JSON document embedded as a string
+                try:
+                    sample = json.loads(sample)
+                except (json.JSONDecodeError, ValueError):
+                    sample = None
+            if isinstance(sample, list) and sample:
+                entry["SampleData"] = sample
+        out.append(entry)
     return out
 
 
