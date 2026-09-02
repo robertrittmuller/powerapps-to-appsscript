@@ -46,7 +46,18 @@ ELEMENT_MAP = {
     "DataTable": "div",
     "CanvasComponent": "div",
     "Legend": "div",
+    "Chart": "div",
 }
+
+# Chart family per control type / variant (Power Apps chart controls).
+CHART_TYPES = {
+    "Chart": "bar", "PieChart": "pie", "BarChart": "bar", "LineChart": "line",
+    "ColumnChart": "bar", "Legend": "pie",  # legend renders with pie layout
+}
+
+# Properties consumed by the chart renderer (excluded from generic styling).
+CHART_PROPS = {"Items", "ItemsLabels", "ItemsValues", "ChartType", "LayoutMinWidth",
+               "LayoutMinHeight"}
 
 # Render as semantic HTML but suppress children (self-contained visuals).
 VOID_CONTENT_TYPES = {"Rectangle", "Chart", "InfoButton"}
@@ -348,6 +359,27 @@ def _static_extra_attrs(ctrl: ControlNode) -> str:
     return out
 
 
+def _chart_config(ctrl: ControlNode) -> str:
+    """JSON config for a chart control (type, columns) from its properties."""
+    props = ctrl.properties
+    ctype = CHART_TYPES.get(ctrl.type) or "bar"
+    labels = _static_raw(props.get("ItemsLabels"))
+    values = _static_raw(props.get("ItemsValues"))
+    cfg: dict[str, object] = {"type": ctype}
+    if labels:
+        cfg["cat"] = labels
+    if values:
+        cfg["val"] = values
+    width = _static_px(props.get("Width"))
+    height = _static_px(props.get("Height"))
+    if width:
+        cfg["width"] = int(float(width.replace("px", "")))
+    if height:
+        cfg["height"] = int(float(height.replace("px", "")))
+    import json as _json
+    return _json.dumps(cfg)
+
+
 def _static_attrs(ctrl: ControlNode) -> str:
     """Accessibility attributes: Role -> ARIA role, AccessibleLabel/Tooltip -> aria-label."""
     props = ctrl.properties
@@ -410,6 +442,11 @@ def _render_control(ctrl: ControlNode, depth: int, in_flex: bool, rules: list[st
             f'{indent}  </template>\n'
             f'{indent}</div>'
         )
+
+    if ctrl.type in CHART_TYPES:
+        cfg = _chart_config(ctrl).replace("&", "&amp;").replace('"', "&quot;")
+        return (f'{indent}<div data-control="{ctrl.name}"{style_attr} '
+                f'data-chart="{cfg}" class="fx-chart"></div>')
 
     inner = ""
     close = f"</{tag}>" if tag not in {"input", "img", "br", "hr"} else ""
@@ -502,6 +539,20 @@ def render_app_js(ir: AppIR) -> str:
                         lines.append("    null")
                     lines.append("  );")
 
+            # --- chart rendering ------------------------------------------
+            if ctrl.type in CHART_TYPES:
+                items = ctrl.properties.get("Items")
+                if items and items.js:
+                    lines.append(f"  // {ctrl.name} (chart)")
+                    lines.append("  FXRuntime.addEvaluator(async function () {")
+                    lines.append(f'    var el = document.querySelector(\'[data-control="{ctrl.name}"]\');')
+                    lines.append("    if (!el) return;")
+                    lines.append("    var cfg = JSON.parse(el.getAttribute('data-chart') || '{}');")
+                    lines.append(f"    var rows = {items.js};")
+                    lines.append("    if (rows && rows.then) rows = await rows;")
+                    lines.append("    el.innerHTML = FXCharts.svg(rows || [], cfg);")
+                    lines.append("  });")
+
             # --- dropdown/combobox Items -> <option> population -------------
             if ctrl.type in {"Dropdown", "ComboBox", "ListBox"}:
                 items_expr = ctrl.properties.get("Items")
@@ -590,6 +641,7 @@ def render_index_html(ir: AppIR, screens_html: str) -> str:
 <script>
 <?!= include('gas-runtime'); ?>
 <?!= include('fx-stdlib'); ?>
+<?!= include('fx-charts'); ?>
 <?!= include('App'); ?>
 </script>
 </body>

@@ -20,7 +20,7 @@ def synthesize(ir: AppIR, out_dir: str | Path) -> Path:
     (out / "Index.html").write_text(render_index_html(ir, render_screens_html(ir)))
     (out / "Screens.html").write_text(render_screens_html(ir))
     (out / "App.js.html").write_text("<script>\n" + render_app_js(ir) + "\n</script>")
-    for static_name in ("gas-runtime.js", "fx-stdlib.js"):
+    for static_name in ("gas-runtime.js", "fx-stdlib.js", "fx-charts.js"):
         src = STATIC_DIR / static_name
         if src.exists():
             (out / static_name.replace(".js", ".js.html")).write_text(
