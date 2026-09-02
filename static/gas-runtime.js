@@ -232,10 +232,12 @@
 
   // --- collection mutations (Power Apps collections are client-side state) --
   // The transpiler routes Collect/ClearCollect/Remove/RemoveIf against
-  // collections to these; each mutates state[ds] then fires a binding update.
-  global.powerapps_collect = function (ds) {
-    var arr = state[ds] = state[ds] || [];
-    for (var i = 1; i < arguments.length; i++) {
+  // collections to these; each takes (state, name, ...) so the generated
+  // calls read powerapps_collect(state, 'Name', record), then fires a
+  // binding update.
+  global.powerapps_collect = function (st, ds) {
+    var arr = st[ds] = st[ds] || [];
+    for (var i = 2; i < arguments.length; i++) {
       var v = arguments[i];
       if (v == null) continue;
       if (Array.isArray(v)) { for (var j = 0; j < v.length; j++) arr.push(v[j]); }
@@ -244,12 +246,12 @@
     updateBindings();
     return arr;
   };
-  global.powerapps_clearCollect = function (ds) {
-    state[ds] = [];
+  global.powerapps_clearCollect = function (st, ds) {
+    st[ds] = [];
     return global.powerapps_collect.apply(null, arguments);
   };
-  global.powerapps_remove = function (ds, record) {
-    var arr = state[ds] = state[ds] || [];
+  global.powerapps_remove = function (st, ds, record) {
+    var arr = st[ds] = st[ds] || [];
     var idx = -1;
     for (var i = 0; i < arr.length; i++) { if (arr[i] === record) { idx = i; break; } }
     if (idx < 0) {
@@ -261,11 +263,11 @@
     updateBindings();
     return arr;
   };
-  global.powerapps_removeIf = function (ds, pred) {
-    var arr = state[ds] = state[ds] || [];
-    state[ds] = arr.filter(function (x) { return !pred(x); });
+  global.powerapps_removeIf = function (st, ds, pred) {
+    var arr = st[ds] = st[ds] || [];
+    st[ds] = arr.filter(function (x) { return !pred(x); });
     updateBindings();
-    return state[ds];
+    return st[ds];
   };
 
   global.FXRuntime = {
