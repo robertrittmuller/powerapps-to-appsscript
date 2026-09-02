@@ -28,10 +28,17 @@ HANDLED_PROPS = {
     "LayoutGap", "LayoutMinWidth", "LayoutMinHeight", "FillPortions",
     "PaddingLeft", "PaddingRight", "PaddingTop", "PaddingBottom",
     "RadiusTopLeft", "RadiusTopRight", "RadiusBottomLeft", "RadiusBottomRight",
-    "BorderColor", "BorderThickness", "DropShadow",
+    "BorderColor", "BorderThickness", "BorderStyle", "DropShadow",
     "Font", "Weight", "Align", "VerticalAlign",
     "HoverFill", "HoverColor", "HoverBorderColor",
     "PressedFill", "PressedColor", "PressedBorderColor", "DisabledFill",
+    "DisabledColor", "DisabledBorderColor", "FocusedBorderColor",
+    "FocusedBorderThickness", "FocusedFill",
+    "Italic", "Underline", "Strikethrough", "LineHeight",
+    "Overflow", "LayoutOverflowX", "LayoutOverflowY",
+    "AutoHeight", "Role", "Live", "AccessibleLabel", "Tooltip",
+    "DisplayMode", "MaxLength", "DelayOutput", "TabIndex",
+    "ImageRotation", "ImagePosition", "Wrap", "VirtualKeyboardMode",
     "Image", "Icon", "Content", "HtmlText",   # static content attributes
 }
 KNOWN_CTRL_TYPES = {"Button", "Label", "TextInput", "TextArea", "Dropdown",

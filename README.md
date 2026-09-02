@@ -135,16 +135,30 @@ Converted apps aim to match the original visually and behaviorally:
 - **Layout** — static `X/Y/Width/Height/ZIndex` become absolutely-positioned
   inline styles; reactive ones (e.g. `X: =Parent.Width/2 - 40`) become
   `styleControl` evaluators re-applied on every state change.
-- **Visuals** — `Fill`, `Color`, `Size`, `FontWeight`, `Align` map to CSS
-  (`backgroundColor`, `color`, `fontSize`, …) reactively.
+- **Auto-layout** — modern containers render as CSS flexbox: `LayoutDirection`,
+  `LayoutAlignItems`, `LayoutJustifyContent`, `LayoutWrap`, `LayoutGap`,
+  `FillPortions` (flex), `LayoutMinWidth/Height`, `LayoutOverflowX/Y`.
+- **Typography & text** — `Font`, `Size`, `FontColor`, `FontWeight`,
+  `Italic`, `Underline`, `Strikethrough`, `LineHeight`, `Align`,
+  `VerticalAlign`, `Wrap`.
+- **Borders & effects** — `BorderStyle` (solid/dashed/dotted/double),
+  thickness, color, radius per corner, `DropShadow`, `HoverFill/Color/BorderColor`,
+  `PressedFill/Color/BorderColor`, `DisabledFill/Color/BorderColor`,
+  `FocusedBorderColor/Fill` (as CSS `:hover/:active/:disabled/:focus-visible` rules).
+- **Images** — `Image` src, `ImagePosition` (object-fit), `ImageRotation`.
+- **Accessibility & input semantics** — `Role` (ARIA roles), `AccessibleLabel`/
+  `Tooltip` (aria-label), `Live` (aria-live), `TabIndex`, `DisplayMode: Disabled`
+  (disabled/readonly attributes), `MaxLength`, `VirtualKeyboardMode` (inputmode),
+  `DelayOutput`.
 - **Galleries** — the row template renders per item with `ThisItem` bound to
   the row; child handlers receive the item, preserving per-row actions.
 - **Forms** — `NewForm`/`EditForm`/`ViewForm` set a mode flag; `SubmitForm`
   routes through the generated data layer.
 
 What is *not* reproduced pixel-perfect: app themes/typography (a clean system
-stylesheet is used), responsive reflow behavior, and exotic container nesting
-(these are layout regressions to check first in QA).
+stylesheet is used), responsive reflow behavior, chart interiors
+(`Chart`/`Legend` render as styled placeholders), and exotic container nesting
+(these are the first things to check in QA).
 
 ## Review seams (how the LLM helps without touching code)
 

@@ -114,6 +114,17 @@ def _static_map(expr, mapping: dict[str, str]) -> str | None:
     return mapping.get(m.group(1)) if m else None
 
 
+def _static_bool(expr) -> bool | None:
+    if not expr or expr.js is None:
+        return None
+    js = expr.js.strip()
+    if js == "true":
+        return True
+    if js == "false":
+        return False
+    return None
+
+
 def _static_raw(expr) -> str | None:
     if not expr or expr.js is None:
         return None
@@ -151,6 +162,28 @@ HOVER_PROPS = {
     "HoverBorderColor": ("border-color", "hover"),
     "PressedFill": ("background-color", "active"),
     "DisabledFill": ("background-color", ":disabled"),
+    "DisabledColor": ("color", ":disabled"),
+    "DisabledBorderColor": ("border-color", ":disabled"),
+    "FocusedBorderColor": ("border-color", ":focus-visible"),
+    "FocusedFill": ("background-color", ":focus-visible"),
+}
+
+BOOL_TEXT_PROPS = {
+    "Italic": ("font-style", "italic"),
+    "Underline": ("text-decoration-line", "underline"),
+    "Strikethrough": ("text-decoration-line", "line-through"),
+}
+
+BORDER_STYLE_MAP = {
+    "None": "none", "Solid": "solid", "Dashed": "dashed",
+    "Dotted": "dotted", "Double": "double",
+}
+
+ACCESSIBILITY_ROLES = {
+    "ButtonControl": "button", "LinkControl": "link", "HeadingControl": "heading",
+    "ImageControl": "img", "TextBoxControl": "textbox", "GridControl": "grid",
+    "ListControl": "list", "PresentationControl": "presentation",
+    "ParagraphControl": "paragraph", "SeparatorControl": "separator",
 }
 
 
@@ -190,8 +223,11 @@ def _static_style(ctrl: ControlNode, in_flex: bool, rules: list[str]) -> str:
     w, h = px("Width"), px("Height")
     if w:
         css.append(f"width:{w}")
-    if h:
+    auto_h = _static_bool(props.get("AutoHeight"))
+    if h and auto_h is not True:
         css.append(f"height:{h}")
+    elif auto_h is True:
+        css.append("height:auto")
 
     # --- container layout ----------------------------------------------------
     if _is_flex_container(ctrl):
@@ -212,8 +248,11 @@ def _static_style(ctrl: ControlNode, in_flex: bool, rules: list[str]) -> str:
         v = px(prop)
         if v:
             css.append(f"{css_prop}:{v}")
-    # border needs style + color too
-    if px("BorderThickness") and color("BorderColor"):
+    # border style: explicit enum, else solid when thickness+color present
+    border_style = _static_map(props.get("BorderStyle"), BORDER_STYLE_MAP)
+    if border_style and px("BorderThickness"):
+        css.append(f"border-style:{border_style}")
+    elif px("BorderThickness") and color("BorderColor"):
         css.append("border-style:solid")
 
     shadow = _static_map(props.get("DropShadow"), SHADOW_MAP)
@@ -236,6 +275,39 @@ def _static_style(ctrl: ControlNode, in_flex: bool, rules: list[str]) -> str:
     size = px("Size") or px("FontSize")
     if size:
         css.append(f"font-size:{size}")
+    for prop, (css_prop, css_val) in BOOL_TEXT_PROPS.items():
+        if _static_bool(props.get(prop)) is True:
+            css.append(f"{css_prop}:{css_val}")
+    lh = px("LineHeight")
+    if lh:
+        css.append(f"line-height:{lh}")
+    valign = _static_map(props.get("VerticalAlign"), {"Top": "top", "Middle": "middle", "Bottom": "bottom"})
+    if valign:
+        css.append(f"display:flex;align-items:{valign}")
+    vwrap = _static_raw(props.get("LayoutOverflowX"))
+    if vwrap == "Overflow":
+        css.append("overflow-x:auto")
+    vwrap_y = _static_raw(props.get("LayoutOverflowY"))
+    if vwrap_y == "Overflow":
+        css.append("overflow-y:auto")
+    ov = _static_raw(props.get("Overflow"))
+    if ov == "Overflow":
+        css.append("overflow:visible")
+    elif ov in {"Hide", "Scrollbar"}:
+        css.append("overflow:hidden")
+    wrap = _static_bool(props.get("Wrap"))
+    if wrap is False:
+        css.append("white-space:nowrap")
+    elif wrap is True:
+        css.append("white-space:normal")
+    if ctrl.type == "Image":
+        pos = _static_map(props.get("ImagePosition"),
+                          {"Fit": "contain", "Fill": "cover", "Stretch": "fill", "Tile": "cover"})
+        if pos:
+            css.append(f"object-fit:{pos}")
+        rot = _static_px(props.get("ImageRotation"))
+        if rot:
+            css.append(f"transform:rotate({rot})")
     text_align = _static_map(props.get("Align"), {"Center": "center", "Start": "left", "End": "right"})
     if text_align and not in_flex:
         css.append(f"text-align:{text_align}")
@@ -276,6 +348,42 @@ def _static_extra_attrs(ctrl: ControlNode) -> str:
     return out
 
 
+def _static_attrs(ctrl: ControlNode) -> str:
+    """Accessibility attributes: Role -> ARIA role, AccessibleLabel/Tooltip -> aria-label."""
+    props = ctrl.properties
+    out = ""
+    role = _static_raw(props.get("Role"))
+    if role and role in ACCESSIBILITY_ROLES:
+        out += f' role="{ACCESSIBILITY_ROLES[role]}"'
+    label = _static_raw(props.get("AccessibleLabel")) or _static_raw(props.get("Tooltip"))
+    if label:
+        out += f' aria-label="{label}"'
+    live = _static_raw(props.get("Live"))
+    if live:
+        out += f' aria-live="{live.lower()}"'
+    # DisplayMode: static Disabled -> disabled/readonly attribute
+    if _static_raw(props.get("DisplayMode")) == "Disabled":
+        if ctrl.type in {"Button", "Icon"}:
+            out += " disabled"
+        elif ctrl.type in {"TextInput", "TextArea", "Dropdown", "ComboBox",
+                           "CheckBox", "DatePicker", "Slider"}:
+            out += " readonly"
+    if ctrl.type in {"TextInput", "TextArea"}:
+        max_len = _static_raw(props.get("MaxLength"))
+        if max_len:
+            out += f' maxlength="{max_len}"'
+        if _static_bool(props.get("DelayOutput")) is True:
+            out += ' data-delay-output="true"'
+    tab_idx = _static_raw(props.get("TabIndex"))
+    if tab_idx in {"0", "1", "-1", "2"}:
+        out += f' tabindex="{tab_idx}"'
+    if ctrl.type == "TextInput":
+        vk = _static_raw(props.get("VirtualKeyboardMode"))
+        if vk:
+            out += f' inputmode="{"numeric" if "num" in vk.lower() else "text"}"'
+    return out
+
+
 def _render_control(ctrl: ControlNode, depth: int, in_flex: bool, rules: list[str]) -> str:
     tag = ELEMENT_MAP.get(ctrl.type, "div")
     indent = "  " * (depth + 1)
@@ -308,7 +416,7 @@ def _render_control(ctrl: ControlNode, depth: int, in_flex: bool, rules: list[st
     if ctrl.children and ctrl.type not in VOID_CONTENT_TYPES:
         child_html = "\n".join(_render_control(c, depth + 1, flex, rules) for c in ctrl.children)
         inner = "\n" + child_html + "\n" + indent
-    attrs = _static_extra_attrs(ctrl)
+    attrs = _static_extra_attrs(ctrl) + _static_attrs(ctrl)
     return f'{indent}<{tag} data-control="{ctrl.name}"{style_attr}{attrs}{extra}>{_static_text(ctrl)}{inner}{close}'
 
 
