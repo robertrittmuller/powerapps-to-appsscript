@@ -42,8 +42,8 @@ biggest untested boundary. "Validator PASS" has never been shown to equal
 install needed); its credentials persist in `.clasp-home/`.
 
 Next actions (you + me):
-1. `docker compose run --rm clasp login --no-localhost` — open the printed
-   Google URL in your browser, authorize, paste the code back into the container.
+1. `./pfx2gas clasp login --no-localhost` — open the printed Google URL in
+   your browser, authorize, paste the code back into the terminal.
 2. I convert helpdesk into `output/HelpDesk` (in-container), then
    `clasp create` → `push --force` in the container.
 3. You run `setup()` once in the Apps Script editor (creates the workbook:

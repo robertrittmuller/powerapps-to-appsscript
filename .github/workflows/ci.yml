@@ -70,3 +70,11 @@ jobs:
           docker compose run --rm --entrypoint /bin/bash pfx2gas -c \
             'cp /workspace/.tmp-container-smoke/Code.gs /tmp/c.js && node --check /tmp/c.js'
           rm -rf .tmp-container-smoke
+
+      - name: Wrapper smoke (any-directory usage, host-path translation)
+        run: |
+          cd "$GITHUB_WORKSPACE"
+          ./pfx2gas clasp --version
+          ./pfx2gas convert tests/fixtures/fixtureA.msapp -o /tmp/wrapper-smoke
+          ./pfx2gas validate /tmp/wrapper-smoke
+          test -f /tmp/wrapper-smoke/Code.gs

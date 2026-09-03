@@ -40,20 +40,21 @@ app.msapp ──▶ unpack ──▶ parse ──▶ analyze ──▶ synthesiz
   (`npm install -g @google/clasp`) and a one-time `clasp login`
 
 **Or use Docker — no local installs required:** Python, Node, uv, and clasp
-are all pinned in the image (see `Dockerfile` / `docker-compose.yml`):
+are all pinned in the image (see `Dockerfile` / `docker-compose.yml`). The
+`./pfx2gas` wrapper works from any directory and maps host paths into the
+container automatically:
 
 ```bash
-docker compose build                                            # once
-docker compose run --rm pfx2gas convert /workspace/YourApp.msapp \
-    -o /workspace/output/YourApp                                # convert
-docker compose run --rm test                                    # full test suite
-docker compose run --rm soak                                    # real-app soak
+./pfx2gas build                                                  # once
+./pfx2gas convert ~/Apps/YourApp.msapp -o ~/Apps/output/YourApp  # any paths
+./pfx2gas test                                                   # full suite
+./pfx2gas soak                                                   # real-app soak
 
-# deployment (credentials persist in the clasp-home volume):
-docker compose run --rm clasp login --no-localhost              # once; paste the URL back
-docker compose run --rm -w /workspace/output/YourApp clasp create --title YourApp --type webapp
-docker compose run --rm -w /workspace/output/YourApp clasp push --force
-docker compose run --rm -w /workspace/output/YourApp clasp deploy
+# deployment (credentials persist in .clasp-home/):
+./pfx2gas clasp login --no-localhost                             # once
+./pfx2gas clasp -w /abs/path/output/YourApp create --title YourApp --type webapp
+./pfx2gas clasp -w /abs/path/output/YourApp push --force
+./pfx2gas clasp -w /abs/path/output/YourApp deploy
 ```
 
 ## Install

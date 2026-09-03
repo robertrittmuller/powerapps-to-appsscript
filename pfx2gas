@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+# pfx2gas — run any compose service from any directory, with any host paths.
+#
+#   pfx2gas convert /abs/path/App.msapp -o /abs/path/output/App
+#   pfx2gas validate /abs/path/output/App
+#   pfx2gas test | soak
+#   pfx2gas clasp login --no-localhost
+#   pfx2gas clasp -w /abs/path/output/App push --force
+#
+# The first argument is a compose service name (pfx2gas | test | soak | clasp);
+# anything else is passed to the converter (pfx2gas service) directly.
+# Paths under the project are translated to /workspace/...; paths elsewhere
+# are bind-mounted at their absolute location so they work unchanged.
+# macOS ships bash 3.2 where `set -u` + array expansion idioms misbehave;
+# `-e` (fail fast) and pipefail are the safety that matters here.
+set -eo pipefail
+
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Containers write host-owned files (essential on Linux hosts; harmless on
+# Docker Desktop where ownership is mapped anyway).
+export PFX2GAS_UID="${PFX2GAS_UID:-$(id -u)}"
+export PFX2GAS_GID="${PFX2GAS_GID:-$(id -g)}"
+
+# clasp credential mount source must exist and be host-owned before mount.
+mkdir -p "$REPO/.clasp-home"
+
+service="pfx2gas"
+case "${1:-}" in
+  pfx2gas|test|soak|clasp)
+    service="$1"; shift ;;
+  build)
+    shift
+    exec docker compose -f "$REPO/docker-compose.yml" --project-directory "$REPO" build "$@" ;;
+  -h|--help|help)
+    sed -n '2,13p' "${BASH_SOURCE[0]}"; exit 0 ;;
+esac
+
+# Optional compose-level working dir: pfx2gas <service> -w DIR <cmd...>
+workdir_flag=()
+if [ "${1:-}" = "-w" ] && [ $# -ge 2 ]; then
+  wdir="${2/#\~/$HOME}"
+  if [ -d "$wdir" ] && [[ "$wdir" == "$REPO"* ]]; then
+    workdir_flag=(-w "/workspace${wdir#"$REPO"}")
+  else
+    workdir_flag=(-w "$wdir")
+  fi
+  shift 2
+fi
+
+# Path translation: rewrite repo-internal paths to /workspace/...; for host
+# paths outside the repo, bind-mount the parent dir at the same absolute path.
+# Sets the global T_PATH (and may append to `volumes`) — never call it inside
+# $( ), or the volume append would be lost to the subshell.
+T_PATH=""
+translate() {
+  local p="${1/#\~/$HOME}"
+  if [[ "$p" == "$REPO" || "$p" == "$REPO"/* ]]; then
+    T_PATH="/workspace${p#"$REPO"}"
+  elif [ -e "$p" ] || [ -e "$(dirname "$p")" ]; then
+    local dir; dir="$(cd "$(dirname "$p")" && pwd)"
+    volumes+=(-v "$dir:$dir")
+    T_PATH="$p"
+  else
+    T_PATH="$1"   # not a path we know; pass through untouched
+  fi
+}
+
+args=()
+if [ "$service" = "pfx2gas" ] || [ "$service" = "clasp" ]; then
+  for a in "$@"; do
+    case "$a" in
+      /*|\~*|*/*) translate "$a"; args+=("$T_PATH") ;;
+      *)          args+=("$a") ;;
+    esac
+  done
+else
+  args=("$@")
+fi
+
+exec docker compose -f "$REPO/docker-compose.yml" --project-directory "$REPO" \
+  run --rm "${workdir_flag[@]}" "${volumes[@]}" "$service" "${args[@]}"
