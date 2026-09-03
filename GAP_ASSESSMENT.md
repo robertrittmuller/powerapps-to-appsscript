@@ -38,14 +38,17 @@ code ↔ static runtime contracts need a cross-check in CI, not just unit tests.
 
 Everything upstream of deployment is now verified; deployment is the single
 biggest untested boundary. "Validator PASS" has never been shown to equal
-"works in a browser".
+"works in a browser". clasp runs **inside the project container** (no local
+install needed); its credentials persist in `.clasp-home/`.
 
 Next actions (you + me):
-1. `npm install -g @google/clasp` and `clasp login` (one-time, your Google account).
-2. I deploy `/tmp` output of helpdesk: `clasp create` → `push --force` → run
-   `setup()` in the editor → `clasp deploy`.
-3. Verify: workbook created with 6 tabs + 44 seeded rows; web app URL loads;
-   navigation, galleries, the 56 text inputs, and collection-backed screens work.
+1. `docker compose run --rm clasp login --no-localhost` — open the printed
+   Google URL in your browser, authorize, paste the code back into the container.
+2. I convert helpdesk into `output/HelpDesk` (in-container), then
+   `clasp create` → `push --force` in the container.
+3. You run `setup()` once in the Apps Script editor (creates the workbook:
+   6 tabs + 44 seeded rows), I `clasp deploy` and we verify the web app URL:
+   navigation, galleries, the 56 text inputs, collection-backed screens.
 
 Acceptance: helpdesk usable in a browser from the deployed URL; gaps found
 during the smoke test filed as the next fix list. This unlocks the v0.1.0 tag.
