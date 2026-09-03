@@ -501,7 +501,18 @@ def render_app_js(ir: AppIR) -> str:
             lines.append("  });")
 
     for screen in ir.screens:
+        # Row-scoped container children (gallery rows, data-table rows) are
+        # rendered per-row with `item` bound by their container's runtime;
+        # registering them at top level produces "control not found" and
+        # "item is not defined". Descendants only — the container itself must
+        # still emit its own registration.
+        row_scoped = {"Gallery", "DataTable"}
+        gallery_children = {c.name for s in ir.screens for ctrl in s.walk_controls()
+                            if ctrl.type in row_scoped
+                            for child in ctrl.children for c in child.walk()}
         for ctrl in screen.walk_controls():
+            if ctrl.name in gallery_children:
+                continue
             for event in ("OnSelect", "OnChange"):
                 expr = ctrl.properties.get(event)
                 if expr and expr.js:
