@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Python suite
+        run: uv run pytest -q
+
+      - name: JS runtime suite
+        run: node --test tests/js/*.js
+
+      - name: Emitter↔runtime consistency gate
+        run: uv run python scripts/check_runtime_consistency.py
+
+      - name: Fetch real-app sample corpus (public source repo)
+        run: uv run python scripts/fetch_samples.py
+
+      - name: Real-app soak (convert + validate every sample)
+        run: uv run python scripts/soak_check.py
