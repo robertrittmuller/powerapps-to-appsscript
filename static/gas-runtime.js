@@ -295,6 +295,7 @@
   global.toast = toast;
   global.state = state;
   global.val = val;
+  global.bind = bind;   // generated App.js calls bind('Ctrl', 'OnSelect', fn)
   global.submitForm = submitForm;
   global.refreshData = refreshData;
   global.esc = function (s) {
