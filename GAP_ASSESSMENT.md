@@ -17,7 +17,7 @@ the code and the real-app corpus (10 apps, ~22k formulas) on this date.
 | Generated server code syntax | all `.gs` node --check clean (validated every soak app) |
 | Data layer | external sources → typed, sample-seeded Sheet tabs; collections → client-side state |
 | Deployed a converted app via clasp | **never done** (M4 open, clasp not installed) |
-| CI | none (no `.github/`) |
+| CI | **green** — [run #1](https://github.com/robertrittmuller/powerapps-to-appsscript/actions/runs/33702273235) (2026-09-02): all steps pass on ubuntu-latest |
 
 Plan milestones: M1–M3 done. M4 ("two real apps converted, deployed via clasp,
 report reviewed") is the only open milestone.
@@ -50,15 +50,16 @@ Next actions (you + me):
 Acceptance: helpdesk usable in a browser from the deployed URL; gaps found
 during the smoke test filed as the next fix list. This unlocks the v0.1.0 tag.
 
-### 2. CI workflow (small, no dependencies)
+### 2. ✅ CI workflow (done 2026-09-02, run #1 green)
 
-Both suites + soak + consistency checker run locally but nowhere automatically.
-After this week's drift bug, the consistency gate especially belongs on every push.
+`.github/workflows/ci.yml` runs on every push to main and every PR: Python
+suite, JS runtime suite, emitter↔runtime consistency gate, then the real-app
+soak against 5 modern-format samples fetched fresh from the public source repo
+(`scripts/fetch_samples.py` — zip-integrity-checked, cached, retried). Legacy
+apps stay covered by the committed synthetic fixtures.
 
-Next actions: `.github/workflows/ci.yml` — pytest, `node --test tests/js/*.js`,
-`soak_check.py` (needs samples; guard with a samples-present condition since
-they're gitignored), `check_runtime_consistency.py`.
-Acceptance: green run on GitHub Actions; red when a check is broken.
+Regression-class bugs (like the emitter↔runtime drift) now fail CI instead of
+surfacing in a converted app.
 
 ### 3. Component-template emulation (large, biggest remaining fidelity gap)
 
@@ -121,9 +122,9 @@ Known, documented, lower stakes — pick up as user demand appears:
 
 | Step | Item | Effort | Depends on |
 |---|---|---|---|
-| 1 | CI workflow (#2) | small | — |
+| 1 | ~~CI workflow~~ | ✅ done | — |
 | 2 | clasp install + login (you), then deploy smoke test (#1) | small–medium | you (5 min) |
-| 3 | v0.1.0 tag | minutes | 1–2 green |
+| 3 | v0.1.0 tag | minutes | 2 green |
 | 4 | Component-template emulation (#3) | large | — |
 | 5 | Real modern data app into soak (#4) | small + your export | you |
 | 6 | User() enrichment (#5), LLM review at scale (#6) | small / medium | .env present |
