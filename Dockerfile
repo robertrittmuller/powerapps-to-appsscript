@@ -29,7 +29,9 @@ RUN npm install -g --no-fund --no-audit --silent @google/clasp \
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
 
 WORKDIR /app
-ENV PYTHONUNBUFFERED=1
+ENV PYTHONUNBUFFERED=1 \
+    HOME=/home/pfx
+RUN mkdir -p /home/pfx
 
 # Dependencies first (cached unless the lockfile changes); the project itself
 # is installed after its source is copied, or the wheel would be empty.

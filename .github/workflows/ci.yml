@@ -51,6 +51,9 @@ jobs:
   container:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      PFX2GAS_UID: 1001   # runner user; containers write host-owned files
+      PFX2GAS_GID: 1001
     steps:
       - uses: actions/checkout@v4
 

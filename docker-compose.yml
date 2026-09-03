@@ -1,10 +1,16 @@
 services:
+  # Containers run as the invoking user's uid (PFX2GAS_UID/GID, defaults to
+  # 1000) so files written into /workspace stay owned by the host user.
+  # On Linux hosts run: export PFX2GAS_UID=$(id -u) PFX2GAS_GID=$(id -g)
+  # (Docker Desktop maps ownership automatically; the default is fine there.)
+
   # The converter CLI. Inputs/outputs live on the host via the /workspace
   # mount: docker compose run --rm pfx2gas convert /workspace/app.msapp -o /workspace/output/app
   pfx2gas:
     build: .
     image: pfx2gas:latest
     working_dir: /workspace
+    user: "${PFX2GAS_UID:-1000}:${PFX2GAS_GID:-1000}"
     volumes:
       - .:/workspace
     environment:
@@ -22,6 +28,7 @@ services:
     image: pfx2gas:latest
     build: .
     working_dir: /workspace
+    user: "${PFX2GAS_UID:-1000}:${PFX2GAS_GID:-1000}"
     volumes:
       - .:/workspace
     entrypoint: ["/bin/bash", "-lc"]
@@ -35,6 +42,7 @@ services:
     image: pfx2gas:latest
     build: .
     working_dir: /workspace
+    user: "${PFX2GAS_UID:-1000}:${PFX2GAS_GID:-1000}"
     volumes:
       - .:/workspace
     environment:
@@ -44,18 +52,18 @@ services:
       "/app/.venv/bin/python scripts/fetch_samples.py &&
        /app/.venv/bin/python scripts/soak_check.py"
 
-  # clasp with persistent login state. One-time: compose run --rm clasp login --no-localhost
-  # Then: compose run --rm -w /workspace/output/<App> clasp create --title X --type webapp
-  #       compose run --rm -w /workspace/output/<App> clasp push --force && clasp deploy
+  # clasp with persistent login state (project-local .clasp-home/, gitignored).
+  # One-time: docker compose run --rm clasp login --no-localhost
+  # Then:     docker compose run --rm -w /workspace/output/<App> clasp create --title X --type webapp
+  #           docker compose run --rm -w /workspace/output/<App> clasp push --force
+  #           docker compose run --rm -w /workspace/output/<App> clasp deploy
   clasp:
     image: pfx2gas:latest
     build: .
     working_dir: /workspace
+    user: "${PFX2GAS_UID:-1000}:${PFX2GAS_GID:-1000}"
     volumes:
       - .:/workspace
-      - clasp-home:/root
+      - ./.clasp-home:/home/pfx
     entrypoint: ["clasp"]
     command: ["--version"]
-
-volumes:
-  clasp-home:

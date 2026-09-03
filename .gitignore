@@ -5,6 +5,7 @@ __pycache__/
 .ruff_cache/
 output/
 .runs/
+.clasp-home/
 node_modules/
 .clasp.json
 .clasprc.json
