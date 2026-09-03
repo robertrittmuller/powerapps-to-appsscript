@@ -52,4 +52,15 @@ def validate_project(out_dir: str | Path) -> dict:
     if gs and "function doGet()" not in gs:
         problems.append("Code.gs has no doGet()")
 
+    # The manifest is JSON and must actually parse — the Apps Script web-app
+    # config and oauth scopes live here, and clasp silently tolerates junk.
+    import json
+
+    manifest_path = out / "appsscript.json"
+    if manifest_path.exists():
+        try:
+            json.loads(manifest_path.read_text())
+        except json.JSONDecodeError as exc:
+            problems.append(f"appsscript.json is not valid JSON: {exc}")
+
     return {"ok": not problems, "problems": problems, "stub_count": stub_count}

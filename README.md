@@ -45,7 +45,7 @@ are all pinned in the image (see `Dockerfile` / `docker-compose.yml`). The
 container automatically:
 
 ```bash
-./pfx2gas build                                                  # once
+./pfx2gas build    # re-run this after changing converter source (code is baked into the image)
 ./pfx2gas convert ~/Apps/YourApp.msapp -o ~/Apps/output/YourApp  # any paths
 ./pfx2gas test                                                   # full suite
 ./pfx2gas soak                                                   # real-app soak

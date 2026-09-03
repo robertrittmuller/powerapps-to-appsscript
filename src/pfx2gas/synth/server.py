@@ -219,4 +219,6 @@ def render_data_init(ir: AppIR) -> str:
 
 
 def render_manifest(ir: AppIR) -> str:
-    return MANIFEST
+    # MANIFEST is a format-template ({{ }} are literal braces); without
+    # .format() it ships invalid JSON with doubled braces.
+    return MANIFEST.format()

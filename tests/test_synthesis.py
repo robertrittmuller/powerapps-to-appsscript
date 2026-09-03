@@ -59,6 +59,19 @@ def test_js_files_pass_node_check(ir_a, tmp_path):
     assert result.returncode == 0, result.stderr
 
 
+def test_manifest_is_valid_json_with_webapp_config(ir_a, tmp_path):
+    """clasp and Apps Script read webapp/oauthScopes from here; it must parse."""
+    import json
+
+    from pfx2gas.synth.build import synthesize
+
+    out = synthesize(ir_a, tmp_path / "FixtureA")
+    manifest = json.loads((out / "appsscript.json").read_text())
+    assert manifest["webapp"]["executeAs"] == "USER_DEPLOYING"
+    assert manifest["webapp"]["access"] == "ANYONE_ANONYMOUS"
+    assert any("spreadsheets" in s for s in manifest["oauthScopes"])
+
+
 def test_screens_contain_controls(ir_a, tmp_path):
     from pfx2gas.synth.build import synthesize
 
