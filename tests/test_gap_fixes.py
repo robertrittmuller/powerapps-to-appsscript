@@ -152,3 +152,20 @@ def test_validator_accepts_good_project(legacy_ir, tmp_path):
     ir = __import__("pfx2gas.analyze", fromlist=["analyze"]).analyze(legacy_ir)
     out = synthesize(ir, tmp_path / "Good")
     assert validate_project(out)["ok"]
+
+
+def test_start_screen_is_first_in_screen_order(legacy_ir):
+    """Power Apps opens the first screen in screen order (legacy Index field)."""
+    assert legacy_ir.start_screen == "HOME"
+
+
+def test_generated_app_navigates_to_start_screen(legacy_ir, tmp_path):
+    from pfx2gas.synth.build import synthesize
+
+    ir = __import__("pfx2gas.analyze", fromlist=["analyze"]).analyze(legacy_ir)
+    out = synthesize(ir, tmp_path / "StartScreen")
+    app_js = (out / "App.js.html").read_text()
+    assert "go('HOME')" in app_js
+    # every screen section is hidden in static markup; runtime reveals HOME
+    screens_html = (out / "Screens.html").read_text()
+    assert 'data-screen="HOME" style="display:none"' in screens_html

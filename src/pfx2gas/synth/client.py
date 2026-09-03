@@ -461,6 +461,8 @@ def render_screens_html(ir: AppIR) -> str:
     rules: list[str] = []
     parts = []
     for screen in ir.screens:
+        # Every screen starts hidden; the runtime reveals ir.start_screen at
+        # bootstrap (Power Apps shows the first screen in screen order).
         parts.append(f'  <section data-screen="{screen.name}" style="display:none">')
         for ctrl in screen.controls:
             parts.append(_render_control(ctrl, 1, False, rules))
@@ -613,6 +615,12 @@ def render_app_js(ir: AppIR) -> str:
                     lines.append(f"  FXRuntime.styleControl({ctrl.name!r}, {css_prop!r}, function () {{")
                     lines.append(f"    return {expr.js};")
                     lines.append(f"  }}, {unit!r});")
+    # Bootstrap: reveal the start screen after APP_MAIN runs. APP_MAIN is
+    # invoked on DOMContentLoaded (gas-runtime), and APP_MAIN closes with this
+    # navigation so the first paint matches Power Apps' start screen.
+    if ir.start_screen:
+        lines.append("  // Start screen (first in the original app's screen order)")
+        lines.append(f"  go({ir.start_screen!r});")
     lines.append("};")
     return "\n".join(lines)
 

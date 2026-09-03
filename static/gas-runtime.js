@@ -312,7 +312,20 @@
 
   if (typeof document !== 'undefined') {
     document.addEventListener('DOMContentLoaded', function () {
-      if (typeof global.APP_MAIN === 'function') global.APP_MAIN();
+      // A synchronous crash in APP_MAIN must not leave a blank page: catch,
+      // surface, and still reveal the first screen (Power Apps start screen).
+      if (typeof global.APP_MAIN === 'function') {
+        try {
+          global.APP_MAIN();
+        } catch (e) {
+          console.error(e);
+          toast('Startup error: ' + (e && e.message ? e.message : e), true);
+        }
+      }
+      if (!CURRENT_SCREEN) {
+        var first = document.querySelector('[data-screen]');
+        if (first) showScreen(first.getAttribute('data-screen'));
+      }
     });
   }
 })(typeof window !== 'undefined' ? window : globalThis);

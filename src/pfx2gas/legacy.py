@@ -207,6 +207,7 @@ def convert_legacy_msapp(msapp_path: str | Path) -> dict:
 
         app_yaml: dict = {}
         screens: dict[str, dict] = {}
+        screen_index: list[tuple[int, str]] = []
         for n in control_files:
             try:
                 doc = json.loads(zf.read(n))
@@ -223,6 +224,11 @@ def convert_legacy_msapp(msapp_path: str | Path) -> dict:
                     app_yaml = {"App": {"Control": "AppHost", "Properties": props}}
             elif template == "screen":
                 screens[name] = {"Screens": {name: _control_to_yaml(top)}}
+                idx = top.get("Index")
+                order = int(idx) if isinstance(idx, (int, float)) else len(screen_index)
+                screen_index.append((order, name))
+        screen_index.sort()
+        screen_order = [name for _, name in screen_index]
 
         data_sources = _data_sources_from(zf, names)
 
@@ -233,5 +239,6 @@ def convert_legacy_msapp(msapp_path: str | Path) -> dict:
         "app_yaml": app_yaml,
         "screens": screens,
         "data_sources": data_sources,
+        "screen_order": screen_order,
         "warnings": ["legacy binary-JSON .msapp converted via legacy adapter"],
     }

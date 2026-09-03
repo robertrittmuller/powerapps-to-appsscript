@@ -146,4 +146,10 @@ def parse(unpacked: UnpackedApp) -> AppIR:
         ir.data_sources.append(DataSource(name=str(ds.get("Name", "DataSource")),
                                           origin=origin, fields=fields,
                                           sample_data=sample))
+
+    # Power Apps shows the first screen in screen order; reproduce that.
+    ir.screens.sort(key=lambda s: unpacked.screen_order.index(s.name)
+                    if s.name in unpacked.screen_order else len(unpacked.screen_order))
+    if ir.screens:
+        ir.start_screen = ir.screens[0].name
     return ir

@@ -27,6 +27,9 @@ class UnpackedApp:
     screens: dict[str, dict] = field(default_factory=dict)  # name -> yaml dict
     data_sources: list[dict] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    # Screen names in the app's own order (first one is the start screen).
+    # Legacy: TopParent.Index; modern: archive entry order / ScreenOrder.
+    screen_order: list[str] = field(default_factory=list)
 
 
 def _load_yaml(text: str) -> dict:
@@ -90,6 +93,12 @@ def unpack(msapp_path: str | Path) -> UnpackedApp:
         return "src" in parts and n.lower().endswith(".pa.yaml")
 
     src_files = sorted(n for n in entries if is_src(n))
+    # Archive entry order = screen creation order (Power Apps shows the first
+    # screen); used when no explicit ScreenOrder metadata exists.
+    archive_screen_order = [
+        n.rsplit("/", 1)[-1].removesuffix(".pa.yaml")
+        for n in entries if is_src(n)
+    ]
     if not src_files:
         has_legacy = any(n.lower().replace("\\", "/").startswith("controls/")
                          and n.lower().endswith(".json") for n in entries)
@@ -137,4 +146,18 @@ def unpack(msapp_path: str | Path) -> UnpackedApp:
 
     if not out.screens and not out.app_yaml:
         raise UnpackError("pa.yaml sources found but none contained parseable app/screen definitions")
+
+    # Screen order: explicit CanvasManifest.ScreenOrder wins; else archive order.
+    order: list[str] = []
+    manifest_raw = read("CanvasManifest.json")
+    if manifest_raw:
+        try:
+            so = json.loads(manifest_raw).get("ScreenOrder")
+            if isinstance(so, list):
+                order = [str(s) for s in so]
+        except json.JSONDecodeError:
+            pass
+    if not order:
+        order = archive_screen_order
+    out.screen_order = [s for s in order if s in out.screens]
     return out

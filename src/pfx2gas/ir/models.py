@@ -67,3 +67,5 @@ class AppIR(BaseModel):
     global_vars: list[str] = Field(default_factory=list)
     choice_fields: list[str] = Field(default_factory=list)  # 'DataSource.Field'
     support_matrix: list[SupportEntry] = Field(default_factory=list)
+    # The screen Power Apps shows first (first in screen order).
+    start_screen: str | None = None
