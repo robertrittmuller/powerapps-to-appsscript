@@ -169,3 +169,49 @@ def test_generated_app_navigates_to_start_screen(legacy_ir, tmp_path):
     # every screen section is hidden in static markup; runtime reveals HOME
     screens_html = (out / "Screens.html").read_text()
     assert 'data-screen="HOME" style="display:none"' in screens_html
+
+
+# ---------------------------------------------------------------------------
+# Icon-name rendering (Power Apps icon names -> Unicode glyphs)
+# ---------------------------------------------------------------------------
+
+def test_icon_glyph_known_and_unknown():
+    from pfx2gas.icons import icon_glyph, is_icon_name
+
+    assert icon_glyph("customer-service") is not None
+    assert icon_glyph("Icon.Filter") is not None
+    assert icon_glyph("EmojiSmile") is not None
+    assert icon_glyph("totally-made-up-icon-xyz") is None
+    assert is_icon_name("customer-service") is True
+    assert is_icon_name("https://example.com/a.png") is False
+    assert is_icon_name("logo.png") is False
+    assert is_icon_name("/img/logo") is False
+
+
+def test_icon_name_image_renders_glyph_span():
+    """'customer-service' must render as a glyph, not <img src="customer-service">.
+
+    Uses the real helpdesk sample (local soak corpus) when present; skipped in
+    CI where samples are fetched separately."""
+    from pathlib import Path
+
+    from pfx2gas.analyze import analyze
+    from pfx2gas.parse import parse
+    from pfx2gas.synth.build import synthesize
+    from pfx2gas.unpack import unpack
+
+    sample = Path(__file__).parent.parent / "samples" / "real" / "helpdesk.msapp"
+    if not sample.exists():
+        import pytest
+
+        pytest.skip("helpdesk.msapp sample not present")
+    ir = analyze(parse(unpack(sample)))
+    out = synthesize(ir, Path(__file__).parent.parent / "output" / "_icon-test")
+    screens = (out / "Screens.html").read_text()
+    assert 'src="customer-service"' not in screens
+    assert 'class="fx-icon"' in screens
+    assert 'data-icon-name="customer-service"' in screens
+    # Icon-type controls render their glyph too
+    assert 'data-icon-name="Filter"' in screens
+    assert 'data-icon-name="Settings"' in screens
+    assert 'data-icon-name="EmojiSmile"' in screens

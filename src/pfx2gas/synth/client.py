@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import re
 
+from ..icons import icon_glyph, is_icon_name
 from ..ir import AppIR, ControlNode
 
 ELEMENT_MAP = {
@@ -349,9 +350,9 @@ def _static_extra_attrs(ctrl: ControlNode) -> str:
         if src:
             out += f' src="{src}"'
     if ctrl.type == "Icon":
-        glyph = _static_raw(props.get("Icon"))
-        if glyph:
-            out += f' title="{glyph}"'
+        glyph_name = _static_raw(props.get("Icon"))
+        if glyph_name:
+            out += f' title="{glyph_name}"'
     if ctrl.type in {"HtmlText"}:
         content = _static_raw(props.get("HtmlText") or props.get("Content"))
         if content:
@@ -431,6 +432,24 @@ def _render_control(ctrl: ControlNode, depth: int, in_flex: bool, rules: list[st
         extra = ' type="date"'
     elif ctrl.type == "Slider":
         extra = ' type="range"'
+
+    # --- icon rendering -----------------------------------------------------
+    # Power Apps stores icon *names* ('customer-service', 'Icon.Filter') in
+    # Image/Icon properties. A bare name is not a URL: render the mapped
+    # Unicode glyph (Segoe MDL2) instead of a broken <img> / empty <span>.
+    if ctrl.type == "Image":
+        src = _static_raw(ctrl.properties.get("Image"))
+        if src and is_icon_name(src):
+            return (f'{indent}<span data-control="{ctrl.name}"{style_attr}'
+                    f' class="fx-icon" title="{src}" data-icon-name="{src}"'
+                    f'{_static_attrs(ctrl)}>{icon_glyph(src)}</span>')
+    if ctrl.type == "Icon":
+        glyph_name = _static_raw(ctrl.properties.get("Icon"))
+        glyph = icon_glyph(glyph_name) if glyph_name else None
+        if glyph:
+            return (f'{indent}<span data-control="{ctrl.name}"{style_attr}'
+                    f' class="fx-icon" title="{glyph_name}" data-icon-name="{glyph_name}"'
+                    f'{_static_attrs(ctrl)}>{glyph}</span>')
 
     if ctrl.type == "Gallery" or ctrl.type == "GalleryTemplate":
         inner_row = "\n".join(_render_control(c, depth + 2, flex, rules) for c in ctrl.children)
@@ -645,6 +664,9 @@ INDEX_CSS = """
     .fx-gallery { overflow: auto; }
     .fx-rows { display: block; }
     .fx-row { display: block; position: relative; border-bottom: 1px solid #eee; padding: 4px 0; }
+    .fx-icon { font-family: 'Segoe MDL2 Assets', 'Segoe Fluent Icons', sans-serif;
+      display: inline-flex; align-items: center; justify-content: center;
+      user-select: none; line-height: 1; }
     .fx-toast { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
       background: #333; color: #fff; padding: 8px 16px; border-radius: 4px; display: none; z-index: 9999; }
     .fx-toast.error { background: #b3261e; }
