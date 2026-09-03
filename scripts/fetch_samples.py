@@ -7,6 +7,7 @@ sunilshetty07/Microsoft-PowerApps-Canvas repo (as documented in the README).
 from __future__ import annotations
 
 import io
+import os
 import sys
 import time
 import urllib.parse
@@ -15,7 +16,8 @@ import zipfile
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-DEST = REPO / "samples" / "real"
+# Overridable so containers can cache the corpus on a mounted volume.
+DEST = Path(os.environ.get("PFX2GAS_SAMPLES_DIR", REPO / "samples" / "real"))
 
 SOURCE_REPO = "sunilshetty07/Microsoft-PowerApps-Canvas"
 BRANCH = "main"

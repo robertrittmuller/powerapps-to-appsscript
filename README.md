@@ -39,6 +39,23 @@ app.msapp ──▶ unpack ──▶ parse ──▶ analyze ──▶ synthesiz
 - For deployment only: [clasp](https://github.com/google/clasp)
   (`npm install -g @google/clasp`) and a one-time `clasp login`
 
+**Or use Docker — no local installs required:** Python, Node, uv, and clasp
+are all pinned in the image (see `Dockerfile` / `docker-compose.yml`):
+
+```bash
+docker compose build                                            # once
+docker compose run --rm pfx2gas convert /workspace/YourApp.msapp \
+    -o /workspace/output/YourApp                                # convert
+docker compose run --rm test                                    # full test suite
+docker compose run --rm soak                                    # real-app soak
+
+# deployment (credentials persist in the clasp-home volume):
+docker compose run --rm clasp login --no-localhost              # once; paste the URL back
+docker compose run --rm -w /workspace/output/YourApp clasp create --title YourApp --type webapp
+docker compose run --rm -w /workspace/output/YourApp clasp push --force
+docker compose run --rm -w /workspace/output/YourApp clasp deploy
+```
+
 ## Install
 
 ```bash

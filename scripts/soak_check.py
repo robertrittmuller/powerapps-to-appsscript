@@ -1,4 +1,5 @@
 """Soak: convert every sample app in-process and validate the output."""
+import os
 import shutil
 import sys
 import time
@@ -13,10 +14,11 @@ from pfx2gas.synth.build import synthesize
 from pfx2gas.unpack import unpack
 from pfx2gas.validate import validate_project
 
-OUT = Path("/tmp/gap-regression")
-OUT.mkdir(exist_ok=True)
+SAMPLES_DIR = Path(os.environ.get("PFX2GAS_SAMPLES_DIR", REPO / "samples" / "real"))
+OUT = Path(os.environ.get("PFX2GAS_SOAK_OUT", "/tmp/gap-regression"))
+OUT.mkdir(parents=True, exist_ok=True)
 
-apps = sorted((REPO / "samples" / "real").glob("*.msapp"))
+apps = sorted(SAMPLES_DIR.glob("*.msapp"))
 print(f"{'app':35s} convert  validate  (time)")
 fails = 0
 for f in apps:

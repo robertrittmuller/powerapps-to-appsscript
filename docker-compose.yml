@@ -1,0 +1,61 @@
+services:
+  # The converter CLI. Inputs/outputs live on the host via the /workspace
+  # mount: docker compose run --rm pfx2gas convert /workspace/app.msapp -o /workspace/output/app
+  pfx2gas:
+    build: .
+    image: pfx2gas:latest
+    working_dir: /workspace
+    volumes:
+      - .:/workspace
+    environment:
+      - PFX2GAS_LLM_BASE_URL
+      - PFX2GAS_LLM_API_KEY
+      - PFX2GAS_LLM_MODEL
+      - PFX2GAS_SAMPLES_DIR=/workspace/samples/real
+    env_file:
+      - path: .env
+        required: false
+
+  # Full verification: Python + JS suites, consistency gate. Runs against the
+  # mounted repo (the baked-in /app copy has no sample corpus by design).
+  test:
+    image: pfx2gas:latest
+    build: .
+    working_dir: /workspace
+    volumes:
+      - .:/workspace
+    entrypoint: ["/bin/bash", "-lc"]
+    command: >
+      "/app/.venv/bin/python -m pytest -q &&
+       node --test tests/js/*.js &&
+       /app/.venv/bin/python scripts/check_runtime_consistency.py"
+
+  # Real-app soak in a clean environment; downloads cache on the host.
+  soak:
+    image: pfx2gas:latest
+    build: .
+    working_dir: /workspace
+    volumes:
+      - .:/workspace
+    environment:
+      - PFX2GAS_SAMPLES_DIR=/workspace/samples/real
+    entrypoint: ["/bin/bash", "-lc"]
+    command: >
+      "/app/.venv/bin/python scripts/fetch_samples.py &&
+       /app/.venv/bin/python scripts/soak_check.py"
+
+  # clasp with persistent login state. One-time: compose run --rm clasp login --no-localhost
+  # Then: compose run --rm -w /workspace/output/<App> clasp create --title X --type webapp
+  #       compose run --rm -w /workspace/output/<App> clasp push --force && clasp deploy
+  clasp:
+    image: pfx2gas:latest
+    build: .
+    working_dir: /workspace
+    volumes:
+      - .:/workspace
+      - clasp-home:/root
+    entrypoint: ["clasp"]
+    command: ["--version"]
+
+volumes:
+  clasp-home:

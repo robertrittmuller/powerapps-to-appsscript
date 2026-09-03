@@ -46,3 +46,24 @@ jobs:
 
       - name: Real-app soak (convert + validate every sample)
         run: uv run python scripts/soak_check.py
+
+  # The packaged toolchain (Python + Node + clasp) must itself stay working
+  container:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build image
+        run: docker compose build pfx2gas
+
+      - name: Test suite in container
+        run: docker compose run --rm test
+
+      - name: CLI smoke — convert a fixture, validate it, syntax-check the .gs
+        run: |
+          docker compose run --rm pfx2gas convert tests/fixtures/fixtureB.msapp -o /workspace/.tmp-container-smoke
+          docker compose run --rm pfx2gas validate /workspace/.tmp-container-smoke
+          docker compose run --rm --entrypoint /bin/bash pfx2gas -c \
+            'cp /workspace/.tmp-container-smoke/Code.gs /tmp/c.js && node --check /tmp/c.js'
+          rm -rf .tmp-container-smoke
