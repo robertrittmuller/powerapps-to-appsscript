@@ -16,8 +16,8 @@ the code and the real-app corpus (10 apps, ~22k formulas) on this date.
 | Emitter↔runtime consistency (`scripts/check_runtime_consistency.py`) | pass |
 | Generated server code syntax | all `.gs` node --check clean (validated every soak app) |
 | Data layer | external sources → typed, sample-seeded Sheet tabs; collections → client-side state |
-| Deployed a converted app via clasp | **never done** (M4 open, clasp not installed) |
-| CI | **green** — [run #1](https://github.com/robertrittmuller/powerapps-to-appsscript/actions/runs/33702273235) (2026-09-02): all steps pass on ubuntu-latest |
+| Deployed a converted app via clasp | **done 2026-09-03** — HelpDesk live at a public web-app URL, 6 screens + 935 controls served (see §1) |
+| CI | green — pytest + JS + consistency + soak + container job + wrapper smoke |
 
 Plan milestones: M1–M3 done. M4 ("two real apps converted, deployed via clasp,
 report reviewed") is the only open milestone.
@@ -34,24 +34,22 @@ code ↔ static runtime contracts need a cross-check in CI, not just unit tests.
 
 ## Next up, in recommended order
 
-### 1. M4 — deploy a converted app end-to-end (highest value, needs you)
+### 1. ✅ M4 — deployed a converted app end-to-end (done 2026-09-03)
 
-Everything upstream of deployment is now verified; deployment is the single
-biggest untested boundary. "Validator PASS" has never been shown to equal
-"works in a browser". clasp runs **inside the project container** (no local
-install needed); its credentials persist in `.clasp-home/`.
+HelpDesk-2021.msapp → converted in the container → `clasp create` → push →
+`setup()` run once (created the workbook: 6 tabs + 44 seeded rows) → deployed
+@3 → **HTTP 200 from the live URL** with all 6 screens, 935 bound controls,
+8 input fields, runtime + FX stdlib inlined, 7 collections seeded client-side
+and 11 Sheet-backed sources refreshing. Runs at:
+`https://script.google.com/macros/s/AKfycbw0Dephn4Siz1ni6GVRfBiekfPWxWfOi9ARQgE0N6MKQDuVbMUI0ZEg-PQggDlR5tg7/exec`
 
-Next actions (you + me):
-1. `./pfx2gas clasp login --no-localhost` — open the printed Google URL in
-   your browser, authorize, paste the code back into the terminal.
-2. I convert helpdesk into `output/HelpDesk` (in-container), then
-   `clasp create` → `push --force` in the container.
-3. You run `setup()` once in the Apps Script editor (creates the workbook:
-   6 tabs + 44 seeded rows), I `clasp deploy` and we verify the web app URL:
-   navigation, galleries, the 56 text inputs, collection-backed screens.
-
-Acceptance: helpdesk usable in a browser from the deployed URL; gaps found
-during the smoke test filed as the next fix list. This unlocks the v0.1.0 tag.
+Deploy-hardening bugs found and fixed along the way (all with regression
+tests): `render_manifest` shipped invalid JSON (doubled braces) so clasp lost
+the webapp config + oauth scopes; `Index.html` called an `include()` helper
+that never existed in `Code.gs`; includes used bare names instead of the full
+`.js.html` filenames. Also documented: `clasp run` needs a standard GCP
+project (default clasp projects can't use it) — one-time `setup()` runs in the
+editor instead.
 
 ### 2. ✅ CI workflow (done 2026-09-02, run #1 green)
 

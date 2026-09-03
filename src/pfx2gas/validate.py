@@ -51,6 +51,8 @@ def validate_project(out_dir: str | Path) -> dict:
     gs = (out / "Code.gs").read_text() if (out / "Code.gs").exists() else ""
     if gs and "function doGet()" not in gs:
         problems.append("Code.gs has no doGet()")
+    if gs and "function include(name)" not in gs:
+        problems.append("Code.gs has no include() helper (Index.html templating needs it)")
 
     # The manifest is JSON and must actually parse — the Apps Script web-app
     # config and oauth scopes live here, and clasp silently tolerates junk.

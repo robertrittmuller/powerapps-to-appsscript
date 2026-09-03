@@ -642,12 +642,12 @@ def render_index_html(ir: AppIR, screens_html: str) -> str:
   <base target="_top">
 </head>
 <body>
-<?!= include('Screens'); ?>
+<?!= include('Screens.html'); ?>
 <script>
-<?!= include('gas-runtime'); ?>
-<?!= include('fx-stdlib'); ?>
-<?!= include('fx-charts'); ?>
-<?!= include('App'); ?>
+<?!= include('gas-runtime.js.html'); ?>
+<?!= include('fx-stdlib.js.html'); ?>
+<?!= include('fx-charts.js.html'); ?>
+<?!= include('App.js.html'); ?>
 </script>
 </body>
 </html>

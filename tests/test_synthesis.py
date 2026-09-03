@@ -2,6 +2,7 @@
 from pathlib import Path
 
 import pytest
+import re
 import subprocess
 import sys
 
@@ -70,6 +71,19 @@ def test_manifest_is_valid_json_with_webapp_config(ir_a, tmp_path):
     assert manifest["webapp"]["executeAs"] == "USER_DEPLOYING"
     assert manifest["webapp"]["access"] == "ANYONE_ANONYMOUS"
     assert any("spreadsheets" in s for s in manifest["oauthScopes"])
+
+
+def test_index_includes_are_resolvable(ir_a, tmp_path):
+    """Every file Index.html includes must exist, and Code.gs must define the
+    include() helper the server-side template scriptlets call."""
+    from pfx2gas.synth.build import synthesize
+
+    out = synthesize(ir_a, tmp_path / "FixtureA")
+    index = (out / "Index.html").read_text()
+    code = (out / "Code.gs").read_text()
+    assert "function include(name)" in code
+    for name in re.findall(r"include\('([^']+)'\)", index):
+        assert (out / name).exists(), f"Index.html includes missing file: {name}"
 
 
 def test_screens_contain_controls(ir_a, tmp_path):

@@ -34,6 +34,16 @@ function ss() {{
   return SpreadsheetApp.openById(id);
 }}
 
+/** HtmlService templating helper used by Index.html: inlines another project
+ *  file. The .js.html runtime files are stored WITH a <script> wrapper; strip
+ *  it so they can be nested inside Index's own <script> block safely. */
+function include(name) {{
+  var html = HtmlService.createHtmlOutputFromFile(name).getContent();
+  return html
+    .replace(/^\\s*<script>\\n?/, '')
+    .replace(/\\n?<\\/script>\\s*$/, '');
+}}
+
 function sheetFor(ds) {{
   var sh = ss().getSheetByName(ds);
   if (!sh) throw new Error('no sheet named ' + ds + '; run setup() again.');
