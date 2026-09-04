@@ -8,17 +8,18 @@ the code and the real-app corpus (10 apps, 23,746 formulas) on this date.
 
 | Check | Result |
 |---|---|
-| Python suite (`./pfx2gas test`) | 104 passed |
-| JS runtime suite (`./pfx2gas test`) | 47 passed, 0 fail |
+| Python suite (`./pfx2gas test`) | 112 passed |
+| JS runtime suite (`./pfx2gas test`) | 48 passed, 0 fail |
 | Formula translation on 10-app corpus | 23,724 / 23,746 translated (99.9%) |
 | Runtime wiring on 10-app corpus | 15,267 / 23,746 emitted (64.3%); 276 approximated |
 | Ignored/unsupported property formulas | 8,203 / 23,746 (34.5%; conservative emission ledger) |
-| Real-app soak (`./pfx2gas soak`) | **10/10 convert + validate + generated-app boot cleanly**; exact start screen, zero reference errors |
+| Real-app soak (`./pfx2gas soak`) | **10/10 Bootable**; exact start screen, zero startup runtime errors |
+| Compatibility benchmark | versioned 10-app archetype/journey catalog; per-app JSON + Markdown Bootable/Usable/High-fidelity scorecards |
 | Emitter↔runtime consistency (`scripts/check_runtime_consistency.py`) | pass |
 | Generated server code syntax | all `.gs` node --check clean (validated every soak app) |
 | Data layer | external sources → typed, sample-seeded Sheet tabs; collections → client-side state |
-| Deployed a converted app via clasp | **redeployed and inspected 2026-09-04** — HelpDesk @12 uses the current component/runtime/visual output and authenticated-user defaults (see §1) |
-| CI | green — pytest + JS + consistency + soak + container job + wrapper smoke |
+| Deployed a converted app via clasp | **redeployed and inspected 2026-09-04** — HelpDesk @12 contains the component/runtime/visual pass and authenticated-user defaults; the newer benchmark/nullable-field pass is locally verified but not redeployed |
+| CI | workflow covers pytest + JS + consistency + soak + container/wrapper smoke; benchmark JSON/Markdown are now upload artifacts |
 
 Plan milestones: M1–M3 done. M4 ("two real apps converted, deployed via clasp,
 report reviewed") is the only open milestone.
@@ -65,127 +66,205 @@ The first corrective pass is now implemented and regression-gated:
    sources, validate API payloads, and remove unneeded scopes. Acceptance: a
    default conversion cannot expose deployer-owned Sheet mutation anonymously.
 
-With these gates green, the next pass has started: every real generated app is
-now booted by the soak gate, and legacy component definitions are expanded into
-their actual child controls. Continue with interaction assertions over real
-apps, visual/deployed comparison, a modern app with real external data,
-data-layer scaling/correctness, control/chart/CSS parity, identity enrichment,
-and finally full-app LLM review.
+With these gates green, every real generated app is booted by the soak gate and
+legacy component definitions are expanded into their actual child controls.
+The project now moves from "can generate an app" to "can reliably produce a
+usable app across representative Power Apps archetypes."
+
+---
+
+## Architecture decision: expand LLM use, but not whole-app code generation
+
+The LLM should do more work, but it should not become the generator. Formula
+translation is already 23,724 / 23,746 (99.9%); the larger gap is that only
+15,267 formulas (64.3%) are wired into a runtime behavior or visual property.
+Asking a model to translate the remaining 22 formulas cannot solve missing
+forms, controls, connector semantics, media, responsive layout, or component
+behavior. Whole-app model-generated JavaScript would also make conversions
+non-reproducible and much harder to secure or regression-test.
+
+Use a deterministic-core / LLM-assurance design:
+
+| LLM role | May affect generated app? | Required gate |
+|---|---:|---|
+| Translate one otherwise unsupported formula | Yes, opt-in and ledgered `partial` | syntax check today; add symbol allowlist, context/type checks, isolated runtime test, and generated-app boot |
+| Review original Power Fx vs emitted JavaScript | No; report only | structured verdict with evidence and a concrete test suggestion |
+| Classify unsupported controls/properties and cluster corpus gaps | No; engineering artifact only | aggregate against the machine-readable fidelity ledger |
+| Compare original and converted screenshots/interactions | No; QA report only | deterministic screenshots, DOM/style facts, and reproducible steps accompany every finding |
+| Propose a new deterministic mapping and regression test | No direct write to converted output | developer-reviewed rule/runtime/test change must pass the full corpus |
+| Generate an entire replacement app or freely rewrite generated files | **No** | prohibited; deterministic synthesis remains the source of truth |
+
+The coverage flywheel is: cluster real corpus gaps → have the LLM explain the
+Power Apps semantics and suggest tests → implement a deterministic mapping →
+run unit, startup, interaction, visual, and deployed gates → permanently reduce
+the gap for every future app. A conversion must remain reproducible with
+`--no-llm`; LLM fallback is an explicit enhancement, never the only path to a
+usable baseline.
+
+---
+
+## Current deployment evidence
+
+HelpDesk-2021.msapp is deployed as @12 with component expansion, HtmlText
+interiors, dynamic MENU navigation, and the visual/runtime pass that preceded
+the new benchmark work:
+`https://script.google.com/macros/s/AKfycbwbyTp89b-J_KEQ9N9wAf0OdJ8faH3k5gwAj_K1ToUFjaDPf8X35VBEnFQvfu5f2OJH/exec`
+
+A live Chrome pass verified HOME rendering, HOME → NEW → HOME navigation, and a
+record-valued Category dropdown displaying `IT` rather than `[object Object]`.
+The HOME audit found 49 visible controls, zero private-use icon glyphs, only the
+intended search-input border, and no generated-app warning/error. The manifest
+requires a signed-in user and executes as that user (`ANYONE` /
+`USER_ACCESSING`) with only the Sheets scope. A second representative deployment
+is still required to close M4.
+
+The deployed review produced regression gates for RGBA alpha, content-box
+sizing, canvas offset, line-height, point-based font sizes, border color/style,
+legacy alignment/weight enums, dynamic image sources, cross-platform icons, and
+record-valued dropdown labels. Deployment plumbing is also gated: valid
+manifest JSON, the server `include()` helper, full `.js.html` include names, and
+generated `.gs` syntax.
 
 ---
 
 ## Next up, in recommended order
 
-### 1. ⏳ M4 — first deployment complete; second app still required
+### 1. P0 — compatibility benchmark and quality tiers (foundation complete)
 
-HelpDesk-2021.msapp → converted in the container → pushed to the existing Apps
-Script project → deployed @12 on 2026-09-04 with component expansion, HtmlText
-interiors, dynamic MENU navigation, and the current runtime. A live Chrome pass
-verified HOME rendering and HOME → NEW navigation, including a record-valued
-Category dropdown displaying `IT` rather than `[object Object]`. The manifest now
-requires a signed-in user and executes as that user (`ANYONE` /
-`USER_ACCESSING`) with only the Sheets scope. Runs at:
-`https://script.google.com/macros/s/AKfycbwbyTp89b-J_KEQ9N9wAf0OdJ8faH3k5gwAj_K1ToUFjaDPf8X35VBEnFQvfu5f2OJH/exec`
+Implemented in the first priority pass: `benchmark/apps.json` now classifies
+all 10 current apps by archetype and declares a critical journey for each;
+`./pfx2gas soak` publishes machine-readable and reviewable scorecards under
+`.artifacts/benchmark/`; CI uploads both artifacts. The generated-app simulator
+now uses the data that `setup()` would seed, treats every startup console error
+as a Bootable failure, and can run declarative click/change/screen/text/state
+journeys. HelpDesk HOME → NEW → HOME is the first passing automated real-app
+journey. The current honest result is **10 Bootable, 0 Usable, 0 High fidelity**:
+all 10 higher-tier results remain `unassessed` until their complete journey and
+visual evidence exists.
 
-The earlier @3 anonymous/deployer-owned deployment is retained only as
-historical evidence and should not be used for current testing. The second
-representative-app deployment remains the open part of M4.
+The stricter gate exposed two previously hidden blank-record crashes in SVG App
+and Wordle. Nullable Power Fx field reads now compile through a deterministic
+`FX.field` helper (Blank instead of a JavaScript exception), with unit and full
+corpus regression coverage.
 
-Deploy-hardening bugs found and fixed along the way (all with regression
-tests): `render_manifest` shipped invalid JSON (doubled braces) so clasp lost
-the webapp config + oauth scopes; `Index.html` called an `include()` helper
-that never existed in `Code.gs`; includes used bare names instead of the full
-`.js.html` filenames. Also documented: `clasp run` needs a standard GCP
-project (default clasp projects can't use it) — one-time `setup()` runs in the
-editor instead.
+Expand the corpus from 10 examples to a versioned benchmark of at least 25–30
+apps spanning: CRUD/forms, dashboards/charts, galleries/search/filter, approval
+workflows, media/attachments, responsive containers, reusable components,
+role-based experiences, and offline/collection-heavy apps. Include both modern
+`pa.yaml` and legacy exports, simple and complex apps, and different source
+connectors.
 
-Visual bugs found by inspecting the deployed app and fixed in the deterministic
-renderer (all regression-gated): RGBA alpha was discarded, making transparent
-fills solid black; content-box sizing inflated positioned controls; body padding
-shifted the canvas; `LineHeight` was emitted as pixels; Power Apps font sizes
-were emitted as CSS pixels rather than points; `BorderColor` was never written
-and `BorderStyle.None` was not recognized; bare legacy alignment/weight enums
-were ignored; `User().Image` was not bound to image `src`; Windows private-use
-icon glyphs rendered as boxes on macOS; and record-valued dropdown choices
-rendered as `[object Object]`. The current deployed HOME audit found 49 visible
-controls, zero private-use icon glyphs, and only the intended search-input
-border. Browser logs contained no generated-app warning/error.
+For every app, record three separate outcomes instead of one "converted" flag:
 
-### 2. ✅ CI workflow (done 2026-09-02, run #1 green)
+- **Bootable:** validates, starts on the correct screen, and has no startup
+  runtime errors.
+- **Usable:** all declared critical user journeys complete against the Google
+  data layer without unsupported behavior.
+- **High fidelity:** visual/interaction comparisons stay within explicit
+  tolerances and every difference is ledgered.
 
-`.github/workflows/ci.yml` runs on every push to main and every PR: Python
-suite, JS runtime suite, emitter↔runtime consistency gate, then the real-app
-soak against 5 modern-format samples fetched fresh from the public source repo
-(`scripts/fetch_samples.py` — zip-integrity-checked, cached, retried). Legacy
-apps stay covered by the committed synthetic fixtures.
+Remaining acceptance work: expand to 25–30 representative licensed exports,
+automate every required journey, add deterministic visual baselines/tolerances,
+and persist cross-run regression history. No aggregate percentage may hide a
+broken critical workflow.
 
-Regression-class bugs (like the emitter↔runtime drift) now fail CI instead of
-surfacing in a converted app.
+### 2. P0 — usable-app primitives: forms, records, tables, and media
 
-### 3. ⏳ Component-template emulation (in progress)
+Implement the features most likely to turn a bootable conversion into a usable
+business app:
 
-The 37 first-party component instances in the corpus no longer render as empty
-divs. The legacy adapter reads `ComponentsMetadata.json` and `Components/*.json`,
-inlines each definition's child tree under its instance, namespaces child
-controls, and binds component inputs plus `Self`/`Parent`/control references.
-Static HtmlText markup now renders after executable markup is removed, so the
-HelpDesk MENU, TILES1/TILES2, and BUSCADOR visuals have real interiors; Clean
-UI's horizontal/vertical progress bars have reactive child geometry, fill, and
-text. Menu screen-valued inputs and `App.ActiveScreen` now generate working
-dynamic navigation instead of invalid dotted screen-name strings.
+- full `SubmitForm` semantics: DataCard value collection, required validation,
+  create vs update, reset, `OnSuccess`, `OnFailure`, and `LastSubmit`;
+- selected-record semantics for Dropdown/ComboBox/ListBox/DataTable/Gallery,
+  including display/search fields and multi-select;
+- editable DataTable and gallery patterns, validation messages, and error state;
+- packaged media/resource extraction, attachments backed by Drive, and image
+  fallbacks that distinguish "no image" from a failed asset;
+- explicit unsupported handling for camera, signature, barcode, and other input
+  types until their Google equivalents exist.
 
-Remaining actions: turn the live HOME → NEW smoke into an automated real-sample
-click assertion for every HelpDesk menu target and add numeric/style assertions
-for Clean UI progress bars; compare rendered screens side-by-side with the
-originals; then cover component output properties and modern pa.yaml component
-definitions. Acceptance: interaction assertions and visual comparison pass for
-HelpDesk navigation/tiles and Clean UI progress bars. One deployed smoke on the
-regenerated output now passes.
+Acceptance: benchmark apps can create, view, edit, validate, and delete records;
+reload preserves data; attachment/media paths work; the report identifies any
+control that prevents a critical journey.
 
-### 4. Modern pa.yaml app with real external data (corpus gap)
+### 3. P0 — Google-native data and connector adapters
 
-All data-bearing corpus apps are legacy binary format. The Sheet-backed data
-layer for modern Studio exports (the most common real-world case: pa.yaml +
-SharePoint list) is exercised only by synthetic fixtures.
+Separate formula/control conversion from source migration through a typed
+adapter contract. Keep Sheets as the default table store, then add Drive for
+files/attachments and optional Workspace adapters for Gmail, Calendar, and
+Directory. Define explicit mappings for SharePoint/Dataverse/Excel concepts:
+choice, lookup, person, attachment, calculated, date/time, permissions, and
+row identity. Do not silently flatten unsupported types.
 
-Next actions: export one of your own apps backed by a real SharePoint list /
-Excel table into `samples/real/`; run the soak + deploy flow on it.
-Acceptance: CRUD against the real list works through the Sheet layer; report
-fields match the list columns.
+Add a real modern `pa.yaml` app backed by SharePoint or Excel to the benchmark,
+convert it to the appropriate Google adapters, and make it the second deployed
+app required by M4.
 
-### 5. User() enrichment (small, in progress)
+Acceptance: schema/choice/lookup metadata round-trips, CRUD works after reload,
+permissions follow the selected execution identity, and connector-specific
+losses appear in the fidelity report.
 
-`whoami()` now derives a display name from the email local part when Apps Script
-exposes the active user's email, and a neutral avatar placeholder replaces the
-broken image state. `pictureUrl` remains unavailable, and the current deployed
-environment returned a blank active-user email, so its header name is still
-empty.
+### 4. P1 — visual, component, and responsive equivalence lab
 
-Next actions: optionally use the Directory API on Workspace accounts and
-document both domain-policy and consumer-account limitations. Acceptance:
-header shows a sensible name for the deployed app when identity is available.
+Turn the HelpDesk inspection process into repeatable tooling:
 
-### 6. LLM review seams at scale (medium, needs configured `.env`)
+- capture the original and converted app at the same viewport, screen, data,
+  and interaction state;
+- compare bounding boxes, typography, colors, borders, visibility, images,
+  scroll regions, and screenshots;
+- automate all HelpDesk menu targets and Clean UI progress-bar geometry/styles;
+- finish component outputs and modern `pa.yaml` component definitions;
+- implement theme tokens, responsive/reflow formulas, nested containers, chart
+  series/legends, gallery template size/padding/wrap, and transitions by measured
+  corpus impact.
 
-Behavioral-equivalence review and QA-scenario authoring have run 16 times ever.
-They're the project's answer to "the transpiler says converted, is it *right*?"
-and have never been exercised on a full real app.
+An LLM vision review may prioritize and describe mismatches, but the evidence is
+the deterministic screenshot/DOM/style diff and the fix remains a generator or
+runtime rule.
 
-Next actions: full `pfx2gas convert samples/real/helpdesk.msapp` (no
-`--no-llm`) with the OpenRouter config; triage the review findings; feed
-confirmed issues back into the function map / emitter.
-Acceptance: review table populated for a real app; every high-risk finding
-either fixed or documented.
+Acceptance: every benchmark critical screen has a reproducible visual baseline;
+pixel/geometry thresholds fail CI; intended approximations are allowlisted and
+ledgered rather than hidden.
 
-### 7. Parity tail (P2, opportunistic)
+### 5. P1 — guarded LLM coverage and review at scale
 
-Known, documented, lower stakes — pick up as user demand appears:
-- Ignored props: `LayoutMode` x81, form semantics (`DataField`/`Update`/
-  `Required`/`DisplayName` x11 each), chart series styling (`barMaxValue`,
-  `ItemColorSet`, `Explode`), `TemplateSize`, `WrapCount`, `Transition`.
-- App theme/typography (clean system stylesheet instead), responsive reflow.
-- Delegation: server-side filtering for tabs > ~5k rows.
-- Power Automate flows: still out of scope, flagged only.
+Run behavioral-equivalence review and QA-scenario generation on full real apps,
+starting with HelpDesk. Improve the single-formula fallback before expanding
+its use: provide typed control/data/source context, reject symbols outside the
+generated capability surface, distinguish pure value expressions from mutation
+handlers, execute isolated test cases, cache by prompt/model/source hash, and
+record full provenance and confidence.
+
+Add an LLM gap-triage report that clusters the fidelity ledger by business
+impact and proposes deterministic rule/test work. Never let model confidence
+change a fidelity status to `emitted` or `full`; only runtime wiring and passing
+evidence can do that.
+
+Acceptance: every high-risk LLM review finding is fixed, converted into a
+regression test, or explicitly accepted; every LLM formula fallback is
+allowlist-clean, syntax-clean, boot-tested, provenance-recorded, and still
+reported as partial until its relevant journey passes.
+
+### 6. P1 — scale, security, and identity
+
+Add server-side filtering/sorting/pagination for data beyond the current ~5k-row
+whole-tab guidance, optimistic concurrency/version checks, batched writes,
+quota telemetry, and retry/error UX. Validate least-privilege scopes per
+adapter. Complete `User()` with documented Workspace Directory support when
+the deployment/domain exposes identity; retain safe name/avatar fallbacks when
+it does not.
+
+Acceptance: large-table benchmark journeys stay within Apps Script quotas,
+concurrent edits do not silently overwrite data, and generated scopes/identity
+behavior match the report.
+
+### 7. P2 — measured compatibility tail
+
+Prioritize the remaining controls, properties, Power Fx functions, delegation
+patterns, and Power Automate replacements by frequency × critical-journey
+impact in the expanded benchmark. Power Automate flows remain out of scope
+until a workflow target and migration contract are explicitly designed; they
+must continue to be flagged rather than dropped.
 
 ---
 
@@ -193,12 +272,13 @@ Known, documented, lower stakes — pick up as user demand appears:
 
 | Step | Item | Effort | Depends on |
 |---|---|---|---|
-| 1 | Correctness gates 1–5 above | medium | — |
-| 2 | ✅ Generated-app boot matrix + strict-fidelity CI fixture; expand interaction coverage | medium | 1 |
-| 3 | ⏳ Legacy component expansion landed; finish interaction + visual/deploy evidence | large | 1–2 |
-| 4 | Real modern data app into soak + second deployment (#4/M4) | medium + your export | 1–2, you |
-| 5 | Data scaling, control/chart/CSS parity | ongoing | 2 |
-| 6 | User() enrichment, then LLM review at scale | small / medium | authenticated deployment, .env |
+| 0 | ✅ Correctness, secure defaults, startup/consistency gates, first deployed visual smoke | complete | — |
+| 1 | ⏳ Compatibility benchmark and three-tier scorecard foundation complete; corpus/journey/visual/history expansion remains | medium | representative app exports |
+| 2 | Forms/DataCards, selected records, tables, media, and attachments | large | 1 |
+| 3 | Typed Google adapter layer + modern real-data app + second deployment/M4 | large | 1–2, representative data app |
+| 4 | Automated interaction and visual-equivalence lab; component/responsive/chart parity | large/ongoing | 1 |
+| 5 | Guarded LLM review/fallback and gap-to-deterministic-rule flywheel | medium/ongoing | 1 and the existing safety gates |
+| 6 | Pagination/concurrency/quota hardening, least privilege, and identity enrichment | medium/large | 3 |
 
 ---
 

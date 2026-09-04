@@ -40,6 +40,13 @@
     concatStr: function (a, b) {
       return (a == null ? '' : String(a)) + (b == null ? '' : String(b));
     },
+    // Power Fx treats a field read from Blank()/a missing record as Blank.
+    // Raw JavaScript member access throws instead, so emitted nullable reads
+    // route through this helper.
+    field: function (record, key) {
+      if (record == null) return null;
+      return record[key] === undefined ? null : record[key];
+    },
     contains: function (needle, haystack) {
       if (Array.isArray(haystack)) return haystack.indexOf(needle) >= 0;
       return String(haystack).indexOf(String(needle)) >= 0;

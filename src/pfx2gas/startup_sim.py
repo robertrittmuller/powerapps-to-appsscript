@@ -7,6 +7,7 @@ the expected start screen must become the only visible screen.
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import tempfile
 from pathlib import Path
@@ -23,6 +24,8 @@ function makeEl(tag, attrs) {
     setAttribute(k, v) { attrs[k] = String(v); },
     removeAttribute(k) { delete attrs[k]; },
     addEventListener(ev, fn) { (this.listeners[ev] = this.listeners[ev] || []).push(fn); },
+    click() { (this.listeners.click || []).forEach(fn => fn()); },
+    change() { (this.listeners.change || []).forEach(fn => fn()); },
     appendChild(c) { this.children.push(c); },
     querySelector() { return null; },
     querySelectorAll(sel) {
@@ -58,6 +61,10 @@ global.document = {
 global.window = global;
 global.console.error = (...a) => { consoleErrors.push(a.map(String).join(' ').slice(0, 240)); };
 global.console.warn = () => {};
+// Stable randomness makes startup evidence repeatable. Apps still exercise the
+// same Rand/RandBetween code path, but select the first eligible sample row.
+Math.random = () => 0;
+const serverData = __SERVER_DATA__;
 let handlers = {};
 const runner = new Proxy({}, {
   get(_t, prop) {
@@ -70,6 +77,31 @@ const runner = new Proxy({}, {
         if (String(prop) === 'whoami') {
           if (ok) ok({ email: '', fullName: '', pictureUrl: '' });
           return;
+        }
+        if (String(prop) === 'api') {
+          const ds = args[0], op = args[1], payload = args[2] || {};
+          const rows = serverData[ds] || (serverData[ds] = []);
+          if (op === 'list') { if (ok) ok(JSON.parse(JSON.stringify(rows))); return; }
+          if (op === 'create') { rows.push(payload.record || {}); if (ok) ok({ok: true}); return; }
+          if (op === 'patch') {
+            const base = payload.base || {}, record = payload.record || {};
+            const found = rows.find(row => base.id != null && String(row.id) === String(base.id));
+            if (found) Object.assign(found, record); else rows.push(record);
+            if (ok) ok({ok: true}); return;
+          }
+          if (op === 'remove') {
+            const id = payload.record && payload.record.id;
+            const index = rows.findIndex(row => id != null && String(row.id) === String(id));
+            if (index >= 0) rows.splice(index, 1);
+            if (ok) ok({ok: index >= 0}); return;
+          }
+          if (op === 'removeIf') {
+            const ids = (payload.ids || []).map(String);
+            for (let i = rows.length - 1; i >= 0; i--) {
+              if (ids.includes(String(rows[i].id))) rows.splice(i, 1);
+            }
+            if (ok) ok({ok: true}); return;
+          }
         }
         if (ok) ok([]);
       }, 0);
@@ -99,12 +131,76 @@ while ((cm = ctrlRe.exec(screensSrc)) !== null) {
 (0, eval)(__APP__);
 global.__domReady();
 
-setTimeout(() => {
+function visibleScreens() {
+  return Object.values(elements)
+    .filter(e => e.attrs['data-screen'] && (!e.style.display || e.style.display === ''))
+    .map(e => e.attrs['data-screen']);
+}
+function pause(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
+
+async function runJourneys(journeys) {
+  const results = [];
+  for (const journey of journeys) {
+    const result = { id: journey.id, status: 'pass', steps: [] };
+    const errorsBefore = consoleErrors.length;
+    try {
+      for (const step of journey.steps || []) {
+        if (step.action === 'click' || step.action === 'change') {
+          const el = elements['ctrl:' + step.control];
+          if (!el) throw new Error('control not found: ' + step.control);
+          el[step.action]();
+          await pause(30);
+        } else if (step.action === 'expectScreen') {
+          const actual = visibleScreens();
+          if (actual.length !== 1 || actual[0] !== step.screen) {
+            throw new Error('expected screen ' + step.screen + ', got ' + JSON.stringify(actual));
+          }
+        } else if (step.action === 'expectText') {
+          const el = elements['ctrl:' + step.control];
+          const actual = el ? String(el.textContent) : null;
+          if (actual !== String(step.equals)) {
+            throw new Error('expected ' + step.control + ' text ' + JSON.stringify(step.equals)
+              + ', got ' + JSON.stringify(actual));
+          }
+        } else if (step.action === 'expectState') {
+          const actual = FXRuntime.state[step.key];
+          if (JSON.stringify(actual) !== JSON.stringify(step.equals)) {
+            throw new Error('expected state.' + step.key + '=' + JSON.stringify(step.equals)
+              + ', got ' + JSON.stringify(actual));
+          }
+        } else {
+          throw new Error('unsupported journey action: ' + step.action);
+        }
+        result.steps.push({ action: step.action, status: 'pass' });
+      }
+      if (consoleErrors.length > errorsBefore) {
+        throw new Error('runtime errors: ' + consoleErrors.slice(errorsBefore).join('; '));
+      }
+    } catch (err) {
+      result.status = 'fail';
+      result.error = String(err && err.message ? err.message : err);
+    }
+    results.push(result);
+  }
+  return results;
+}
+
+setTimeout(async () => {
+  const startupVisible = visibleScreens();
+  const startupConsoleErrors = consoleErrors.slice();
+  const journeyResults = await runJourneys(__JOURNEYS__);
   const visible = Object.values(elements)
     .filter(e => e.attrs['data-screen'] && (!e.style.display || e.style.display === ''))
     .map(e => e.attrs['data-screen']);
-  const refErrors = consoleErrors.filter(e => e.includes('is not defined'));
-  console.log(JSON.stringify({ visible, refErrors, consoleErrors }));
+  const refErrors = startupConsoleErrors.filter(e => e.includes('is not defined'));
+  console.log(JSON.stringify({
+    visible: startupVisible,
+    finalVisible: visible,
+    refErrors,
+    consoleErrors: startupConsoleErrors,
+    allConsoleErrors: consoleErrors,
+    journeyResults,
+  }));
   process.exit(0);
 }, 120);
 """
@@ -117,15 +213,45 @@ def _script_body(path: Path) -> str:
     return text
 
 
-def simulate_project(out_dir: str | Path) -> dict:
-    """Execute one generated project and return its observed startup state."""
+def _seeded_server_data(out: Path) -> dict[str, list[dict]]:
+    """Read the rows setup() would create, for a faithful server API shim."""
+    source = (out / "DataInit.gs").read_text()
+    match = re.search(r"\bvar specs = (.*?);\n\s*specs\.forEach", source, re.DOTALL)
+    if not match:
+        return {}
+    specs = json.loads(match.group(1))
+    seeded: dict[str, list[dict]] = {}
+    for spec in specs:
+        headers = [field[0] for field in spec.get("fields", [])]
+        seeded[spec["name"]] = [
+            {
+                header: row[index] if index < len(row) else ""
+                for index, header in enumerate(headers)
+            }
+            for row in spec.get("rows", [])
+        ]
+    return seeded
+
+
+def simulate_project(
+    out_dir: str | Path, journeys: list[dict] | None = None
+) -> dict:
+    """Execute generated code and optionally exercise declarative journeys.
+
+    Supported journey actions are ``click``, ``change``, ``expectScreen``,
+    ``expectText``, and ``expectState``.  The returned ``visible`` and
+    ``consoleErrors`` fields are startup snapshots, so later interaction
+    failures do not get misreported as a failure to boot.
+    """
     out = Path(out_dir)
     sim = (SIM_TEMPLATE
            .replace("__SCREENS__", json.dumps((out / "Screens.html").read_text()))
            .replace("__FX__", json.dumps(_script_body(out / "fx-stdlib.js.html")))
            .replace("__CHARTS__", json.dumps(_script_body(out / "fx-charts.js.html")))
            .replace("__RT__", json.dumps(_script_body(out / "gas-runtime.js.html")))
-           .replace("__APP__", json.dumps(_script_body(out / "App.js.html"))))
+           .replace("__APP__", json.dumps(_script_body(out / "App.js.html")))
+           .replace("__SERVER_DATA__", json.dumps(_seeded_server_data(out)))
+           .replace("__JOURNEYS__", json.dumps(journeys or [])))
     sim_path = Path(tempfile.mkdtemp()) / "startup-sim.js"
     sim_path.write_text(sim)
     result = subprocess.run(

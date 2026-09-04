@@ -1,0 +1,152 @@
+{
+  "schemaVersion": 1,
+  "apps": {
+    "clean-ui": {
+      "displayName": "Clean UI",
+      "archetypes": ["component-library", "responsive-layout"],
+      "journeyCoverage": "none",
+      "visualCoverage": "none",
+      "criticalJourneys": [
+        {
+          "id": "render-component-gallery",
+          "description": "Open the component gallery and verify every component has visible content.",
+          "required": true
+        }
+      ]
+    },
+    "containers-guide": {
+      "displayName": "Containers Guide",
+      "archetypes": ["responsive-layout", "nested-containers"],
+      "journeyCoverage": "none",
+      "visualCoverage": "none",
+      "criticalJourneys": [
+        {
+          "id": "resize-layout",
+          "description": "Resize the viewport and verify nested containers reflow without overlap or clipping.",
+          "required": true
+        }
+      ]
+    },
+    "editable-grid": {
+      "displayName": "Editable Grid",
+      "archetypes": ["crud", "editable-table", "gallery"],
+      "source": "sunilshetty07/Microsoft-PowerApps-Canvas",
+      "journeyCoverage": "none",
+      "visualCoverage": "none",
+      "criticalJourneys": [
+        {
+          "id": "edit-grid-row",
+          "description": "Edit a row, save it, reload the app, and verify the persisted value.",
+          "required": true
+        }
+      ]
+    },
+    "expandable-nav": {
+      "displayName": "Expandable Navigation",
+      "archetypes": ["navigation", "component-library", "responsive-layout"],
+      "source": "sunilshetty07/Microsoft-PowerApps-Canvas",
+      "journeyCoverage": "none",
+      "visualCoverage": "none",
+      "criticalJourneys": [
+        {
+          "id": "expand-and-navigate",
+          "description": "Expand the navigation menu, select each destination, and return to the start screen.",
+          "required": true
+        }
+      ]
+    },
+    "helpdesk": {
+      "displayName": "HelpDesk",
+      "archetypes": ["crud", "forms", "dashboard", "gallery", "reusable-components"],
+      "journeyCoverage": "partial",
+      "visualCoverage": "none",
+      "criticalJourneys": [
+        {
+          "id": "home-new-home",
+          "description": "Navigate from HOME to NEW with the menu and return with the back button.",
+          "required": true,
+          "steps": [
+            {"action": "expectScreen", "screen": "HOME"},
+            {"action": "click", "control": "MENU_1__link2"},
+            {"action": "expectScreen", "screen": "NEW"},
+            {"action": "click", "control": "btnBack"},
+            {"action": "expectScreen", "screen": "HOME"}
+          ]
+        },
+        {
+          "id": "create-ticket",
+          "description": "Create a valid ticket, reload, and verify it appears in the ticket list.",
+          "required": true
+        }
+      ]
+    },
+    "modern-card": {
+      "displayName": "Modern Card Control",
+      "archetypes": ["modern-controls", "component-library"],
+      "source": "sunilshetty07/Microsoft-PowerApps-Canvas",
+      "journeyCoverage": "none",
+      "visualCoverage": "none",
+      "criticalJourneys": [
+        {
+          "id": "exercise-card-actions",
+          "description": "Render the card and exercise each visible action without runtime errors.",
+          "required": true
+        }
+      ]
+    },
+    "sentiment-feedback": {
+      "displayName": "Sentiment Analysis Feedback",
+      "archetypes": ["form", "connector-workflow", "feedback"],
+      "source": "sunilshetty07/Microsoft-PowerApps-Canvas",
+      "journeyCoverage": "none",
+      "visualCoverage": "none",
+      "criticalJourneys": [
+        {
+          "id": "submit-feedback",
+          "description": "Submit feedback and verify the result or an explicit unsupported-connector state.",
+          "required": true
+        }
+      ]
+    },
+    "svg-app": {
+      "displayName": "SVG App",
+      "archetypes": ["media", "svg", "dynamic-images"],
+      "source": "sunilshetty07/Microsoft-PowerApps-Canvas",
+      "journeyCoverage": "none",
+      "visualCoverage": "none",
+      "criticalJourneys": [
+        {
+          "id": "render-svg-states",
+          "description": "Exercise each state and verify generated SVG images render rather than breaking.",
+          "required": true
+        }
+      ]
+    },
+    "tic-tac-toe": {
+      "displayName": "Tic Tac Toe",
+      "archetypes": ["state-heavy", "game", "collections"],
+      "journeyCoverage": "none",
+      "visualCoverage": "none",
+      "criticalJourneys": [
+        {
+          "id": "complete-game",
+          "description": "Play a complete game, verify win/draw state, and reset the board.",
+          "required": true
+        }
+      ]
+    },
+    "wordle": {
+      "displayName": "Wordle",
+      "archetypes": ["state-heavy", "game", "collections", "keyboard-input"],
+      "journeyCoverage": "none",
+      "visualCoverage": "none",
+      "criticalJourneys": [
+        {
+          "id": "complete-word-round",
+          "description": "Enter guesses, verify tile/keyboard states, complete a round, and restart.",
+          "required": true
+        }
+      ]
+    }
+  }
+}

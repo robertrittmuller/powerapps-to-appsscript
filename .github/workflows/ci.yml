@@ -45,7 +45,19 @@ jobs:
         run: uv run python scripts/fetch_samples.py
 
       - name: Real-app soak (convert + validate every sample)
+        env:
+          PFX2GAS_SOAK_OUT: ${{ github.workspace }}/.artifacts/benchmark
         run: uv run python scripts/soak_check.py
+
+      - name: Publish compatibility benchmark scorecard
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: compatibility-benchmark
+          path: |
+            .artifacts/benchmark/benchmark-scorecard.json
+            .artifacts/benchmark/benchmark-scorecard.md
+          if-no-files-found: error
 
   # The packaged toolchain (Python + Node + clasp) must itself stay working
   container:

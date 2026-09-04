@@ -43,7 +43,7 @@ container automatically:
 ./pfx2gas build    # re-run this after changing converter source (code is baked into the image)
 ./pfx2gas convert ~/Apps/YourApp.msapp -o ~/Apps/output/YourApp  # any paths
 ./pfx2gas test                                                   # full suite
-./pfx2gas soak                                                   # real-app soak
+./pfx2gas soak                                                   # real-app benchmark + scorecard
 
 # deployment (credentials persist in .clasp-home/):
 ./pfx2gas clasp login --no-localhost                             # once
@@ -283,8 +283,24 @@ legacy binary-`.msapp` format via adapter.
 ```bash
 ./pfx2gas build  # required after src/ or static/ changes
 ./pfx2gas test   # Python + JS + runtime consistency
-./pfx2gas soak   # convert + validate every real sample
+./pfx2gas soak   # convert, validate, boot, exercise journeys, write scorecards
 ```
+
+The soak run writes `.artifacts/benchmark/benchmark-scorecard.json` and
+`.artifacts/benchmark/benchmark-scorecard.md`. It reports three independent
+quality tiers per app:
+
+- **Bootable** requires a valid generated project, the exact start screen, and
+  zero startup runtime errors.
+- **Usable** requires complete passing evidence for every declared critical
+  user journey; otherwise it remains `unassessed`.
+- **High fidelity** requires complete deterministic visual comparisons within
+  explicit tolerances; otherwise it remains `unassessed`.
+
+The versioned app/archetype and journey catalog is in `benchmark/apps.json`.
+CI publishes both scorecards as the `compatibility-benchmark` artifact. A
+passing boot check is deliberately never promoted into a usability or visual
+claim.
 
 The test fixtures are synthetic `.msapp` files built by
 `tests/fixtures/build.py` (A: navigation/state, B: data sources + gallery,

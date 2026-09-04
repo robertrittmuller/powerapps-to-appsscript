@@ -154,7 +154,13 @@ EDITORSTATE_YAML = """EditorState:
 def _write_msapp(path: Path, files: dict[str, str]) -> None:
     with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as zf:
         for arcname, content in files.items():
-            zf.writestr(arcname, content)
+            # Keep tracked binary fixtures byte-stable across test runs. ZIP's
+            # filename-only writestr overload otherwise embeds the wall clock.
+            info = zipfile.ZipInfo(arcname, date_time=(2026, 9, 4, 15, 46, 4))
+            info.compress_type = zipfile.ZIP_DEFLATED
+            info.create_system = 3
+            info.external_attr = 0o600 << 16
+            zf.writestr(info, content)
 
 
 def build_fixtures() -> None:

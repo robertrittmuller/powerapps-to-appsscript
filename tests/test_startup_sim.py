@@ -182,3 +182,43 @@ def test_fixture_b_startup_clean():
     assert verdict["refErrors"] == [], f"ReferenceErrors at startup: {verdict['refErrors']}"
     assert verdict["visible"] == ["Screen1"], verdict
     assert verdict["totalConsoleErrors"] == 0, verdict
+
+
+def test_shared_simulator_runs_declarative_critical_journey(tmp_path):
+    """The soak runner uses the same generated-app interaction evidence."""
+    from pfx2gas.analyze import analyze
+    from pfx2gas.parse import parse
+    from pfx2gas.startup_sim import simulate_project
+    from pfx2gas.synth.build import synthesize
+    from pfx2gas.unpack import unpack
+
+    out = synthesize(
+        analyze(parse(unpack(FIXTURES / "fixtureA.msapp"))), tmp_path / "Sim"
+    )
+    verdict = simulate_project(out, [{
+        "id": "next-and-back",
+        "steps": [
+            {"action": "expectScreen", "screen": "Screen1"},
+            {"action": "expectText", "control": "Label1", "equals": "Hello"},
+            {"action": "click", "control": "Button1"},
+            {"action": "expectState", "key": "counter", "equals": 2},
+            {"action": "expectScreen", "screen": "Screen2"},
+            {"action": "click", "control": "ButtonBack"},
+            {"action": "expectScreen", "screen": "Screen1"},
+        ],
+    }])
+    assert verdict["visible"] == ["Screen1"]
+    assert verdict["consoleErrors"] == []
+    assert verdict["journeyResults"] == [{
+        "id": "next-and-back",
+        "status": "pass",
+        "steps": [
+            {"action": "expectScreen", "status": "pass"},
+            {"action": "expectText", "status": "pass"},
+            {"action": "click", "status": "pass"},
+            {"action": "expectState", "status": "pass"},
+            {"action": "expectScreen", "status": "pass"},
+            {"action": "click", "status": "pass"},
+            {"action": "expectScreen", "status": "pass"},
+        ],
+    }]

@@ -99,8 +99,12 @@ def test_filter_lambda():
 
 def test_lookup_chain():
     assert js("LookUp(Tasks, Id = 5).Name") == (
-        "FX.lookUp(state.Tasks, (item) => FX.eq(item.id, 5)).name"
+        "FX.field(FX.lookUp(state.Tasks, (item) => FX.eq(item.id, 5)), 'name')"
     )
+
+
+def test_nullable_record_field_read_uses_power_fx_blank_semantics():
+    assert js("profile.Name") == "FX.field(state.profile, 'name')"
 
 
 def test_sum():

@@ -148,7 +148,9 @@ class Emitter:
             if base in self.control_names or base[0].isupper():
                 # Control.Property reference -> val('Ctrl').prop
                 return f"val({_q(base)}).{_snake(rest)}"
-            return f"state.{base}.{_snake(rest)}"
+            # Power Fx returns Blank for a field read from a blank/missing
+            # record; raw JS member access would crash the generated app.
+            return f"FX.field(state.{base}, {_q(_snake(rest))})"
         # bare identifier: inside a per-row lambda, Capitalized names are row
         # fields (unless they reference a control); lowercase are app state.
         if self.in_row and name not in self.control_names:
@@ -159,7 +161,7 @@ class Emitter:
         target = node.children[0]
         if target.kind == "ident":
             return self.ident(f"{target.value}.{node.value}")
-        return f"{self.expr(target)}.{_snake(str(node.value))}"
+        return f"FX.field({self.expr(target)}, {_q(_snake(str(node.value)))})"
 
     def binary(self, node) -> str:
         op = node.value

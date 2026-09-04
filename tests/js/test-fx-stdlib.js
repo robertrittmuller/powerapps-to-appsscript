@@ -28,6 +28,13 @@ test('concatStr handles null like Power Fx blank', () => {
   assert.strictEqual(FX.concatStr(null, 'b'), 'b');
 });
 
+test('field reads on blank or missing records return Power Fx Blank', () => {
+  assert.strictEqual(FX.field(null, 'name'), null);
+  assert.strictEqual(FX.field(undefined, 'name'), null);
+  assert.strictEqual(FX.field({}, 'name'), null);
+  assert.strictEqual(FX.field({ name: 'Ada' }, 'name'), 'Ada');
+});
+
 test('value coerces text numbers and currency', () => {
   assert.strictEqual(FX.value('$1,234.5'), 1234.5);
   assert.strictEqual(FX.value('abc'), 0);
