@@ -4,11 +4,12 @@ pfx2gas converts Microsoft Power Apps canvas apps (`.msapp`) into runnable
 Google Apps Script web apps (HtmlService UI + `google.script.run` API +
 Sheets data layer) with an honest per-formula fidelity ledger.
 
-- Read `README.md` for architecture and CLI usage.
-- Read `GAP_ASSESSMENT.md` for the current roadmap and known gaps before
-  planning work — it is kept current.
-- The plan of record is `~/.hermes/plans/2026-09-01_132008-powerapps-to-appsscript-agent.md`
-  (M1–M4 all complete; v0.1.0/v0.1.1 tagged).
+- Read `README.md` for architecture and CLI usage, `GAP_ASSESSMENT.md` for
+  the current roadmap/known gaps (kept current) before planning work.
+- Plan of record: `~/.hermes/plans/2026-09-01_132008-powerapps-to-appsscript-agent.md`
+  (M1–M4 complete; tags `v0.1.0`, `v0.1.1`).
+- Test counts cited below drift; check `./pfx2gas test` output rather than
+  trusting this file.
 
 ## Hard rules
 
@@ -18,15 +19,28 @@ Sheets data layer) with an honest per-formula fidelity ledger.
    `node --check`-gated and ledgered. Do not weaken these guardrails.
 2. **Every "converted" claim needs runtime evidence.** The user's acceptance
    bar is *behavioral fidelity*, not function coverage. String assertions on
-   generated files are not proof. Boot the generated app (see
-   `tests/test_startup_sim.py`) or deploy it before claiming something works.
-3. **Bugs found in production get a regression test in the same commit** —
-   ideally a gate that makes the whole bug class impossible (see
-   `scripts/check_runtime_consistency.py`, the manifest-JSON validator rule),
-   not just a pinpoint test.
+   generated files are not proof — boot the generated app
+   (`tests/test_startup_sim.py`) and/or deploy before claiming it works.
+3. **Production bugs get a bug-class gate in the same commit** (see
+   `scripts/check_runtime_consistency.py`, validator's manifest-JSON rule),
+   plus a pinpoint regression test.
 4. **Container-first.** The user runs nothing locally except Docker and a
-   browser. Do not suggest host installs; all commands go through
-   `./pfx2gas` (see below).
+   browser. All commands go through `./pfx2gas`; never suggest host installs.
+
+## Runtime environment (verified 2026-09-03)
+
+- **Containers are the canonical runtime.** Image `pfx2gas:latest`:
+  `python:3.11-slim` + Node 20 binaries (from `node:20-slim`) + uv + clasp.
+  Host Node (26.x) / Python (3.12) differ — do not assume host versions.
+- **clasp is NOT version-pinned** (`npm install -g @google/clasp` at build;
+  3.4.1 as of writing) — expect minor behavior drift across builds.
+- CI (`.github/workflows/ci.yml`): `ubuntu-latest`, Python 3.11, Node 20,
+  `astral-sh/setup-uv`, two jobs — `test` (suites + consistency + soak) and
+  `container` (image build + in-container suite + CLI/wrapper smoke, with
+  `PFX2GAS_UID/GID=1001` for the runner user).
+- Pushing changes under `.github/workflows/` requires the stored PAT to keep
+  the `workflow` scope (fine-grained: Workflows read/write); reading run
+  status requires Actions:read.
 
 ## Commands
 
@@ -39,85 +53,104 @@ Sheets data layer) with an honest per-formula fidelity ledger.
 ```
 
 - `./pfx2gas` works from any cwd and maps host paths into the container
-  (repo paths → `/workspace`, outside paths bind-mounted). Bare
-  `docker compose …` only works from the repo root.
-- The wrapper runs containers as your uid (`PFX2GAS_UID/GID`); on Linux CI
-  export `PFX2GAS_UID=$(id -u)`. Files written to `/workspace` must be
-  host-owned.
-- CI (`.github/workflows/ci.yml`) runs the same suite plus a container job
-  and wrapper smoke; keep it green. Pushing workflow-file changes requires
-  the PAT to keep the `workflow` scope (fine-grained: Workflows read/write).
+  (repo paths → `/workspace`; outside paths bind-mounted at the same
+  absolute path). Bare `docker compose …` only works from the repo root.
+- Containers run as your uid (`PFX2GAS_UID/GID`, default 1000; Linux CI
+  exports 1001). Files written to `/workspace` must stay host-owned.
 
-## Architecture in one screen
+## Architecture
+
+Pipeline (deterministic; `pfx2gas convert` = all stages):
 
 ```
 .msapp ─▶ unpack ─▶ parse ─▶ analyze ─▶ synthesize ─▶ validate ─▶ report
 ```
 
-- `src/pfx2gas/legacy.py` adapts binary (pre-pa.yaml) exports; modern apps
-  go through `src/*.pa.yaml`. Both feed the same IR (`ir/models.py`).
-- `static/gas-runtime.js` + `static/fx-stdlib.js` (+ `fx-charts.js`) ship
-  into every generated app. `src/pfx2gas/synth/*` writes `Code.gs`,
-  `DataInit.gs`, `Index.html`, `Screens.html`, `App.js.html`,
-  `appsscript.json` per app.
-- Data model: **collections are client-side state** (never Sheet tabs);
-  external sources become seeded Sheet tabs with **snake_case headers**
-  (`fx/naming.py` — must match the emitter's record-key casing exactly).
+- **Input formats.** Modern apps carry `Src/*.pa.yaml`; legacy binary
+  exports (`Controls\*.json`) go through `legacy.py`'s adapter. Both feed
+  the same pydantic IR (`ir/models.py`). Screen order (= start screen):
+  legacy `TopParent.Index`, modern archive entry order or
+  `CanvasManifest.ScreenOrder`.
+- **Generated project** (per app, in `output/<App>/`): `Code.gs` (doGet +
+  `api(ds, op, payload)` dispatcher: `list|patch|create|remove|removeIf`,
+  plus `apiChoices`, `whoami`, and the `include(name)` templating helper),
+  `DataInit.gs` (`setup()` creates the workbook, ≤100 sample rows/tab),
+  `appsscript.json` (webapp config + Sheets scopes), `Index.html`,
+  `Screens.html`, `App.js.html`, and the static `gas-runtime/fx-stdlib/
+  fx-charts.js.html` copies + `conversion-report.md`.
+- **Templating contract.** `Index.html` contains server-side scriptlets
+  `<?!= include('App.js.html') ?>` etc. — names are FULL filenames, and
+  `include()` (defined in `Code.gs`) strips the `<script>` wrappers from
+  `.js.html` files so they nest inside Index's own `<script>` block.
+- **Runtime export surface** (`gas-runtime.js`, 24 globals): `state`, `go`,
+  `goBack`, `toast`, `val`, `bind`, `refreshData`, `submitForm`,
+  `selectControl`, `esc`, `exitApp`, `FXUser`, `FXRuntime`, `selfRef`,
+  `apiPatch/apiCreate/apiRemove/apiRemoveIf/apiClearCollect`,
+  `powerapps_collect/clearCollect/remove/removeIf`. Generated code calls
+  these bare. fx-stdlib exports `FX` (74 functions) + `FX.collections`;
+  fx-charts exports `FXCharts`.
+- **Data model.** Collections (`CollectionDataSourceInfo`) are client-side
+  state arrays — never Sheet tabs; `Collect/ClearCollect/Patch/Remove/
+  RemoveIf/Refresh` against them compile to local `powerapps_*` /
+  `FX.collections.*` calls. External sources become seeded Sheet tabs with
+  **snake_case headers** (`fx/naming.py`) that MUST match the emitter's
+  record-key casing.
+- **Row-scoped children.** Gallery/DataTable template children are rendered
+  per-row by `FXRuntime.gallery(name, itemsFn, rowFn, handlers)` with `item`
+  bound; they must never be registered at top level.
+- **Icons.** Power Apps icon *names* (`'customer-service'`, `Icon.Filter`)
+  map to Segoe MDL2 Unicode glyphs (`icons.py`, 64 entries); known names
+  render as `.fx-icon` spans (color/size preserved), unknown keep legacy
+  behavior and are ledgered.
 
 ## Regression traps (all previously shipped as bugs — do not re-create)
 
-These are the *classes* that bit us; each has a guardian (noted):
-
-- **Emitter ↔ runtime contract drift.** Generated code calls helpers as
-  bare globals (`bind(…)`, `powerapps_*(state, 'Name', …)`). Any helper the
-  emitter emits must exist in the runtime's `global.*` export surface, and
-  parameter order must match the emitted call shape. Guardians:
-  `scripts/check_runtime_consistency.py` (export surface + signatures) and
-  `tests/js/test-gas-runtime.js` (signature pinning). Add to both when
-  adding a helper.
-- **Row-scoped children registered at top level.** Children of Gallery /
-  DataTable templates only exist per-row with `item` bound. Registering
-  their handlers/evaluators at top level → "control not found" spam and
-  `item is not defined` crashes. `synth/client.py` skips them; the
-  `FXRuntime.gallery(...)` block handles rows. Guardian:
+- **Emitter ↔ runtime contract drift.** Any helper the emitter emits must
+  exist in the runtime's `global.*` export surface with matching parameter
+  order. Guardians: `scripts/check_runtime_consistency.py` (converts a
+  fixture, strips comments, checks every bare call + collection-helper
+  signatures) and `tests/js/test-gas-runtime.js` (signature pinning).
+  Update both when adding a helper.
+- **Row-scoped children at top level** → "control not found" spam +
+  `item is not defined` crashes. See Architecture; guardian:
   `tests/test_startup_sim.py`.
-- **Format-template bugs.** Template strings with `{{ }}` MUST have
-  `.format()` called — `render_manifest` once shipped invalid JSON
-  (doubled braces) that silently dropped the webapp config + oauth scopes.
-  Guardian: validator parses `appsscript.json` as JSON.
-- **Every screen starts `display:none`.** The start screen (first in the
-  app's screen order: legacy `TopParent.Index`, modern archive order /
-  `CanvasManifest.ScreenOrder`) must be revealed by the `APP_MAIN`
-  bootstrap via `go(start)`, and the runtime reveals the first screen even
-  if `APP_MAIN` throws. Never leave a generated app with no visible screen.
-- **`.gs` files are JS.** `node --check` them (validator does). Never
-  concatenate template fragments with stray characters — an em-dash
-  template bug once shipped broken `DataInit.gs` everywhere.
-- **Mac bash 3.2.** Repo wrapper scripts must run on it: no `set -u` with
-  array expansion, no mutating arrays inside `$( )` subshells.
+- **Format-template bugs.** Template strings with `{{ }}` MUST get
+  `.format()` — `render_manifest` once shipped invalid JSON (doubled
+  braces) that silently dropped the webapp config + oauth scopes.
+  Guardian: validator parses `appsscript.json`.
+- **No visible screen.** Every screen section starts `display:none`; the
+  `APP_MAIN` bootstrap must end with `go(startScreen)` and the runtime
+  reveals the first screen even if `APP_MAIN` throws.
+- **`.gs` files are JS.** The validator `node --check`s them; keep it that
+  way (an em-dash template bug once shipped broken `DataInit.gs`
+  everywhere, and the old validator passed it).
+- **Mac bash 3.2.** Wrapper scripts must run on it: no `set -u` with array
+  expansion, no mutating arrays inside `$( )` subshells.
 
 ## Verification ladder (use in order)
 
-1. `./pfx2gas test` — unit level (88 Python + 35 JS at time of writing).
+1. `./pfx2gas test` — unit level.
 2. `./pfx2gas soak` — real-app conversion + strict validation (10/10).
-3. `tests/test_startup_sim.py` — boots generated apps in Node with a stub
-   DOM; asserts zero `is not defined` errors and exactly the start screen
-   visible. Extend it when touching generation or the runtime.
+3. `tests/test_startup_sim.py` — boots the *generated* app in Node with a
+   stub DOM, full stdlib/charts/runtime, indirect eval, and a faithful
+   async `google.script.run` proxy mock; asserts zero `is not defined`
+   errors and exactly the start screen visible. Extend it when touching
+   generation or the runtime.
 4. Deploy smoke (needs the user): convert → `./pfx2gas clasp create` →
    **re-copy the regenerated `appsscript.json`** (clasp create clones a
    default manifest over it) → `clasp push --force` → user runs `setup()`
-   once in the Apps Script editor (creates workbook; `clasp run` needs a
-   standard GCP project and does NOT work with default clasp projects) →
-   `clasp deploy` → fetch the `/exec` URL and decode the payload.
+   once in the Apps Script editor (creates the workbook; `clasp run` needs
+   a standard GCP project and does NOT work with default clasp projects) →
+   `clasp deploy` → fetch the `/exec` URL (curl sees Google's sandbox
+   wrapper; decode embedded payload for assertions).
 
 ## Repo facts
 
-- Samples (`samples/real/`) are gitignored; CI fetches them from the public
-  `sunilshetty07/Microsoft-PowerApps-Canvas` repo via
-  `scripts/fetch_samples.py` (zip-integrity-checked, cached,
-  `PFX2GAS_SAMPLES_DIR` overridable). Legacy-format apps are covered by
-  committed synthetic fixtures (`tests/fixtures/build.py`).
-- Clasp credentials live in gitignored `.clasp-home/` (mounted at
+- Samples (`samples/real/`) are gitignored; CI fetches the 5 public
+  modern-format apps via `scripts/fetch_samples.py` (zip-integrity-checked,
+  cached, `PFX2GAS_SAMPLES_DIR` overridable). Legacy-format apps are covered
+  by committed synthetic fixtures (`tests/fixtures/build.py`).
+- Clasp credentials persist in gitignored `.clasp-home/` (mounted at
   `/home/pfx` in the clasp service).
 - `.env` (gitignored) carries optional OpenRouter LLM config; real env vars
   override. Never commit keys or paste them into memory/files.
@@ -125,6 +158,6 @@ These are the *classes* that bit us; each has a guardian (noted):
   blocked by the user's ad-blocker; `Permissions-Policy
   'attribution-reporting'` and iframe-sandbox warnings from Google's
   wrapper; `Net state changed` chatter.
-- Icon names (`'customer-service'`, `Icon.Filter`) render as Unicode glyphs
-  via `src/pfx2gas/icons.py`; unknown names keep legacy behavior and are
-  ledgered. Extend the map when a corpus app uses a new name.
+- Known documented gaps (see `GAP_ASSESSMENT.md`): component-template
+  emulation (MENU/TILES/ProgressBar render empty), `User()` returns email
+  only (blank name/avatar), delegation (whole-tab reads ~5k-row guidance).
