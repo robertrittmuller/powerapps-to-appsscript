@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from collections import Counter
 
+from .controls import EXPLICITLY_UNSUPPORTED_INPUTS
 from .fidelity import iter_expressions
 from .ir import AppIR
 
@@ -114,6 +115,20 @@ def _followups(ir: AppIR) -> str:
         items.append(
             f"- [ ] **approximated controls** component templates x{len(emulated_components)} "
             f"were expanded and require visual/interaction QA: {sample}{suffix}"
+        )
+
+    unsupported_inputs = [
+        f"{screen.name}.{ctrl.name} ({ctrl.type})"
+        for screen in ir.screens
+        for ctrl in screen.walk_controls()
+        if ctrl.type in EXPLICITLY_UNSUPPORTED_INPUTS
+    ]
+    if unsupported_inputs:
+        sample = ", ".join(f"`{name}`" for name in unsupported_inputs[:8])
+        suffix = "…" if len(unsupported_inputs) > 8 else ""
+        items.append(
+            f"- [ ] **unsupported input controls** x{len(unsupported_inputs)} block their "
+            f"capture/upload journeys and render a visible placeholder: {sample}{suffix}"
         )
 
     for entry in ir.support_matrix:

@@ -71,8 +71,69 @@ def collect_row_fields(ir: AppIR) -> set[str]:
 
 
 def infer_data_source_fields(ir: AppIR) -> None:
-    """Infer field names/types for each data source from Patch/Collect and dotted refs."""
+    """Infer source fields from mutations, dotted refs, and Form DataCards."""
     by_name = {ds.name: ds for ds in ir.data_sources}
+
+    def simple_source_name(raw: str) -> str | None:
+        text = raw.strip()
+        if text.startswith("[@") and text.endswith("]"):
+            text = text[2:-1]
+        if len(text) >= 2 and text[0] == text[-1] == "'":
+            text = text[1:-1]
+        return text if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_ ]*", text) else None
+
+    def string_literal(raw: str) -> str | None:
+        try:
+            nodes = lx.parse_formula(raw)
+        except lx.FxSyntaxError:
+            return None
+        if len(nodes) == 1 and nodes[0].kind == "str":
+            return str(nodes[0].value)
+        return None
+
+    def descendants(ctrl: ControlNode):
+        for child in ctrl.children:
+            yield child
+            yield from descendants(child)
+
+    def card_field_type(card: ControlNode) -> str:
+        update = card.properties.get("Update")
+        if update and re.search(r"\bValue\s*\(", update.raw, re.I):
+            return "number"
+        input_types = {child.type for child in descendants(card)}
+        if "DatePicker" in input_types:
+            return "date"
+        if "CheckBox" in input_types:
+            return "bool"
+        return "text"
+
+    # Form/DataCard metadata is stronger schema evidence than a generic dotted
+    # reference. It also ensures real forms get a Sheet tab even when no Patch
+    # formula exists in the source app.
+    for screen in ir.screens:
+        for form in screen.walk_controls():
+            if form.type != "Form":
+                continue
+            source_expr = form.properties.get("DataSource")
+            ds_name = simple_source_name(source_expr.raw) if source_expr else None
+            ds = by_name.get(ds_name or "")
+            if ds is None:
+                continue
+            known = {f.name for f in ds.fields}
+            if "id" not in {name.lower() for name in known}:
+                # Google Sheets has no intrinsic row identity. Every generated
+                # form-backed table gets a stable converter-owned key so an
+                # EditForm submission updates exactly one persisted row.
+                ds.fields.insert(0, FieldDef(name="id", type="text"))
+                known.add("id")
+            for card in descendants(form):
+                if card.type != "DataCard":
+                    continue
+                field_expr = card.properties.get("DataField")
+                field_name = string_literal(field_expr.raw) if field_expr else None
+                if field_name and field_name not in known:
+                    ds.fields.append(FieldDef(name=field_name, type=card_field_type(card)))
+                    known.add(field_name)
 
     def record_fields_from(record_node) -> list[str]:
         out = []

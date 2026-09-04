@@ -100,7 +100,8 @@ def test_transparent_colors_sizing_line_height_and_dynamic_images():
     assert "line-height:1.2" in screens and "line-height:1.2px" not in screens
     assert "styleControl('Title', 'backgroundColor'" not in app_js
     assert "FXRuntime.attrControl('Avatar', 'src'" in app_js
-    assert "FXRuntime.optionRecord(r)" in app_js
+    assert "FXRuntime.optionRecord(r, displayFields)" in app_js
+    assert "el.__fxRecords = rows || []" in app_js
     assert 'class="fx-image"' in screens
     assert "[data-control] { box-sizing: border-box; }" in index
     assert "padding: 16px" not in index
@@ -199,3 +200,41 @@ def test_report_separates_translation_from_runtime_wiring():
     assert "| rule | ignored |" in md
     assert "component instances x1 render as generic containers" in md
     assert "None — every formula" not in md
+
+
+def test_capture_inputs_render_and_report_explicit_blockers():
+    from pfx2gas.ir import AppIR, ControlNode, ScreenNode
+    from pfx2gas.report import render_report
+    from pfx2gas.synth.client import render_screens_html
+
+    ir = AppIR(name="Capture", start_screen="S", screens=[
+        ScreenNode(name="S", controls=[
+            ControlNode(name="Signature", type="PenInput"),
+            ControlNode(name="ScanCode", type="BarcodeReader"),
+        ])
+    ])
+    html = render_screens_html(ir)
+    report = render_report(ir)
+    assert 'data-unsupported-control="PenInput"' in html
+    assert "Unsupported input: BarcodeReader" in html
+    assert "unsupported input controls** x2" in report
+    assert "S.Signature (PenInput)" in report
+
+
+def test_submit_form_without_a_card_contract_is_reported_unsupported():
+    from pfx2gas.ir import AppIR, ControlNode, FxExpr, ScreenNode
+    from pfx2gas.synth.client import render_app_js
+
+    submit = FxExpr(
+        raw="SubmitForm(BrokenForm)", kind="behavior",
+        js="await submitForm('BrokenForm');", translation_status="rule",
+    )
+    ir = AppIR(name="Broken", start_screen="S", screens=[
+        ScreenNode(name="S", controls=[
+            ControlNode(name="BrokenForm", type="Form"),
+            ControlNode(name="Save", type="Button", properties={"OnSelect": submit}),
+        ])
+    ])
+    render_app_js(ir)
+    assert submit.emission_status == "unsupported"
+    assert "no generated DataSource/DataCard contract" in submit.fidelity_note

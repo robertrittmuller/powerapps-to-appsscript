@@ -30,6 +30,8 @@ for a Google Apps Script web app client. Rules:
   val('ControlName')  — read a control's current value (.text, .value, .checked)
   selectControl('ControlName')  — programmatically "press" another control
   resetControl('ControlName')  — restore a generated input's default
+  submitForm('FormName'), resetForm('FormName'), setFormMode('FormName', mode)
+    — use the generated Form/DataCard runtime contract (await submitForm)
   item  — the current row inside per-row (lambda) context
 - Use the FX.* helper namespace for Power Fx table/text/math functions (below).
 - Behavior formulas (event handlers like OnSelect) may be one or more statements.
@@ -37,8 +39,7 @@ for a Google Apps Script web app client. Rules:
 - Preserve the original semantics. Prefer a plain-JS equivalent over refusing:
   e.g. date/time parts via Date methods, timezone offset via
   Date.prototype.getTimezoneOffset.
-- SubmitForm/DataCard behavior is not available; return null rather than
-  inventing a form implementation.
+- Do not invent form fields or bypass the generated Form/DataCard contract.
 
 Available FX.* helpers:
 {fx_api}

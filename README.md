@@ -24,7 +24,7 @@ app.msapp ──▶ unpack ──▶ parse ──▶ analyze ──▶ synthesiz
   source (per Microsoft's canvas-app YAML format).
 - **Parse** — controls, properties, and Power Fx expressions become a typed IR.
 - **Analyze** — discovers global variables (`Set`/`Collect`), infers data-source
-  fields from `Patch`/`Collect`/dotted references, and transpiles every formula
+  fields from mutations, references, and Form DataCards, and transpiles every formula
   with a coverage ledger of what succeeded.
 - **Synthesize** — emits the Apps Script project (see layout below).
 - **Validate** — `node --check` every generated script, structural checks,
@@ -173,14 +173,22 @@ Converted apps aim to match the original visually and behaviorally:
   (disabled/readonly attributes), `MaxLength`, `VirtualKeyboardMode` (inputmode),
   `DelayOutput`.
 - **Galleries** — the row template renders per item with `ThisItem` bound to
-  the row; child handlers receive the item, preserving per-row actions.
+  the row; child handlers receive the item, preserving per-row actions. Row
+  clicks expose record-valued `Selected`, `SelectedItems`, and `AllItems`.
+- **Selectors** — Dropdown, ComboBox, and ListBox options preserve their source
+  records for `Selected`/`SelectedItems`; `DisplayFields`, default selections,
+  and multi-select are wired into native selects.
 - **Legacy canvas components** — definitions in `Components/*.json` are inlined
   per instance with namespaced children and reactive custom inputs. This covers
   the corpus's MENU, TILES/BUSCADOR, and progress-bar components; static
   `HtmlText` interiors are preserved with executable markup removed.
-- **Forms** — `NewForm`/`EditForm`/`ViewForm` currently set an approximated mode
-  flag. `SubmitForm` is explicitly unsupported until data-card collection,
-  validation, create/update, and success/failure semantics are implemented.
+- **Forms** — `NewForm`/`EditForm`/`ViewForm`, `ResetForm`, and `SubmitForm` use
+  DataCard metadata to load and collect values, validate required fields,
+  create or update a stable Sheet row, expose `Error`/`Valid`/`LastSubmit`, and
+  run `OnSuccess`/`OnFailure`.
+- **Unsupported capture inputs** — camera, signature/PenInput, barcode,
+  microphone, attachments, and AddMediaButton render a visible blocker and are
+  called out in the report until browser/Drive adapters exist.
 
 What is *not* reproduced pixel-perfect: app themes/typography (a clean system
 stylesheet is used), responsive reflow behavior, chart interiors
@@ -256,16 +264,16 @@ Rule-transpiled today (~70 functions via the `FX.*` stdlib):
   (opens a new tab)
 
 `Choices('Source'.Field)` is supported through the generated `__Choices` tab;
-`SubmitForm` and anything else not in the map (for example custom
-`Environment.*` functions or `ShowHostInfo`) become documented unsupported
+anything else not in the map (for example custom `Environment.*` functions or
+`ShowHostInfo`) becomes documented unsupported
 operations via the coverage ledger — never silently wrong. Adding functions is one entry in
 `src/pfx2gas/fx/function_map.py` plus a JS helper in `static/fx-stdlib.js`.
 
-**Controls:** Label, Button, TextInput, TextArea, Dropdown/ComboBox, CheckBox,
+**Controls:** Label, Button, TextInput, TextArea, Dropdown/ComboBox/ListBox, CheckBox,
 DatePicker, Gallery (row template, per-item handlers), Image, Icon, HtmlText,
 Form, GroupContainer/auto-layout containers (flexbox: direction, align,
 justify, gap, wrap, FillPortions, min sizes), Rectangle, Header, Timer, Slider,
-Chart/Legend (placeholder), InfoButton, DataCard/DataTable (generic), Badge;
+Chart/Legend, InfoButton, Form/DataCard, DataTable (generic), Badge;
 legacy binary-`.msapp` format via adapter.
 
 ## Out of scope (flagged, not silently dropped)

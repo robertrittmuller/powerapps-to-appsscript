@@ -59,11 +59,25 @@ def test_update_context_uses_reactive_state_api():
     )
 
 
-def test_reset_has_a_real_runtime_hook_and_submit_form_fails_honestly():
+def test_reset_and_forms_have_real_runtime_hooks():
     assert js("Reset(TextInput1)", behavior=True) == "resetControl('TextInput1');"
+    assert js("ResetForm(Form1)", behavior=True) == "resetForm('Form1');"
     result = transpile("SubmitForm(Form1)", behavior=True)
-    assert result.js == "FX.unsupported('SubmitForm');"
-    assert result.unmapped == ["SubmitForm"]
+    assert result.js == "await submitForm('Form1');"
+    assert result.unmapped == []
+
+
+def test_form_mode_and_nested_last_submit_properties():
+    assert js("FormMode.Edit") == "'Edit'"
+    assert js("Form1.LastSubmit.LastName") == (
+        "FX.field(val('Form1').last_submit, 'last_name')"
+    )
+
+
+def test_nested_control_fields_are_blank_safe_before_selection():
+    assert js("Dropdown1.Selected.Name") == (
+        "FX.field(val('Dropdown1').selected, 'name')"
+    )
 
 
 def test_navigate():

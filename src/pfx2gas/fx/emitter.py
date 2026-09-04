@@ -33,7 +33,7 @@ LAMBDA_FNS = {"Filter", "ForAll", "LookUp", "CountIf", "Concat", "Distinct",
 
 # Enum types whose members are emitted as string literals (Color.Red -> 'Red').
 ENUM_TYPES = {"Color", "Icon", "Font", "FontWeight", "Align", "Image",
-              "LayoutSize", "DisplayMode", "FormStatus", "SortOrder",
+              "LayoutSize", "DisplayMode", "FormMode", "FormStatus", "SortOrder",
               "LayoutDirection", "LayoutAlignItems", "LayoutJustifyContent",
               "LayoutWrap", "VerticalAlign", "FillPortions", "Overflow",
               "ImagePosition", "ImageRotation", "TextPosition", "FontWeight2",
@@ -147,7 +147,12 @@ class Emitter:
                 return _q(rest)
             if base in self.control_names or base[0].isupper():
                 # Control.Property reference -> val('Ctrl').prop
-                return f"val({_q(base)}).{_snake(rest)}"
+                access = f"val({_q(base)})"
+                for index, segment in enumerate(rest.split(".")):
+                    field = _snake(segment)
+                    access = (f"{access}.{field}" if index == 0
+                              else f"FX.field({access}, {_q(field)})")
+                return access
             # Power Fx returns Blank for a field read from a blank/missing
             # record; raw JS member access would crash the generated app.
             return f"FX.field(state.{base}, {_q(_snake(rest))})"
@@ -223,10 +228,13 @@ class Emitter:
                 raise lx.FxSyntaxError("Clear target must be an identifier")
             return f"FXRuntime.setState({{{target.value}: []}})"
         if name == "SubmitForm":
-            # A no-op is more dangerous than an explicit gap: full Power Apps
-            # form/data-card semantics are not implemented yet.
-            self.res.unmapped.append("SubmitForm")
-            return "FX.unsupported('SubmitForm')"
+            target = args[0]
+            ctrl = str(target.value) if target.kind == "ident" else self.expr(target)
+            return f"await submitForm({_q(ctrl)})"
+        if name == "ResetForm":
+            target = args[0]
+            ctrl = str(target.value) if target.kind == "ident" else self.expr(target)
+            return f"resetForm({_q(ctrl)})"
         if name in {"Reset", "Select"}:
             target = args[0]
             ctrl = str(target.value) if target.kind == "ident" else self.expr(target)

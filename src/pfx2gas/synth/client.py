@@ -20,6 +20,7 @@ import html
 import re
 
 from ..fidelity import mark_emission
+from ..controls import EXPLICITLY_UNSUPPORTED_INPUTS
 from ..fx.naming import snake as _snake
 from ..icons import icon_glyph, is_icon_name
 from ..ir import AppIR, ControlNode
@@ -31,6 +32,7 @@ ELEMENT_MAP = {
     "TextArea": "textarea",
     "Dropdown": "select",
     "ComboBox": "select",
+    "ListBox": "select",
     "CheckBox": "input",
     "DatePicker": "input",
     "Gallery": "div",
@@ -588,6 +590,9 @@ def _static_attrs(ctrl: ControlNode) -> str:
         if vk:
             out += f' inputmode="{"numeric" if "num" in vk.lower() else "text"}"'
             mark_emission(props.get("VirtualKeyboardMode"))
+    if ctrl.type in {"ComboBox", "ListBox"} and _static_bool(props.get("SelectMultiple")) is True:
+        out += " multiple"
+        mark_emission(props.get("SelectMultiple"))
     return out
 
 
@@ -611,6 +616,10 @@ def _render_control(ctrl: ControlNode, depth: int, in_flex: bool, rules: list[st
         extra += f' class="fx-component" data-component-template="{template}"'
     elif ctrl.type == "Image":
         extra += ' class="fx-image"'
+    elif ctrl.type == "Form":
+        extra += ' class="fx-form"'
+    elif ctrl.type == "DataCard":
+        extra += ' class="fx-data-card"'
 
     # --- icon rendering -----------------------------------------------------
     # Power Apps stores icon *names* ('customer-service', 'Icon.Filter') in
@@ -649,6 +658,14 @@ def _render_control(ctrl: ControlNode, depth: int, in_flex: bool, rules: list[st
         cfg = _chart_config(ctrl).replace("&", "&amp;").replace('"', "&quot;")
         return (f'{indent}<div data-control="{ctrl.name}"{style_attr} '
                 f'data-chart="{cfg}" class="fx-chart"></div>')
+
+    if ctrl.type in EXPLICITLY_UNSUPPORTED_INPUTS:
+        control_type = html.escape(ctrl.type, quote=True)
+        return (
+            f'{indent}<div data-control="{ctrl.name}"{style_attr} '
+            f'class="fx-unsupported-control" data-unsupported-control="{control_type}" '
+            f'role="status">Unsupported input: {control_type}</div>'
+        )
 
     inner = ""
     close = f"</{tag}>" if tag not in {"input", "img", "br", "hr"} else ""
@@ -708,6 +725,130 @@ def _referenced_control_properties(ir: AppIR, parents: dict[str, str]) -> dict[s
     return referenced
 
 
+FORM_INPUT_TYPES = {
+    "TextInput", "TextArea", "Dropdown", "ComboBox", "ListBox",
+    "CheckBox", "DatePicker", "Slider",
+}
+
+
+def _descendants(ctrl: ControlNode):
+    for child in ctrl.children:
+        yield child
+        yield from _descendants(child)
+
+
+def _form_source_name(ctrl: ControlNode) -> str | None:
+    expr = ctrl.properties.get("DataSource")
+    if not expr:
+        return None
+    raw = expr.raw.strip()
+    if raw.startswith("[@") and raw.endswith("]"):
+        raw = raw[2:-1]
+    if len(raw) >= 2 and raw[0] == raw[-1] == "'":
+        raw = raw[1:-1]
+    return raw if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_ ]*", raw) else None
+
+
+def _card_input(card: ControlNode) -> ControlNode | None:
+    """Find the input whose value the DataCard Update formula submits."""
+    update = card.properties.get("Update")
+    if update:
+        names = {child.name: child for child in _descendants(card)}
+        for name in re.findall(
+            r"(?<![A-Za-z0-9_])([A-Za-z_][A-Za-z0-9_]*)\."
+            r"(?:Text|Value|Selected|SelectedItems|SelectedDate|Checked)\b",
+            update.raw,
+        ):
+            if name in names and names[name].type in FORM_INPUT_TYPES:
+                return names[name]
+    return next((child for child in _descendants(card)
+                 if child.type in FORM_INPUT_TYPES), None)
+
+
+def _fallback_input_value(input_ctrl: ControlNode) -> str:
+    prop = {
+        "CheckBox": "checked",
+        "DatePicker": "selected_date",
+        "Dropdown": "selected",
+        "ComboBox": "selected",
+        "ListBox": "selected",
+    }.get(input_ctrl.type, "text")
+    return f"val({input_ctrl.name!r}).{prop}"
+
+
+def _emit_form_registration(lines: list[str], form: ControlNode) -> bool:
+    """Wire a Power Apps Form/DataCard tree into the deterministic runtime."""
+    source = _form_source_name(form)
+    cards: list[tuple[ControlNode, ControlNode, str]] = []
+    for card in _descendants(form):
+        if card.type != "DataCard":
+            continue
+        field = _static_raw(card.properties.get("DataField"))
+        input_ctrl = _card_input(card)
+        if field and input_ctrl:
+            cards.append((card, input_ctrl, _snake(field)))
+    if not source or not cards:
+        return False
+
+    lines.append(f"  // {form.name} (Form/DataCard submit contract)")
+    lines.append(f"  FXRuntime.registerForm({form.name!r}, {{")
+    lines.append(f"    dataSource: {source!r},")
+    source_expr = form.properties.get("DataSource")
+    mark_emission(source_expr, "emitted", "mapped to the generated Google Sheets data source")
+    mode = form.properties.get("DefaultMode")
+    if mode and mode.js:
+        lines.append(f"    defaultMode: function () {{ return {mode.js}; }},")
+        mark_emission(mode)
+    else:
+        lines.append("    defaultMode: function () { return 'edit'; },")
+    item = form.properties.get("Item")
+    if item and item.js:
+        lines.append(f"    item: function () {{ return {item.js}; }},")
+        mark_emission(item)
+    else:
+        lines.append("    item: function () { return null; },")
+    lines.append("    cards: [")
+    for card, input_ctrl, field in cards:
+        display = _static_raw(card.properties.get("DisplayName")) or field
+        required = card.properties.get("Required")
+        update = card.properties.get("Update")
+        lines.append("      {")
+        lines.append(f"        name: {card.name!r}, field: {field!r}, input: {input_ctrl.name!r},")
+        lines.append(f"        inputType: {input_ctrl.type!r}, displayName: {display!r},")
+        if required and required.js:
+            lines.append(f"        required: function () {{ return {required.js}; }},")
+            mark_emission(required)
+        else:
+            lines.append("        required: function () { return false; },")
+        if update and update.js:
+            lines.append(f"        update: function () {{ return {update.js}; }},")
+            mark_emission(update)
+        else:
+            lines.append(
+                f"        update: function () {{ return {_fallback_input_value(input_ctrl)}; }},"
+            )
+        lines.append("      },")
+        mark_emission(card.properties.get("DataField"))
+        if card.properties.get("DisplayName"):
+            mark_emission(card.properties.get("DisplayName"))
+        if card.properties.get("Default"):
+            mark_emission(
+                card.properties.get("Default"), "approximated",
+                "DataCard default is derived from the current Form.Item field",
+            )
+    lines.append("    ],")
+    for prop_name, config_name in (("OnSuccess", "onSuccess"), ("OnFailure", "onFailure")):
+        expr = form.properties.get(prop_name)
+        if expr and expr.js:
+            lines.append(f"    {config_name}: async function () {{")
+            for stmt in expr.js.splitlines():
+                lines.append(f"      {stmt}")
+            lines.append("    },")
+            mark_emission(expr)
+    lines.append("  });")
+    return True
+
+
 def render_app_js(ir: AppIR) -> str:
     lines = [
         "// App.js — generated by pfx2gas; transpiled Power Fx lives here.",
@@ -733,6 +874,12 @@ def render_app_js(ir: AppIR) -> str:
         mark_emission(ir.on_start)
     lines.append("  var __INITIAL_STATE_ONLY = null;")
     lines.append("")
+
+    registered_forms: set[str] = set()
+    for screen in ir.screens:
+        for ctrl in screen.walk_controls():
+            if ctrl.type == "Form" and _emit_form_registration(lines, ctrl):
+                registered_forms.add(ctrl.name)
 
     for screen in ir.screens:
         if screen.on_visible and screen.on_visible.js:
@@ -791,9 +938,17 @@ def render_app_js(ir: AppIR) -> str:
                     for stmt in expr.js.splitlines():
                         lines.append(f"    {stmt}")
                     lines.append(f"  }}, {parent_names.get(ctrl.name)!r});")
-                    if any(fn in expr.raw for fn in ("NewForm(", "EditForm(", "ViewForm(")):
-                        mark_emission(expr, "approximated",
-                                      "form mode is tracked; full data-card semantics are not implemented")
+                    form_refs = re.findall(
+                        r"\b(?:SubmitForm|ResetForm)\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)",
+                        expr.raw,
+                    )
+                    missing_forms = sorted(set(form_refs) - registered_forms)
+                    if missing_forms:
+                        expr.emission_status = "unsupported"
+                        expr.fidelity_note = (
+                            "form action has no generated DataSource/DataCard contract: "
+                            + ", ".join(missing_forms)
+                        )
                     else:
                         mark_emission(expr)
 
@@ -856,6 +1011,9 @@ def render_app_js(ir: AppIR) -> str:
                 items_expr = ctrl.properties.get("Items")
                 if items_expr and items_expr.js:
                     mark_emission(items_expr)
+                    display_expr = (ctrl.properties.get("DisplayFields")
+                                    or ctrl.properties.get("SearchFields"))
+                    default_selected = ctrl.properties.get("DefaultSelectedItems")
                     needs_async = "await " in items_expr.js
                     fn_head = "async function () {" if needs_async else "function () {"
                     lines.append(f"  // {ctrl.name}.Items (options)")
@@ -865,11 +1023,30 @@ def render_app_js(ir: AppIR) -> str:
                     lines.append("    var current = el.value;")
                     lines.append(f"    var rows = {items_expr.js};" if needs_async
                                  else f"    var rows = {items_expr.js};")
-                    lines.append("    var opts = (rows || []).map(function (r) {")
-                    lines.append("        var option = FXRuntime.optionRecord(r);")
-                    lines.append("        return '<option value=\"' + esc(option.value) + '\">' + esc(option.label) + '</option>';")
+                    if display_expr and display_expr.js:
+                        lines.append(f"    var displayFields = {display_expr.js};")
+                        if display_expr is ctrl.properties.get("SearchFields"):
+                            mark_emission(
+                                display_expr, "approximated",
+                                "used as a label fallback; native select search is not implemented",
+                            )
+                        else:
+                            mark_emission(display_expr, "emitted",
+                                          "used to choose the displayed option field")
+                    else:
+                        lines.append("    var displayFields = [];")
+                    lines.append("    el.__fxRecords = rows || [];")
+                    lines.append("    var opts = (rows || []).map(function (r, index) {")
+                    lines.append("        var option = FXRuntime.optionRecord(r, displayFields);")
+                    lines.append("        return '<option data-fx-index=\"' + index + '\" value=\"' + esc(option.value) + '\">' + esc(option.label) + '</option>';")
                     lines.append("    }).join('');")
                     lines.append("    if (el.__fxOpts !== opts) { el.__fxOpts = opts; el.innerHTML = opts; if (current) el.value = current; }")
+                    if default_selected and default_selected.js:
+                        lines.append("    if (!el.__fxDefaultSelectionApplied) {")
+                        lines.append("      el.__fxDefaultSelectionApplied = true;")
+                        lines.append(f"      FXRuntime.applyDefaultSelection(el, {default_selected.js});")
+                        lines.append("    }")
+                        mark_emission(default_selected)
                     lines.append("    if (!el.__fxDefaultApplied) { el.__fxDefaultApplied = true; var d = el.getAttribute('data-fx-default'); if (d !== null) el.value = d; }")
                     lines.append("  });")
 
@@ -964,6 +1141,13 @@ INDEX_CSS = """
         radial-gradient(ellipse at 50% 96%, #94a3b8 0 34%, transparent 35%);
       background-repeat: no-repeat; }
     .fx-image[src] { background-image: none; }
+    .fx-unsupported-control { display:flex; align-items:center; justify-content:center;
+      min-width:160px; min-height:48px; padding:8px; border:2px dashed #b3261e;
+      background:#fff1f0; color:#7a1b16; font-size:13px; }
+    .fx-data-card[data-fx-error] { outline: 1px solid #b3261e; }
+    .fx-data-card[data-fx-error]::after { content: attr(data-fx-error); color: #b3261e;
+      display: block; font-size: 12px; line-height: 1.25; }
+    [aria-invalid="true"] { outline: 2px solid #b3261e; outline-offset: 1px; }
     .fx-toast { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
       background: #333; color: #fff; padding: 8px 16px; border-radius: 4px; display: none; z-index: 9999; }
     .fx-toast.error { background: #b3261e; }

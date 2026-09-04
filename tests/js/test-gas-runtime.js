@@ -138,6 +138,58 @@ test('record-valued dropdown options choose a readable scalar label', () => {
   assert.deepStrictEqual(RT.optionRecord({ id: 7, status: 'OPEN' }),
     { value: '7', label: '7' });
   assert.deepStrictEqual(RT.optionRecord('plain'), { value: 'plain', label: 'plain' });
+  assert.deepStrictEqual(RT.optionRecord({ first_name: 'Ada' }, ['FirstName']),
+    { value: 'Ada', label: 'Ada' });
+});
+
+test('Dropdown Selected and ComboBox SelectedItems preserve source records', () => {
+  const original = global.document.querySelector;
+  const records = [{ id: 1, name: 'Ada' }, { id: 2, name: 'Grace' }];
+  const options = records.map((_, index) => ({
+    index,
+    selected: index === 1,
+    getAttribute: (name) => name === 'data-fx-index' ? String(index) : null,
+  }));
+  const el = {
+    tagName: 'SELECT', value: '2', style: {}, __fxRecords: records,
+    options, selectedOptions: [options[1]], selectedIndex: 1,
+  };
+  global.document.querySelector = () => el;
+  assert.deepStrictEqual(global.val('People').selected, records[1]);
+  assert.deepStrictEqual(global.val('People').selected_items, [records[1]]);
+  assert.deepStrictEqual(global.val('People').selected_text, { value: 'Grace' });
+
+  RT.applyDefaultSelection(el, [records[0]]);
+  assert.strictEqual(options[0].selected, true);
+  assert.strictEqual(options[1].selected, false);
+  global.document.querySelector = original;
+});
+
+test('gallery row selection exposes Selected and AllItems records', () => {
+  const original = global.document.querySelector;
+  const rows = [];
+  function rowElement() {
+    return {
+      style: {}, listeners: {},
+      addEventListener(ev, fn) { this.listeners[ev] = fn; },
+      querySelector() { return null; },
+      click() { this.listeners.click(); },
+    };
+  }
+  const rowsEl = { innerHTML: '', appendChild(row) { rows.push(row); } };
+  const template = { content: { firstElementChild: { cloneNode: () => rowElement() } } };
+  const host = {
+    tagName: 'DIV', textContent: '', style: {}, selectedOptions: [],
+    querySelector(selector) { return selector === 'template' ? template : rowsEl; },
+  };
+  global.document.querySelector = () => host;
+  const items = [{ id: 1, name: 'Ada' }, { id: 2, name: 'Grace' }];
+  RT.gallery('PeopleGallery', () => items, null, null);
+  RT.updateBindings();
+  rows[1].click();
+  assert.deepStrictEqual(global.val('PeopleGallery').selected, items[1]);
+  assert.deepStrictEqual(global.val('PeopleGallery').all_items, items);
+  global.document.querySelector = original;
 });
 
 test('reactive point font sizes retain Power Apps units', () => {

@@ -150,6 +150,85 @@ EDITORSTATE_YAML = """EditorState:
     IsLocked: false
 """
 
+APP_FORM_YAML = """App:
+  Control: AppHost
+  Properties:
+    OnStart: '=Set(savedName, ""); Set(saveError, "")'
+"""
+
+SCREEN_FORM_YAML = """FormScreen:
+  Control: Screen
+  Properties: {}
+  Children:
+    - Form1:
+        Control: Form
+        Properties:
+          DataSource: =Contacts
+          Item: =First(Contacts)
+          DefaultMode: =FormMode.Edit
+          OnSuccess: =Set(savedName, Form1.LastSubmit.LastName)
+          OnFailure: =Set(saveError, Form1.Error)
+        Children:
+          - FirstNameCard:
+              Control: DataCard
+              Properties:
+                DataField: ="FirstName"
+                DisplayName: ="First Name"
+                Default: =ThisItem.FirstName
+                Required: =false
+                Update: =InputFirst.Text
+              Children:
+                - InputFirst:
+                    Control: TextInput
+                    Properties:
+                      Default: =Parent.Default
+          - LastNameCard:
+              Control: DataCard
+              Properties:
+                DataField: ="LastName"
+                DisplayName: ="Last Name"
+                Default: =ThisItem.LastName
+                Required: =true
+                Update: =InputLast.Text
+              Children:
+                - InputLast:
+                    Control: TextInput
+                    Properties:
+                      Default: =Parent.Default
+    - ButtonNew:
+        Control: Button
+        Properties:
+          Text: ="New"
+          OnSelect: =NewForm(Form1)
+    - ButtonResetForm:
+        Control: Button
+        Properties:
+          Text: ="Reset"
+          OnSelect: =ResetForm(Form1)
+    - ButtonSubmit:
+        Control: Button
+        Properties:
+          Text: ="Save"
+          OnSelect: =SubmitForm(Form1)
+    - ComboPeople:
+        Control: ComboBox
+        Properties:
+          Items: =Contacts
+          DisplayFields: =["FirstName"]
+          DefaultSelectedItems: =[First(Contacts)]
+          SelectMultiple: =true
+"""
+
+CONTACTS_JSON = json.dumps(
+    {
+        "Name": "Contacts",
+        "Type": "StaticDataSourceInfo",
+        "Fields": [],
+        "SampleData": [{"FirstName": "Ada", "LastName": "Lovelace"}],
+    },
+    indent=2,
+)
+
 
 def _write_msapp(path: Path, files: dict[str, str]) -> None:
     with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as zf:
@@ -210,6 +289,19 @@ def build_fixtures() -> None:
             ),
             "Src\\HomeScreen.pa.yaml": APP_D_YAML,
             "Src\\_EditorState.pa.yaml": EDITORSTATE_YAML,
+        },
+    )
+    # Form fixture: schema inference from DataCards plus edit/new/reset,
+    # required validation, create, OnSuccess/OnFailure, and LastSubmit.
+    _write_msapp(
+        FIXTURE_DIR / "fixtureForm.msapp",
+        {
+            "CanvasManifest.json": json.dumps(
+                {"Name": "FixtureForm", "PublishInfo": {}, "ScreenOrder": ["FormScreen"]}
+            ),
+            "src/App.pa.yaml": APP_FORM_YAML,
+            "src/FormScreen.pa.yaml": SCREEN_FORM_YAML,
+            "DataSources/Contacts.json": CONTACTS_JSON,
         },
     )
 

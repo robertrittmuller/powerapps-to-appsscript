@@ -82,12 +82,20 @@ const runner = new Proxy({}, {
           const ds = args[0], op = args[1], payload = args[2] || {};
           const rows = serverData[ds] || (serverData[ds] = []);
           if (op === 'list') { if (ok) ok(JSON.parse(JSON.stringify(rows))); return; }
-          if (op === 'create') { rows.push(payload.record || {}); if (ok) ok({ok: true}); return; }
+          if (op === 'create') {
+            const saved = Object.assign({}, payload.record || {});
+            if (rows.some(row => Object.prototype.hasOwnProperty.call(row, 'id'))
+                && (saved.id === undefined || saved.id === null || saved.id === '')) {
+              saved.id = 'sim-created-' + (rows.length + 1);
+            }
+            rows.push(saved); if (ok) ok(JSON.parse(JSON.stringify(saved))); return;
+          }
           if (op === 'patch') {
             const base = payload.base || {}, record = payload.record || {};
             const found = rows.find(row => base.id != null && String(row.id) === String(base.id));
-            if (found) Object.assign(found, record); else rows.push(record);
-            if (ok) ok({ok: true}); return;
+            const saved = found ? Object.assign(found, record) : Object.assign({}, base, record);
+            if (!found) rows.push(saved);
+            if (ok) ok(JSON.parse(JSON.stringify(saved))); return;
           }
           if (op === 'remove') {
             const id = payload.record && payload.record.id;
@@ -149,7 +157,22 @@ async function runJourneys(journeys) {
           const el = elements['ctrl:' + step.control];
           if (!el) throw new Error('control not found: ' + step.control);
           el[step.action]();
-          await pause(30);
+          await pause(50);
+        } else if (step.action === 'setValue') {
+          const el = elements['ctrl:' + step.control];
+          if (!el) throw new Error('control not found: ' + step.control);
+          if (typeof step.value === 'boolean') el.checked = step.value;
+          else el.value = step.value == null ? '' : String(step.value);
+          el.change();
+          await pause(10);
+        } else if (step.action === 'expectValue') {
+          const el = elements['ctrl:' + step.control];
+          const actual = el ? (typeof step.equals === 'boolean' ? !!el.checked : String(el.value)) : null;
+          const expected = typeof step.equals === 'boolean' ? step.equals : String(step.equals);
+          if (actual !== expected) {
+            throw new Error('expected ' + step.control + ' value ' + JSON.stringify(expected)
+              + ', got ' + JSON.stringify(actual));
+          }
         } else if (step.action === 'expectScreen') {
           const actual = visibleScreens();
           if (actual.length !== 1 || actual[0] !== step.screen) {
@@ -167,6 +190,15 @@ async function runJourneys(journeys) {
           if (JSON.stringify(actual) !== JSON.stringify(step.equals)) {
             throw new Error('expected state.' + step.key + '=' + JSON.stringify(step.equals)
               + ', got ' + JSON.stringify(actual));
+          }
+        } else if (step.action === 'expectDataRow') {
+          const rows = FXRuntime.state[step.source] || [];
+          const wanted = step.where || {};
+          const found = rows.some(row => Object.keys(wanted).every(
+            key => JSON.stringify(row && row[key]) === JSON.stringify(wanted[key])));
+          if (!found) {
+            throw new Error('expected row in ' + step.source + ' matching '
+              + JSON.stringify(wanted) + ', got ' + JSON.stringify(rows));
           }
         } else {
           throw new Error('unsupported journey action: ' + step.action);
@@ -230,6 +262,9 @@ def _seeded_server_data(out: Path) -> dict[str, list[dict]]:
             }
             for row in spec.get("rows", [])
         ]
+        for index, row in enumerate(seeded[spec["name"]], start=1):
+            if "id" in row and row["id"] in {"", None}:
+                row["id"] = f"sim-seeded-{index}"
     return seeded
 
 
@@ -238,10 +273,11 @@ def simulate_project(
 ) -> dict:
     """Execute generated code and optionally exercise declarative journeys.
 
-    Supported journey actions are ``click``, ``change``, ``expectScreen``,
-    ``expectText``, and ``expectState``.  The returned ``visible`` and
-    ``consoleErrors`` fields are startup snapshots, so later interaction
-    failures do not get misreported as a failure to boot.
+    Supported journey actions include ``click``, ``change``, ``setValue``,
+    ``expectScreen``, ``expectText``, ``expectValue``, ``expectState``, and
+    ``expectDataRow``. The returned ``visible`` and ``consoleErrors`` fields
+    are startup snapshots, so later interaction failures do not get
+    misreported as a failure to boot.
     """
     out = Path(out_dir)
     sim = (SIM_TEMPLATE

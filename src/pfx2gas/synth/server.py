@@ -96,7 +96,7 @@ function apiChoices(ds, field) {{
   return values.slice(1)
     .map(function (row) {{ return row[col]; }})
     .filter(function (v) {{ return v !== ''; }})
-    .map(function (v) {{ return {{ Name: v, Value: v }}; }});
+    .map(function (v) {{ return {{ name: v, value: v }}; }});
 }}
 
 function listRows(ds) {{
@@ -116,8 +116,14 @@ function listRows(ds) {{
 function createRow(ds, record) {{
   var sh = sheetFor(ds);
   var headers = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
-  sh.appendRow(headers.map(function (h) {{ return record[h] !== undefined ? record[h] : ''; }}));
-  return {{ ok: true }};
+  var saved = {{}};
+  headers.forEach(function (h) {{
+    var value = record[h] !== undefined ? record[h] : '';
+    if (h === 'id' && (value === '' || value === null)) value = Utilities.getUuid();
+    saved[h] = value;
+  }});
+  sh.appendRow(headers.map(function (h) {{ return saved[h]; }}));
+  return saved;
 }}
 
 function patchRow(ds, base, record) {{
@@ -132,10 +138,13 @@ function patchRow(ds, base, record) {{
     }}
   }}
   if (targetRow < 0) return createRow(ds, record);
+  var saved = {{}};
   headers.forEach(function (h, c) {{
-    if (record[h] !== undefined) sh.getRange(targetRow, c + 1).setValue(record[h]);
+    var value = record[h] !== undefined ? record[h] : values[targetRow - 1][c];
+    if (record[h] !== undefined) sh.getRange(targetRow, c + 1).setValue(value);
+    saved[h] = value instanceof Date ? value.toISOString() : value;
   }});
-  return {{ ok: true }};
+  return saved;
 }}
 
 function removeRow(ds, record) {{
@@ -186,7 +195,10 @@ function setup() {{
     sh.getRange(1, 1, 1, headers.length).setValues([headers]);
     if (spec.rows && spec.rows.length) {{
       var body = spec.rows.map(function (row) {{
-        return headers.map(function (h, i) {{ return row[i] === undefined ? '' : row[i]; }});
+        return headers.map(function (h, i) {{
+          var value = row[i] === undefined ? '' : row[i];
+          return h === 'id' && (value === '' || value === null) ? Utilities.getUuid() : value;
+        }});
       }});
       sh.getRange(2, 1, body.length, headers.length).setValues(body);
     }}

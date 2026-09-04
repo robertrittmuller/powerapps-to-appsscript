@@ -58,7 +58,7 @@ def fx_exports() -> set[str]:
 
 
 def generated_fixture_bare_calls() -> tuple[list[str], Path]:
-    """Convert fixtureA in-process and collect bare function calls from App.js."""
+    """Convert navigation and form fixtures and collect generated bare calls."""
     import importlib.util
 
     spec = importlib.util.spec_from_file_location(
@@ -72,10 +72,13 @@ def generated_fixture_bare_calls() -> tuple[list[str], Path]:
     from pfx2gas.unpack import unpack
 
     tmp = Path(tempfile.mkdtemp())
-    ir = analyze(parse(unpack(fixture_build.FIXTURE_DIR / "fixtureA.msapp")))
-    out = synthesize(ir, tmp / "FixtureA")
-    app = (out / "App.js.html").read_text()
-    app = app.replace("<script>\n", "").replace("\n</script>", "")
+    apps = []
+    out = tmp / "FixtureA"
+    for fixture_name in ("fixtureA.msapp", "fixtureForm.msapp"):
+        ir = analyze(parse(unpack(fixture_build.FIXTURE_DIR / fixture_name)))
+        out = synthesize(ir, tmp / fixture_name.removesuffix(".msapp"))
+        apps.append((out / "App.js.html").read_text())
+    app = "\n".join(apps).replace("<script>\n", "").replace("\n</script>", "")
     # strip comments so prose like "// OnStart (transpiled...)" isn't a call
     app = re.sub(r"//[^\n]*", "", app)
     app = re.sub(r"/\*.*?\*/", "", app, flags=re.S)

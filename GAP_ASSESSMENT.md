@@ -8,11 +8,11 @@ the code and the real-app corpus (10 apps, 23,746 formulas) on this date.
 
 | Check | Result |
 |---|---|
-| Python suite (`./pfx2gas test`) | 112 passed |
-| JS runtime suite (`./pfx2gas test`) | 48 passed, 0 fail |
+| Python suite (`./pfx2gas test`) | 118 passed |
+| JS runtime suite (`./pfx2gas test`) | 50 passed, 0 fail |
 | Formula translation on 10-app corpus | 23,724 / 23,746 translated (99.9%) |
-| Runtime wiring on 10-app corpus | 15,267 / 23,746 emitted (64.3%); 276 approximated |
-| Ignored/unsupported property formulas | 8,203 / 23,746 (34.5%; conservative emission ledger) |
+| Runtime wiring on 10-app corpus | 15,292 / 23,746 emitted (64.4%); 287 approximated |
+| Ignored/unsupported property formulas | 8,167 / 23,746 (34.4%; conservative emission ledger) |
 | Real-app soak (`./pfx2gas soak`) | **10/10 Bootable**; exact start screen, zero startup runtime errors |
 | Compatibility benchmark | versioned 10-app archetype/journey catalog; per-app JSON + Markdown Bootable/Usable/High-fidelity scorecards |
 | Emitter↔runtime consistency (`scripts/check_runtime_consistency.py`) | pass |
@@ -57,10 +57,9 @@ The first corrective pass is now implemented and regression-gated:
    reject unsupported/malformed requests. Acceptance: only matching rows are
    removed and an empty match performs no mutation.
 4. **✅ Reset and form honesty.** Implement real `Reset` plus input defaults and
-   placeholders. Until data-card collection, validation, create/update, and
-   success/failure events exist, ledger `SubmitForm` as unsupported rather than
-   a successful no-op. Acceptance: Reset restores the generated default and
-   every unimplemented form action is visible in the report.
+   placeholders; never ship an unimplemented form action as a successful no-op.
+   The Priority 2 pass now also implements deterministic Form/DataCard submit
+   behavior and keeps unsupported capture inputs visible in the UI and report.
 5. **✅ Secure deployment defaults.** Require an authenticated user by default,
    make anonymous/deployer execution explicit, whitelist generated data
    sources, validate API payloads, and remove unneeded scopes. Acceptance: a
@@ -77,7 +76,7 @@ usable app across representative Power Apps archetypes."
 
 The LLM should do more work, but it should not become the generator. Formula
 translation is already 23,724 / 23,746 (99.9%); the larger gap is that only
-15,267 formulas (64.3%) are wired into a runtime behavior or visual property.
+15,292 formulas (64.4%) are wired into a runtime behavior or visual property.
 Asking a model to translate the remaining 22 formulas cannot solve missing
 forms, controls, connector semantics, media, responsive layout, or component
 behavior. Whole-app model-generated JavaScript would also make conversions
@@ -173,15 +172,24 @@ broken critical workflow.
 Implement the features most likely to turn a bootable conversion into a usable
 business app:
 
-- full `SubmitForm` semantics: DataCard value collection, required validation,
-  create vs update, reset, `OnSuccess`, `OnFailure`, and `LastSubmit`;
-- selected-record semantics for Dropdown/ComboBox/ListBox/DataTable/Gallery,
-  including display/search fields and multi-select;
+- **✅ First tranche:** `SubmitForm` now performs DataCard value collection,
+  required validation, stable-ID create vs update, `ResetForm`, `OnSuccess`,
+  `OnFailure`, `Error`/`Valid`, and `LastSubmit`. A generated-app journey boots
+  the output and proves edit, validation failure, reset, create, callback, and
+  refreshed data behavior. The real Containers Guide form registers all 11
+  cards and infers its Contacts Sheet schema.
+- **✅ Selection foundation:** Dropdown/ComboBox/ListBox preserve record-valued
+  `Selected`/`SelectedItems`, honor display fields/default selection and native
+  multi-select; Gallery exposes `Selected`/`SelectedItems`/`AllItems`. Nested
+  selection and `LastSubmit` field reads are blank-safe.
+- **✅ Honest blockers:** camera, PenInput/signature, barcode, microphone,
+  attachments, and AddMediaButton render visible unsupported placeholders and
+  are enumerated in the conversion report instead of appearing as empty UI.
 - editable DataTable and gallery patterns, validation messages, and error state;
 - packaged media/resource extraction, attachments backed by Drive, and image
   fallbacks that distinguish "no image" from a failed asset;
-- explicit unsupported handling for camera, signature, barcode, and other input
-  types until their Google equivalents exist.
+- complete DataTable selection/display/search behavior and searchable ComboBox
+  interaction beyond the native select approximation.
 
 Acceptance: benchmark apps can create, view, edit, validate, and delete records;
 reload preserves data; attachment/media paths work; the report identifies any

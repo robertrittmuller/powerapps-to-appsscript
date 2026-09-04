@@ -222,3 +222,56 @@ def test_shared_simulator_runs_declarative_critical_journey(tmp_path):
             {"action": "expectScreen", "status": "pass"},
         ],
     }]
+
+
+def test_generated_form_create_validate_reset_and_last_submit(tmp_path):
+    """Boot and exercise the generated Form/DataCard path end to end."""
+    from pfx2gas.analyze import analyze
+    from pfx2gas.parse import parse
+    from pfx2gas.startup_sim import simulate_project
+    from pfx2gas.synth.build import synthesize
+    from pfx2gas.unpack import unpack
+
+    ir = analyze(parse(unpack(FIXTURES / "fixtureForm.msapp")))
+    contacts = next(ds for ds in ir.data_sources if ds.name == "Contacts")
+    assert [(field.name, field.type) for field in contacts.fields] == [
+        ("id", "text"), ("FirstName", "text"), ("LastName", "text")
+    ]
+    out = synthesize(ir, tmp_path / "FixtureForm")
+    verdict = simulate_project(out, [{
+        "id": "create-contact",
+        "steps": [
+            {"action": "expectValue", "control": "InputFirst", "equals": "Ada"},
+            {"action": "expectValue", "control": "InputLast", "equals": "Lovelace"},
+            {"action": "setValue", "control": "InputFirst", "value": "Augusta"},
+            {"action": "click", "control": "ButtonSubmit"},
+            {"action": "expectDataRow", "source": "Contacts",
+             "where": {"id": "sim-seeded-1", "first_name": "Augusta",
+                       "last_name": "Lovelace"}},
+            {"action": "click", "control": "ButtonNew"},
+            {"action": "setValue", "control": "InputFirst", "value": "Grace"},
+            {"action": "click", "control": "ButtonSubmit"},
+            {"action": "expectState", "key": "saveError",
+             "equals": "Last Name is required."},
+            {"action": "setValue", "control": "InputLast", "value": "temporary"},
+            {"action": "click", "control": "ButtonResetForm"},
+            {"action": "expectValue", "control": "InputFirst", "equals": ""},
+            {"action": "expectValue", "control": "InputLast", "equals": ""},
+            {"action": "setValue", "control": "InputFirst", "value": "Grace"},
+            {"action": "setValue", "control": "InputLast", "value": "Hopper"},
+            {"action": "click", "control": "ButtonSubmit"},
+            {"action": "expectState", "key": "savedName", "equals": "Hopper"},
+            {"action": "expectDataRow", "source": "Contacts",
+             "where": {"first_name": "Grace", "last_name": "Hopper"}},
+        ],
+    }])
+    assert verdict["consoleErrors"] == []
+    assert verdict["journeyResults"][0]["status"] == "pass", verdict
+
+    app_js = (out / "App.js.html").read_text()
+    assert "FXRuntime.registerForm('Form1'" in app_js
+    assert "await submitForm('Form1')" in app_js
+    assert "FX.field(val('Form1').last_submit, 'last_name')" in app_js
+    assert "var displayFields = ['FirstName']" in app_js
+    assert "FXRuntime.applyDefaultSelection" in app_js
+    assert 'data-control="ComboPeople" multiple' in (out / "Screens.html").read_text()
