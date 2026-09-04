@@ -34,13 +34,8 @@ app.msapp ──▶ unpack ──▶ parse ──▶ analyze ──▶ synthesiz
 
 ## Requirements
 
-- Python 3.11+ and [uv](https://docs.astral.sh/uv/)
-- Node.js ≥ 18 (generated JS is syntax-checked with `node --check`)
-- For deployment only: [clasp](https://github.com/google/clasp)
-  (`npm install -g @google/clasp`) and a one-time `clasp login`
-
-**Or use Docker — no local installs required:** Python, Node, uv, and clasp
-are all pinned in the image (see `Dockerfile` / `docker-compose.yml`). The
+Docker is the only host requirement. Python 3.11, Node 20, uv, and clasp are
+provided by the project image. The
 `./pfx2gas` wrapper works from any directory and maps host paths into the
 container automatically:
 
@@ -62,9 +57,8 @@ container automatically:
 ```bash
 git clone <this repo>
 cd powerapps-to-appsscript
-uv sync          # creates .venv and installs dependencies
-uv run pytest -q # verify: 80 tests pass
-node --test tests/js/*.js  # 31 more
+./pfx2gas build
+./pfx2gas test
 ```
 
 ## Quick start
@@ -73,7 +67,7 @@ Export your app from Power Apps Studio (**Save As → This computer**) to get
 `YourApp.msapp`, then:
 
 ```bash
-uv run pfx2gas convert YourApp.msapp -o output/YourApp
+./pfx2gas convert YourApp.msapp -o output/YourApp
 ```
 
 This prints a summary, writes the converted project to `output/YourApp/`, and
@@ -84,13 +78,13 @@ remaining manual work.
 Deploy with clasp:
 
 ```bash
-cd output/YourApp
-clasp login                                  # once, opens a browser
-clasp create --title "YourApp" --type webapp # or reuse an existing scriptId
-clasp push --force                           # uploads Code.gs, *.html, etc.
-clasp open-script                            # run setup() once in the editor
-                                             # (creates the data workbook)
-clasp deploy                                 # prints the web app URL
+./pfx2gas clasp login --no-localhost                                    # once
+./pfx2gas clasp -w /abs/path/output/YourApp create --title YourApp --type webapp
+# clasp create replaces appsscript.json; restore the converter-generated manifest.
+./pfx2gas convert YourApp.msapp -o /abs/path/output/YourApp --no-llm
+./pfx2gas clasp -w /abs/path/output/YourApp push --force
+./pfx2gas clasp -w /abs/path/output/YourApp open-script                 # run setup() once
+./pfx2gas clasp -w /abs/path/output/YourApp deploy
 ```
 
 The first `setup()` run creates one Google Sheet workbook with a tab per
@@ -103,8 +97,8 @@ converted app and never hit the Sheet.
 ## CLI reference
 
 ```
-pfx2gas convert <file.msapp> [-o DIR] [--report-only] [--no-llm]
-pfx2gas validate <project_dir>
+./pfx2gas convert <file.msapp> [-o DIR] [--report-only] [--no-llm]
+./pfx2gas validate <project_dir> [--strict-fidelity]
 ```
 
 | Option | Meaning |
@@ -113,6 +107,9 @@ pfx2gas validate <project_dir>
 | `--report-only` | Produce only `conversion-report.md`, no project files |
 | `--no-llm` | Disable the LLM fallback; unmapped formulas stay stubs |
 | `--no-review` | Disable the LLM behavioral-equivalence review + QA scenarios |
+| `--webapp-access` | `ANYONE` (signed-in default), `MYSELF`, `DOMAIN`, or explicit `ANYONE_ANONYMOUS` |
+| `--execute-as` | `USER_ACCESSING` (default) or explicit `USER_DEPLOYING` |
+| `--strict-fidelity` | Exit non-zero when the generated fidelity ledger contains gaps |
 | `validate <dir>` | Re-run structural/syntax checks on a converted project |
 
 Exit codes: `0` success (validator PASS), `1` validation failure or bad input.
@@ -129,6 +126,7 @@ output/<App>/
 ├── App.js.html           # transpiled formulas: bindings, evaluators, handlers
 ├── gas-runtime.js.html   # static runtime: promise shim, router, state, toasts
 ├── fx-stdlib.js.html     # static FX.* Power Fx helper library
+├── conversion-ledger.json # machine-readable translation/runtime-wiring ledger
 └── conversion-report.md  # fidelity ledger — read this before shipping
 ```
 
@@ -137,13 +135,15 @@ per-app; everything else is derived from your app.
 
 ## The conversion report
 
-Every formula lands in exactly one bucket:
+Translation and generated runtime wiring are reported separately. A formula
+can translate successfully while its control/property is still ignored by the
+synthesizer. Runtime-wiring statuses are:
 
-- **converted** — rule-transpiled to JS calling the `FX.*` stdlib.
-- **partial** — transpiled with the LLM fallback (confidence + notes included).
-- **stubbed** — emitted as `FX.unsupported('<Function>')`, which throws a clear
-  runtime error instead of silently misbehaving, and is listed under
-  *Manual follow-ups*.
+- **emitted** — deterministic synthesis wires the formula into the app; this
+  is not, by itself, deployed behavioral proof.
+- **partial** — an approximation or LLM translation that needs QA.
+- **ignored** — translation exists but the property/control has no runtime wiring.
+- **unsupported** — emitted as an explicit `FX.unsupported(...)` failure.
 
 The report also contains the data mapping (original source → Sheet tab +
 inferred fields) and Apps Script capacity notes (6-min executions, 30
@@ -174,8 +174,13 @@ Converted apps aim to match the original visually and behaviorally:
   `DelayOutput`.
 - **Galleries** — the row template renders per item with `ThisItem` bound to
   the row; child handlers receive the item, preserving per-row actions.
-- **Forms** — `NewForm`/`EditForm`/`ViewForm` set a mode flag; `SubmitForm`
-  routes through the generated data layer.
+- **Legacy canvas components** — definitions in `Components/*.json` are inlined
+  per instance with namespaced children and reactive custom inputs. This covers
+  the corpus's MENU, TILES/BUSCADOR, and progress-bar components; static
+  `HtmlText` interiors are preserved with executable markup removed.
+- **Forms** — `NewForm`/`EditForm`/`ViewForm` currently set an approximated mode
+  flag. `SubmitForm` is explicitly unsupported until data-card collection,
+  validation, create/update, and success/failure semantics are implemented.
 
 What is *not* reproduced pixel-perfect: app themes/typography (a clean system
 stylesheet is used), responsive reflow behavior, chart interiors
@@ -215,7 +220,7 @@ cp .env.example .env
 #   PFX2GAS_LLM_API_KEY=sk-or-...
 #   PFX2GAS_LLM_MODEL=openai/gpt-5.6-luna
 
-uv run pfx2gas convert YourApp.msapp
+./pfx2gas convert YourApp.msapp
 ```
 
 Guarantees: the model receives the function-coverage table (single source of
@@ -247,12 +252,13 @@ Rule-transpiled today (~70 functions via the `FX.*` stdlib):
   `Font.'Open Sans'`, …) emitted as literals
 - **Behavior** `Set`, `UpdateContext`, `Navigate`, `Back`, `Notify`,
   `Patch`, `Remove`, `RemoveIf`, `Collect`, `ClearCollect`, `Refresh`,
-  `SubmitForm`, `Select` (as data-layer/control calls), `Launch`
+  `Reset`, `Select` (as data-layer/control calls), `Launch`
   (opens a new tab)
 
-Anything not in the map (e.g. `Choices()`, custom `Environment.*` functions,
-`ShowHostInfo`) becomes a documented stub via the coverage ledger — never
-silently wrong. Adding functions is one entry in
+`Choices('Source'.Field)` is supported through the generated `__Choices` tab;
+`SubmitForm` and anything else not in the map (for example custom
+`Environment.*` functions or `ShowHostInfo`) become documented unsupported
+operations via the coverage ledger — never silently wrong. Adding functions is one entry in
 `src/pfx2gas/fx/function_map.py` plus a JS helper in `static/fx-stdlib.js`.
 
 **Controls:** Label, Button, TextInput, TextArea, Dropdown/ComboBox, CheckBox,
@@ -275,10 +281,9 @@ legacy binary-`.msapp` format via adapter.
 ## Development
 
 ```bash
-uv run pytest -q                    # Python suite (80 tests)
-node --test tests/js/*.js           # JS runtime suite (31 tests)
-uv run pytest tests/test_e2e.py -q  # end-to-end CLI runs on synthetic fixtures
-uv run python scripts/soak_check.py # convert + validate every app in samples/real
+./pfx2gas build  # required after src/ or static/ changes
+./pfx2gas test   # Python + JS + runtime consistency
+./pfx2gas soak   # convert + validate every real sample
 ```
 
 The test fixtures are synthetic `.msapp` files built by

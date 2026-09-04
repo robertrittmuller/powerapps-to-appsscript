@@ -49,9 +49,160 @@ test('serverRun rejects when the failure handler fires', async () => {
   await assert.rejects(RT.serverRun('api', 'Tasks', 'list', {}), /boom/);
 });
 
+test('apiChoices bridges the emitted client call to Apps Script', async () => {
+  installGoogleMock('ok');
+  const out = await global.apiChoices('Students', 'Subject');
+  assert.strictEqual(out.called, 'apiChoices');
+  assert.deepStrictEqual(out.args, ['Students', 'Subject']);
+});
+
 test('goBack without history is a no-op, not a crash', () => {
   RT.goBack();
   assert.ok(true);
+});
+
+test('setState immediately re-evaluates reactive bindings', () => {
+  let observed = null;
+  RT.addEvaluator(() => { observed = RT.state.reactiveValue; });
+  RT.setState({ reactiveValue: 42 });
+  assert.strictEqual(observed, 42);
+});
+
+test('component inputs remain reactive and val exposes control geometry', () => {
+  const original = global.document.querySelector;
+  const el = {
+    tagName: 'DIV', textContent: '', style: { width: '210px', height: '52px', left: '16px', top: '20px' },
+    selectedOptions: [],
+  };
+  global.document.querySelector = () => el;
+  RT.setState({ progress: 42 });
+  RT.registerControlProps('progress1', null, {
+    bar_width: () => 200,
+    bar_current_value: () => RT.state.progress,
+  });
+  assert.strictEqual(global.val('progress1').width, 210);
+  assert.strictEqual(global.val('progress1').bar_width, 200);
+  assert.strictEqual(global.val('progress1').bar_current_value, 42);
+  RT.setState({ progress: 75 });
+  assert.strictEqual(global.val('progress1').bar_current_value, 75);
+  global.document.querySelector = original;
+});
+
+test('App.ActiveScreen reflects navigation for component menu inputs', () => {
+  FXRuntime.showScreen('HOME');
+  assert.equal(val('App').active_screen, 'HOME');
+  go('DETAIL');
+  assert.equal(val('App').active_screen, 'DETAIL');
+});
+
+test('dependent evaluators receive Parent control properties', () => {
+  const original = global.document.querySelector;
+  const parent = { tagName: 'DIV', textContent: '', style: {}, selectedOptions: [] };
+  const child = { tagName: 'DIV', textContent: '', style: {}, selectedOptions: [] };
+  global.document.querySelector = (selector) => selector.includes('Card1') ? parent
+    : selector.includes('Child1') ? child : null;
+  RT.registerControlProps('Card1', null, { required: () => true });
+  RT.styleControl('Child1', 'display', () => global.parentRef.required ? '' : 'none', null, 'Card1');
+  RT.updateBindings();
+  assert.strictEqual(child.style.display, '');
+  global.document.querySelector = original;
+});
+
+test('dynamic image sources are bound and unsafe or blank sources are removed', () => {
+  const original = global.document.querySelector;
+  const attrs = {};
+  const el = {
+    tagName: 'IMG', textContent: '', style: {}, selectedOptions: [],
+    getAttribute: (name) => attrs[name] === undefined ? null : attrs[name],
+    setAttribute: (name, value) => { attrs[name] = value; },
+    removeAttribute: (name) => { delete attrs[name]; },
+    addEventListener: () => {},
+  };
+  let source = 'https://example.test/avatar.png';
+  global.document.querySelector = () => el;
+  RT.attrControl('Avatar', 'src', () => source, null);
+  assert.strictEqual(attrs.src, source);
+  source = 'javascript:alert(1)';
+  RT.updateBindings();
+  assert.strictEqual(attrs.src, undefined);
+  source = '';
+  RT.updateBindings();
+  assert.strictEqual(attrs.src, undefined);
+  global.document.querySelector = original;
+});
+
+test('record-valued dropdown options choose a readable scalar label', () => {
+  assert.deepStrictEqual(RT.optionRecord({ category: 'IT' }), { value: 'IT', label: 'IT' });
+  assert.deepStrictEqual(RT.optionRecord({ Name: 'Friendly', Value: 'raw' }),
+    { value: 'raw', label: 'Friendly' });
+  assert.deepStrictEqual(RT.optionRecord({ id: 7, status: 'OPEN' }),
+    { value: '7', label: '7' });
+  assert.deepStrictEqual(RT.optionRecord('plain'), { value: 'plain', label: 'plain' });
+});
+
+test('reactive point font sizes retain Power Apps units', () => {
+  const original = global.document.querySelector;
+  const el = { tagName: 'SPAN', textContent: '', style: {}, selectedOptions: [] };
+  global.document.querySelector = () => el;
+  RT.styleControl('Title', 'fontSize', () => 15, 'pt', null);
+  RT.updateBindings();
+  assert.strictEqual(el.style.fontSize, '15pt');
+  global.document.querySelector = original;
+});
+
+test('resetControl restores the generated default value', () => {
+  const original = global.document.querySelector;
+  const el = {
+    type: 'text', value: 'changed', style: {},
+    getAttribute: (name) => name === 'data-fx-default' ? 'original' : null,
+  };
+  global.document.querySelector = () => el;
+  global.resetControl('TextInput1');
+  assert.strictEqual(el.value, 'original');
+  global.document.querySelector = original;
+});
+
+function installRemoveIfMock(initialRows) {
+  let rows = initialRows.slice();
+  const calls = [];
+  let ok = null;
+  let fail = null;
+  const runner = new Proxy({}, {
+    get(_t, prop) {
+      if (prop === 'withSuccessHandler') return (cb) => { ok = cb; return runner; };
+      if (prop === 'withFailureHandler') return (cb) => { fail = cb; return runner; };
+      return (...args) => {
+        calls.push({ fn: String(prop), args });
+        const success = ok;
+        ok = null; fail = null;
+        if (String(prop) !== 'api') return success(undefined);
+        const op = args[1];
+        if (op === 'list') return success(rows.slice());
+        if (op === 'removeIf') {
+          const ids = args[2].ids.map(String);
+          rows = rows.filter((row) => !ids.includes(String(row.id)));
+          return success({ ok: true });
+        }
+        return success({ ok: true });
+      };
+    },
+  });
+  global.google = { script: { run: runner } };
+  return calls;
+}
+
+test('external RemoveIf sends explicit matching ids only', async () => {
+  const calls = installRemoveIfMock([{ id: 1, status: 'open' }, { id: 2, status: 'done' }]);
+  const remaining = await global.apiRemoveIf('Tasks', (row) => row.status === 'done');
+  const mutation = calls.find((call) => call.args[1] === 'removeIf');
+  assert.deepStrictEqual(mutation.args[2], { ids: [2] });
+  assert.deepStrictEqual(remaining, [{ id: 1, status: 'open' }]);
+});
+
+test('external RemoveIf with no matches performs no mutation', async () => {
+  const calls = installRemoveIfMock([{ id: 1, status: 'open' }]);
+  await global.apiRemoveIf('Tasks', (row) => row.status === 'missing');
+  assert.strictEqual(calls.some((call) => call.args[1] === 'removeIf'), false);
 });
 
 // --- collection mutation helpers (called as generated code calls them) ------

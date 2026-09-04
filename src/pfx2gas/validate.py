@@ -6,7 +6,7 @@ import tempfile
 from pathlib import Path
 
 REQUIRED_FILES = ["Code.gs", "DataInit.gs", "appsscript.json", "Index.html",
-                  "Screens.html", "App.js.html"]
+                  "Screens.html", "App.js.html", "conversion-ledger.json"]
 
 
 def js_syntax_ok(js: str) -> tuple[bool, str]:
@@ -65,4 +65,19 @@ def validate_project(out_dir: str | Path) -> dict:
         except json.JSONDecodeError as exc:
             problems.append(f"appsscript.json is not valid JSON: {exc}")
 
-    return {"ok": not problems, "problems": problems, "stub_count": stub_count}
+    fidelity_gap_count = 0
+    ledger_path = out / "conversion-ledger.json"
+    if ledger_path.exists():
+        try:
+            ledger = json.loads(ledger_path.read_text())
+            rows = ledger.get("formulas", [])
+            if not isinstance(rows, list):
+                raise ValueError("formulas must be a list")
+            fidelity_gap_count = sum(
+                1 for row in rows if row.get("emission") != "emitted"
+            )
+        except (json.JSONDecodeError, ValueError, AttributeError) as exc:
+            problems.append(f"conversion-ledger.json is invalid: {exc}")
+
+    return {"ok": not problems, "problems": problems, "stub_count": stub_count,
+            "fidelity_gap_count": fidelity_gap_count}

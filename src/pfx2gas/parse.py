@@ -63,6 +63,9 @@ def _parse_control(name: str, node: dict) -> ControlNode:
         for child_name, child_node in child.items():
             children.append(_parse_control(str(child_name), child_node))
     return ControlNode(name=name, type=ctrl_type, variant=variant if isinstance(variant, str) else None,
+                       component_template=(str(node["ComponentTemplate"])
+                                           if node.get("ComponentTemplate") else None),
+                       component_inputs=[str(p) for p in node.get("ComponentInputs", [])],
                        properties=fx_props, children=children)
 
 
@@ -115,7 +118,7 @@ def _origin_of(ds: dict) -> str:
 
 
 def parse(unpacked: UnpackedApp) -> AppIR:
-    ir = AppIR(name=unpacked.app_name)
+    ir = AppIR(name=unpacked.app_name, warnings=list(unpacked.warnings))
 
     # App-level OnStart
     app_props = ((unpacked.app_yaml or {}).get("App") or {}).get("Properties") or {}

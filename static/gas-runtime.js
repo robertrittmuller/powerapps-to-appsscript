@@ -11,6 +11,7 @@
   var state = {};
   var evaluators = [];   // { fn, apply } — re-run on state change
   var handlers = {};     // controlName -> { event: fn }
+  var controlValues = {}; // control name -> evaluated properties used by dependents
   var screenStack = [];
   var CURRENT_SCREEN = null;
 
@@ -48,13 +49,19 @@
 
   function updateBindings() {
     evaluators.forEach(function (e) {
-      try { e.apply(); } catch (err) { console.error('binding error', err); }
+      try {
+        var result = e.apply();
+        if (result && typeof result.catch === 'function') {
+          result.catch(function (err) { console.error('binding error', err); });
+        }
+      } catch (err) { console.error('binding error', err); }
     });
   }
 
   function setState(patch) {
     Object.keys(patch).forEach(function (k) { state[k] = patch[k]; });
     updateBindings();
+    return state;
   }
 
   function go(name) {
@@ -77,7 +84,7 @@
     CURRENT_SCREEN = name;
     var fn = handlers['__screen__' + name];
     if (fn) {
-      Promise.resolve().then(fn).catch(function (e) {
+      Promise.resolve().then(fn).then(updateBindings).catch(function (e) {
         console.error(e);
         toast('Error: ' + (e && e.message ? e.message : e), true);
       });
@@ -85,44 +92,166 @@
     updateBindings();
   }
 
-  function bind(name, event, fn) {
+  function bind(name, event, fn, parentName) {
     var el = document.querySelector('[data-control="' + name + '"]');
     if (!el) { console.warn('control not found for binding:', name); return; }
     el.addEventListener(event === 'OnSelect' ? 'click' : 'change', function () {
-      Promise.resolve().then(fn).catch(function (e) {
+      var previousSelf = global.selfRef;
+      var previousParent = global.parentRef;
+      global.selfRef = val(name);
+      global.parentRef = val(parentName);
+      Promise.resolve().then(fn).then(updateBindings).catch(function (e) {
         console.error(e);
         toast('Error: ' + (e && e.message ? e.message : e), true);
+      }).then(function () {
+        global.selfRef = previousSelf;
+        global.parentRef = previousParent;
       });
     });
   }
 
   function val(name) {
-    var el = document.querySelector('[data-control="' + name + '"]');
-    if (!el) return { text: '', value: '', selected: null, checked: false };
+    if (name === 'App') {
+      return { active_screen: CURRENT_SCREEN };
+    }
+    var el = document.querySelector('[data-control="' + name + '"]')
+      || document.querySelector('[data-screen="' + name + '"]');
+    if (!el) return Object.assign(
+      { text: '', value: '', selected: null, checked: false,
+        width: 0, height: 0, x: 0, y: 0, fill: '', color: '', visible: false },
+      controlValues[name] || {}
+    );
     var isSelect = el.tagName === 'SELECT';
-    return {
+    var bounds = typeof el.getBoundingClientRect === 'function'
+      ? el.getBoundingClientRect() : null;
+    function numericStyle(name, fallback) {
+      var parsed = parseFloat(el.style && el.style[name]);
+      if (Number.isFinite(parsed)) return parsed;
+      return Number.isFinite(fallback) ? fallback : 0;
+    }
+    var standard = {
       text: 'value' in el ? el.value : (el.textContent || ''),
       value: el.value !== undefined ? el.value : el.textContent,
       checked: !!el.checked,
       selected: isSelect && el.selectedOptions[0] ? el.selectedOptions[0].value : null,
       selectedDate: el.value ? el.value : null,
+      width: numericStyle('width', bounds && bounds.width),
+      height: numericStyle('height', bounds && bounds.height),
+      x: numericStyle('left', bounds && bounds.left),
+      y: numericStyle('top', bounds && bounds.top),
+      fill: el.style && el.style.backgroundColor || '',
+      color: el.style && el.style.color || '',
+      visible: !el.style || el.style.display !== 'none',
       el: el,
     };
+    return Object.assign(standard, controlValues[name] || {});
   }
 
-  function styleControl(name, cssProp, valueFn, unit) {
+  function optionRecord(row) {
+    if (row === null || row === undefined) return { value: '', label: '' };
+    if (typeof row !== 'object') {
+      var scalar = String(row);
+      return { value: scalar, label: scalar };
+    }
+    function scalarAt(key) {
+      var value = row[key];
+      return value !== null && value !== undefined && typeof value !== 'object'
+        ? String(value) : null;
+    }
+    function first(keys) {
+      for (var i = 0; i < keys.length; i++) {
+        if (Object.prototype.hasOwnProperty.call(row, keys[i])) {
+          var found = scalarAt(keys[i]);
+          if (found !== null) return found;
+        }
+      }
+      return null;
+    }
+    var label = first(['name', 'Name', 'label', 'Label', 'title', 'Title',
+      'value', 'Value', 'category', 'Category', 'type', 'Type']);
+    if (label === null) {
+      var ownKeys = Object.keys(row).filter(function (key) { return key.slice(0, 2) !== '__'; });
+      label = first(ownKeys);
+    }
+    if (label === null) label = JSON.stringify(row);
+    var value = first(['value', 'Value', 'id', 'ID', 'key', 'Key']);
+    return { value: value === null ? label : value, label: label };
+  }
+
+  function registerControlProps(name, parentName, propertyFns) {
+    var evaluator = {
+      apply: function () {
+        var next = Object.assign({}, controlValues[name] || {});
+        controlValues[name] = next;
+        var previousSelf = global.selfRef;
+        var previousParent = global.parentRef;
+        global.selfRef = val(name);
+        global.parentRef = val(parentName);
+        Object.keys(propertyFns || {}).forEach(function (key) {
+          try { next[key] = propertyFns[key](); }
+          catch (err) { console.error('control property error', name + '.' + key, err); }
+        });
+        global.selfRef = previousSelf;
+        global.parentRef = previousParent;
+        return next;
+      },
+    };
+    evaluators.push(evaluator);
+    evaluator.apply();
+  }
+
+  function styleControl(name, cssProp, valueFn, unit, parentName) {
     evaluators.push({
       apply: function () {
         var el = document.querySelector('[data-control="' + name + '"]');
         if (!el) return;
         var v;
+        var previousSelf = global.selfRef;
+        var previousParent = global.parentRef;
+        global.selfRef = val(name);
+        global.parentRef = val(parentName);
         try { v = valueFn(); } catch (e) { return; }
-        if (v === null || v === undefined || v === '') return;
-        if (unit === 'px' && /^\d+(\.\d+)?$/.test(String(v))) v = String(v) + 'px';
+        finally { global.selfRef = previousSelf; global.parentRef = previousParent; }
+        if (v === null || v === undefined || (v === '' && cssProp !== 'display')) return;
+        if ((unit === 'px' || unit === 'pt') && /^\d+(\.\d+)?$/.test(String(v))) {
+          v = String(v) + unit;
+        }
         else if (unit === 'lower') v = String(v).toLowerCase();
         el.style[cssProp] = String(v);
       },
     });
+  }
+
+  function attrControl(name, attr, valueFn, parentName) {
+    var evaluator = {
+      apply: function () {
+        var el = document.querySelector('[data-control="' + name + '"]');
+        if (!el) return;
+        var previousSelf = global.selfRef;
+        var previousParent = global.parentRef;
+        global.selfRef = val(name);
+        global.parentRef = val(parentName);
+        var value;
+        try { value = valueFn(); }
+        catch (err) { console.error('control attribute error', name + '.' + attr, err); return; }
+        finally { global.selfRef = previousSelf; global.parentRef = previousParent; }
+        value = value == null ? '' : String(value).trim();
+        if (attr === 'src' && /^(?:javascript|vbscript):/i.test(value)) value = '';
+        if (!value) {
+          if (typeof el.removeAttribute === 'function') el.removeAttribute(attr);
+          return;
+        }
+        if (el.getAttribute(attr) !== value && typeof el.setAttribute === 'function') {
+          el.setAttribute(attr, value);
+        }
+        if (attr === 'src' && !el.__fxImageFallback) {
+          el.__fxImageFallback = true;
+          el.addEventListener('error', function () { el.removeAttribute('src'); });
+        }
+      },
+    };
+    evaluators.push(evaluator);
+    evaluator.apply();
   }
 
   /**
@@ -167,9 +296,17 @@
   }
 
   function submitForm(name) {
-    // Converted apps do not use real <form> posts; the generated handler
-    // calls apiCreate/apiPatch directly. Kept for formula compatibility.
-    return Promise.resolve();
+    throw new Error('SubmitForm is not implemented for generated forms: ' + name);
+  }
+
+  function resetControl(name) {
+    var el = document.querySelector('[data-control="' + name + '"]');
+    if (!el) throw new Error('control not found for Reset: ' + name);
+    var value = el.getAttribute('data-fx-default');
+    if (el.type === 'checkbox') el.checked = value === 'true';
+    else el.value = value === null ? '' : value;
+    updateBindings();
+    return value;
   }
 
   function setFormMode(name, mode) {
@@ -219,7 +356,23 @@
     return serverRun('api', ds, 'remove', { record: record }).then(function () { return refreshData(ds); });
   };
   global.apiRemoveIf = function (ds, pred) {
-    return serverRun('api', ds, 'removeIf', {}).then(function () { return refreshData(ds); });
+    if (typeof pred !== 'function') return Promise.reject(new Error('RemoveIf requires a predicate'));
+    // Functions cannot cross google.script.run. Refresh the bounded local
+    // table, evaluate the deterministic predicate client-side, then send only
+    // explicit IDs. Empty matches never call the mutation endpoint.
+    return refreshData(ds).then(function (rows) {
+      var matches = (rows || []).filter(pred);
+      if (!matches.length) return [];
+      var ids = matches.map(function (row) { return row && row.id; });
+      if (ids.some(function (id) { return id === undefined || id === null || id === ''; })) {
+        throw new Error('RemoveIf requires an id column on every matching row');
+      }
+      return serverRun('api', ds, 'removeIf', { ids: ids })
+        .then(function () { return refreshData(ds); });
+    });
+  };
+  global.apiChoices = function (ds, field) {
+    return serverRun('apiChoices', ds, field);
   };
   global.apiCreate = function (ds, record) {
     return serverRun('api', ds, 'create', { record: record }).then(function (r) {
@@ -282,12 +435,24 @@
     submitForm: submitForm,
     refreshData: refreshData,
     updateBindings: updateBindings,
+    setState: setState,
+    registerControlProps: registerControlProps,
     styleControl: styleControl,
+    attrControl: attrControl,
+    optionRecord: optionRecord,
     gallery: gallery,
     setFormMode: setFormMode,
     exitApp: exitApp,
     fxUser: fxUser,
-    addEvaluator: function (apply) { evaluators.push({ apply: apply }); apply(); },
+    addEvaluator: function (apply) {
+      evaluators.push({ apply: apply });
+      try {
+        var result = apply();
+        if (result && typeof result.catch === 'function') {
+          result.catch(function (err) { console.error('binding error', err); });
+        }
+      } catch (err) { console.error('binding error', err); }
+    },
     registerScreenHandler: function (name, fn) { handlers['__screen__' + name] = fn; },
   };
   global.go = go;
@@ -297,6 +462,7 @@
   global.val = val;
   global.bind = bind;   // generated App.js calls bind('Ctrl', 'OnSelect', fn)
   global.submitForm = submitForm;
+  global.resetControl = resetControl;
   global.refreshData = refreshData;
   global.esc = function (s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
@@ -308,25 +474,27 @@
     if (el) el.click();
   };
   global.selfRef = null; // bound per-control during evaluator registration
+  global.parentRef = null;
   global.FXUser = fxUser;
   global.exitApp = exitApp;
+  global.setFormMode = setFormMode;
 
   if (typeof document !== 'undefined') {
     document.addEventListener('DOMContentLoaded', function () {
       // A synchronous crash in APP_MAIN must not leave a blank page: catch,
       // surface, and still reveal the first screen (Power Apps start screen).
-      if (typeof global.APP_MAIN === 'function') {
-        try {
-          global.APP_MAIN();
-        } catch (e) {
-          console.error(e);
-          toast('Startup error: ' + (e && e.message ? e.message : e), true);
+      var startup = typeof global.APP_MAIN === 'function'
+        ? Promise.resolve().then(function () { return global.APP_MAIN(); })
+        : Promise.resolve();
+      startup.catch(function (e) {
+        console.error(e);
+        toast('Startup error: ' + (e && e.message ? e.message : e), true);
+      }).then(function () {
+        if (!CURRENT_SCREEN) {
+          var first = document.querySelector('[data-screen]');
+          if (first) showScreen(first.getAttribute('data-screen'));
         }
-      }
-      if (!CURRENT_SCREEN) {
-        var first = document.querySelector('[data-screen]');
-        if (first) showScreen(first.getAttribute('data-screen'));
-      }
+      });
     });
   }
 })(typeof window !== 'undefined' ? window : globalThis);

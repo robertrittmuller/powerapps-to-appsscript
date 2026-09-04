@@ -11,13 +11,14 @@ class TranspileError(Exception):
 
 def transpile(fx: str, behavior: bool = False, row_fields: set[str] | None = None,
               control_names: set[str] | None = None,
-              collections: set[str] | None = None) -> TranspileResult:
+              collections: set[str] | None = None,
+              screen_names: set[str] | None = None) -> TranspileResult:
     """Transpile one Power Fx formula (may contain ;-chained statements)."""
     res = TranspileResult()
     try:
         stmts = lx.parse_formula(fx)
     except lx.FxSyntaxError as exc:
         raise TranspileError(f"cannot parse formula: {fx!r}: {exc}") from exc
-    em = Emitter(res, behavior, row_fields, control_names, collections)
+    em = Emitter(res, behavior, row_fields, control_names, collections, screen_names)
     res.js = em.emit(stmts)
     return res

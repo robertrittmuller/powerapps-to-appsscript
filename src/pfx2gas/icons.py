@@ -1,11 +1,10 @@
-"""Power Apps icon names -> Unicode glyph characters (Segoe MDL2/Fluent).
+"""Power Apps icon names -> portable Unicode glyph characters.
 
 Power Apps stores Material/Fluent icon *names* in Image/Icon properties
 (``'customer-service'``, ``Icon.EmojiSmile``, ...). Browsers cannot resolve a
 bare name as an image URL (404 noise, missing icon). The converter renders
-known names as their Unicode glyph character (styled via font-family Segoe
-MDL2 Assets, which ships with Windows and is commonly available; unknown
-names keep the legacy behavior and are reported).
+known names as standard Unicode symbols that render on Windows, macOS, and
+Linux; unknown names keep the legacy behavior and are reported).
 """
 from __future__ import annotations
 
@@ -13,70 +12,77 @@ import re
 
 # name (lowercase, hyphens/scores stripped) -> Unicode codepoint
 _ICON_GLYPHS = {
-    "customerservice": 0xE778,
-    "settings": 0xE713,
-    "gear": 0xE713,
-    "filter": 0xE71C,
-    "smile": 0xE76E,
-    "emojismile": 0xE76E,
-    "search": 0xE721,
-    "home": 0xE80F,
-    "add": 0xE710,
-    "plus": 0xE710,
-    "delete": 0xE74D,
-    "trash": 0xE74D,
-    "edit": 0xE70F,
-    "pencil": 0xE70F,
-    "save": 0xE74E,
-    "back": 0xE72B,
-    "arrowback": 0xE72B,
-    "chevronright": 0xE76C,
-    "chevronleft": 0xE76B,
-    "chevronup": 0xE70E,
-    "chevrondown": 0xE70D,
-    "nextarrow": 0xE76C,
-    "close": 0xE711,
-    "cancel": 0xE711,
-    "x": 0xE711,
-    "checkmark": 0xE73E,
-    "check": 0xE73E,
-    "refresh": 0xE72C,
-    "sync": 0xE895,
-    "mail": 0xE715,
-    "email": 0xE715,
-    "person": 0xE77B,
-    "contact": 0xE77B,
-    "heart": 0xEB51,
-    "starred": 0xE735,
-    "document": 0xE8A5,
-    "file": 0xE8A5,
-    "folder": 0xE8B7,
-    "download": 0xE896,
-    "info": 0xE946,
-    "warning": 0xE7BA,
-    "error": 0xE783,
-    "calendar": 0xE787,
-    "clock": 0xE823,
-    "location": 0xE81D,
-    "pin": 0xE718,
-    "phone": 0xE717,
-    "list": 0xE8FD,
-    "lightbulb": 0xEA61,
-    "lock": 0xE72E,
-    "unlock": 0xE72F,
-    "flag": 0xE7C1,
-    "play": 0xE768,
-    "pause": 0xE769,
-    "attach": 0xE723,
-    "share": 0xE72D,
-    "help": 0xE897,
-    "question": 0xE897,
-    "comment": 0xE90A,
-    "tag": 0xE8EC,
-    "print": 0xE749,
-    "camera": 0xE722,
-    "zoomin": 0xE8A3,
-    "zoomout": 0xE71F,
+    "customerservice": 0x260E,       # ☎
+    "settings": 0x2699,              # ⚙
+    "gear": 0x2699,                  # ⚙
+    "filter": 0x25BD,                # ▽
+    "smile": 0x263A,                 # ☺
+    "emojismile": 0x263A,            # ☺
+    "search": 0x2315,                # ⌕
+    "home": 0x2302,                  # ⌂
+    "add": 0xFF0B,                   # ＋
+    "plus": 0xFF0B,                  # ＋
+    "delete": 0x2715,                # ✕
+    "trash": 0x2715,                 # ✕
+    "edit": 0x270E,                  # ✎
+    "pencil": 0x270E,                # ✎
+    "save": 0x2713,                  # ✓
+    "back": 0x2190,                  # ←
+    "arrowback": 0x2190,             # ←
+    "chevronright": 0x276F,          # ❯
+    "chevronleft": 0x276E,           # ❮
+    "chevronup": 0x2303,             # ⌃
+    "chevrondown": 0x2304,           # ⌄
+    "nextarrow": 0x276F,             # ❯
+    "close": 0x00D7,                 # ×
+    "cancel": 0x00D7,                # ×
+    "x": 0x00D7,                     # ×
+    "checkmark": 0x2713,             # ✓
+    "check": 0x2713,                 # ✓
+    "refresh": 0x21BB,               # ↻
+    "sync": 0x21BA,                  # ↺
+    "mail": 0x2709,                  # ✉
+    "email": 0x2709,                 # ✉
+    "person": 0x25C9,                # ◉
+    "contact": 0x25C9,               # ◉
+    "heart": 0x2665,                 # ♥
+    "starred": 0x2605,               # ★
+    "document": 0x25A4,              # ▤
+    "file": 0x25A4,                  # ▤
+    "adddocument": 0xFF0B,          # ＋
+    "documentwithcontent": 0x25A4, # ▤
+    "detaillist": 0x2637,           # ☷
+    "trending": 0x2197,             # ↗
+    "sort": 0x21C5,                 # ⇅
+    "reload": 0x21BB,               # ↻
+    "cancelbadge": 0x2297,          # ⊗
+    "folder": 0x25F0,                # ◰
+    "download": 0x21E9,              # ⇩
+    "info": 0x24D8,                  # ⓘ
+    "warning": 0x26A0,               # ⚠
+    "error": 0x2298,                 # ⊘
+    "calendar": 0x25A3,              # ▣
+    "clock": 0x25F7,                 # ◷
+    "location": 0x2316,              # ⌖
+    "pin": 0x2316,                   # ⌖
+    "phone": 0x260E,                 # ☎
+    "list": 0x2637,                  # ☷
+    "lightbulb": 0x2600,             # ☀
+    "lock": 0x2299,                  # ⊙
+    "unlock": 0x25CB,                # ○
+    "flag": 0x2691,                  # ⚑
+    "play": 0x25B6,                  # ▶
+    "pause": 0x2016,                 # ‖
+    "attach": 0x26D3,                # ⛓
+    "share": 0x2197,                 # ↗
+    "help": 0x003F,                  # ?
+    "question": 0x003F,              # ?
+    "comment": 0x25CC,               # ◌
+    "tag": 0x25C6,                   # ◆
+    "print": 0x25A3,                 # ▣
+    "camera": 0x25C9,                # ◉
+    "zoomin": 0x2295,                # ⊕
+    "zoomout": 0x2296,               # ⊖
 }
 
 

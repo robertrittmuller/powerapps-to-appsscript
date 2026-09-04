@@ -27,7 +27,11 @@ def collect_global_vars(ir: AppIR) -> list[str]:
         except lx.FxSyntaxError:
             return
         for st in stmts:
-            if st.kind == "call" and st.value in {"Set", "UpdateContext", "Collect", "ClearCollect"}:
+            if st.kind == "call" and st.value == "UpdateContext" and st.children:
+                record = st.children[0]
+                if record.kind == "record":
+                    names.update(str(name) for name, _value in record.value)
+            elif st.kind == "call" and st.value in {"Set", "Collect", "ClearCollect"}:
                 t = st.children[0] if st.children else None
                 if t is not None and t.kind == "ident":
                     names.add(str(t.value))
@@ -142,6 +146,7 @@ def analyze(ir: AppIR, uncovered: list[dict] | None = None) -> AppIR:
     infer_data_source_fields(ir)
 
     control_names = {c.name for s in ir.screens for c in s.walk_controls()}
+    screen_names = {s.name for s in ir.screens}
     row_fields = collect_row_fields(ir)
     collections = {ds.name for ds in ir.data_sources if ds.origin == "collection"}
 
@@ -151,8 +156,9 @@ def analyze(ir: AppIR, uncovered: list[dict] | None = None) -> AppIR:
         try:
             res = transpile(expr.raw, behavior=(expr.kind == "behavior"),
                             row_fields=row_fields, control_names=control_names,
-                            collections=collections)
+                            collections=collections, screen_names=screen_names)
             expr.js = res.js
+            expr.translation_status = "stubbed" if res.unmapped else "rule"
             if res.unmapped:
                 for fn in res.unmapped:
                     ir.support_matrix.append(SupportEntry(
@@ -161,6 +167,7 @@ def analyze(ir: AppIR, uncovered: list[dict] | None = None) -> AppIR:
                     ))
         except Exception as exc:  # TranspileError or unexpected
             expr.js = None
+            expr.translation_status = "stubbed"
             ir.support_matrix.append(SupportEntry(
                 subject=expr.raw[:80], status="stubbed",
                 detail=f"transpile failed: {exc}",

@@ -15,8 +15,12 @@ UI-parity notes:
 """
 from __future__ import annotations
 
+import ast
+import html
 import re
 
+from ..fidelity import mark_emission
+from ..fx.naming import snake as _snake
 from ..icons import icon_glyph, is_icon_name
 from ..ir import AppIR, ControlNode
 
@@ -71,6 +75,27 @@ _NUM_RE = re.compile(r"^(\d+(?:\.\d+)?)$")
 _QUOTED_RE = re.compile(r"^'([^']*)'$")
 _RGBA_RE = re.compile(r"^FX\.rgba\(([^)]*)\)$")
 _FADE_RE = re.compile(r"^FX\.colorFade\((.*), (-?[\d.]+)\)$")
+_UNSAFE_HTML_BLOCK_RE = re.compile(
+    r"<\s*(script|style|iframe|object|embed|svg|math)\b[^>]*>.*?<\s*/\s*\1\s*>",
+    re.IGNORECASE | re.DOTALL,
+)
+_UNSAFE_HTML_TAG_RE = re.compile(
+    r"<\s*/?\s*(script|style|iframe|object|embed|svg|math|link|meta|form|input|button)\b[^>]*>",
+    re.IGNORECASE | re.DOTALL,
+)
+_EVENT_HANDLER_RE = re.compile(
+    r"\s+on[a-z0-9_-]+\s*=\s*(?:\"[^\"]*\"|'[^']*'|[^\s>]+)",
+    re.IGNORECASE,
+)
+_UNSAFE_URL_ATTR_RE = re.compile(
+    r"\s+(?:href|src|xlink:href)\s*=\s*(?:(['\"])\s*(?:javascript|vbscript)\s*:"
+    r"[\s\S]*?\1|(?:javascript|vbscript)\s*:[^\s>]*)",
+    re.IGNORECASE,
+)
+_UNSAFE_HTML_ATTR_RE = re.compile(
+    r"\s+(?:srcdoc|action|formaction)\s*=\s*(?:\"[^\"]*\"|'[^']*'|[^\s>]+)",
+    re.IGNORECASE,
+)
 
 
 def _fade_channel(c: float, t: float) -> int:
@@ -119,11 +144,27 @@ def _static_px(expr) -> str | None:
     return f"{m.group(1)}px" if m else None
 
 
+def _static_pt(expr) -> str | None:
+    """Power Apps font Size values are points, while geometry uses pixels."""
+    value = _static_px(expr)
+    return f"{value[:-2]}pt" if value else None
+
+
 def _static_map(expr, mapping: dict[str, str]) -> str | None:
     if not expr or expr.js is None:
         return None
-    m = _QUOTED_RE.match(expr.js.strip())
-    return mapping.get(m.group(1)) if m else None
+    js = expr.js.strip()
+    m = _QUOTED_RE.match(js)
+    if m:
+        return mapping.get(m.group(1))
+    # Older canvas exports frequently serialize enum members as bare values
+    # (for example ``Align = Center`` and ``FontWeight = Bold``).  The Power
+    # Fx emitter conservatively treats a bare identifier as app state, but in
+    # a property-specific enum map the original spelling is unambiguous.
+    raw = (expr.raw or "").strip()
+    if js == f"state.{raw}" and raw in mapping:
+        return mapping[raw]
+    return None
 
 
 def _static_bool(expr) -> bool | None:
@@ -140,8 +181,27 @@ def _static_bool(expr) -> bool | None:
 def _static_raw(expr) -> str | None:
     if not expr or expr.js is None:
         return None
-    m = _QUOTED_RE.match(expr.js.strip())
-    return m.group(1) if m else None
+    js = expr.js.strip()
+    if len(js) < 2 or js[0] not in {"'", '"'} or js[-1] != js[0]:
+        return None
+    try:
+        value = ast.literal_eval(js)
+    except (SyntaxError, ValueError):
+        m = _QUOTED_RE.match(js)
+        return m.group(1) if m else None
+    return value if isinstance(value, str) else None
+
+
+def _sanitize_static_html(content: str) -> str:
+    """Preserve HtmlText presentation without carrying executable markup."""
+    previous = None
+    while previous != content:
+        previous = content
+        content = _UNSAFE_HTML_BLOCK_RE.sub("", content)
+    content = _UNSAFE_HTML_TAG_RE.sub("", content)
+    content = _EVENT_HANDLER_RE.sub("", content)
+    content = _UNSAFE_URL_ATTR_RE.sub("", content)
+    return _UNSAFE_HTML_ATTR_RE.sub("", content)
 
 
 # ---- property mapping tables -------------------------------------------------
@@ -173,11 +233,11 @@ HOVER_PROPS = {
     "HoverColor": ("color", "hover"),
     "HoverBorderColor": ("border-color", "hover"),
     "PressedFill": ("background-color", "active"),
-    "DisabledFill": ("background-color", ":disabled"),
-    "DisabledColor": ("color", ":disabled"),
-    "DisabledBorderColor": ("border-color", ":disabled"),
-    "FocusedBorderColor": ("border-color", ":focus-visible"),
-    "FocusedFill": ("background-color", ":focus-visible"),
+    "DisabledFill": ("background-color", "disabled"),
+    "DisabledColor": ("color", "disabled"),
+    "DisabledBorderColor": ("border-color", "disabled"),
+    "FocusedBorderColor": ("border-color", "focus-visible"),
+    "FocusedFill": ("background-color", "focus-visible"),
 }
 
 BOOL_TEXT_PROPS = {
@@ -210,17 +270,48 @@ def _static_style(ctrl: ControlNode, in_flex: bool, rules: list[str]) -> str:
     css: list[str] = []
 
     def px(name: str) -> str | None:
-        return _static_px(props.get(name))
+        value = _static_px(props.get(name))
+        if value:
+            mark_emission(props.get(name))
+        return value
 
     def color(name: str) -> str | None:
-        return _static_color(props.get(name))
+        value = _static_color(props.get(name))
+        if value:
+            mark_emission(props.get(name))
+        return value
+
+    def pt(name: str) -> str | None:
+        value = _static_pt(props.get(name))
+        if value:
+            mark_emission(props.get(name))
+        return value
+
+    def mapped(name: str, mapping: dict[str, str]) -> str | None:
+        value = _static_map(props.get(name), mapping)
+        if value:
+            mark_emission(props.get(name))
+        return value
+
+    def boolean(name: str) -> bool | None:
+        value = _static_bool(props.get(name))
+        if value is not None:
+            mark_emission(props.get(name))
+        return value
+
+    def raw(name: str) -> str | None:
+        value = _static_raw(props.get(name))
+        if value is not None:
+            mark_emission(props.get(name))
+        return value
 
     # --- position / size ----------------------------------------------------
     if in_flex:
         fp = props.get("FillPortions")
         if fp and fp.js and _NUM_RE.match(fp.js.strip()) and fp.js.strip() != "0":
             css.append(f"flex:{fp.js.strip()} 1 0%")
-        align = _static_map(props.get("Align"), ALIGN_MAP)
+            mark_emission(fp)
+        align = mapped("Align", ALIGN_MAP)
         if align:
             css.append(f"align-self:{align}")
     else:
@@ -235,7 +326,7 @@ def _static_style(ctrl: ControlNode, in_flex: bool, rules: list[str]) -> str:
     w, h = px("Width"), px("Height")
     if w:
         css.append(f"width:{w}")
-    auto_h = _static_bool(props.get("AutoHeight"))
+    auto_h = boolean("AutoHeight")
     if h and auto_h is not True:
         css.append(f"height:{h}")
     elif auto_h is True:
@@ -244,30 +335,37 @@ def _static_style(ctrl: ControlNode, in_flex: bool, rules: list[str]) -> str:
     # --- container layout ----------------------------------------------------
     if _is_flex_container(ctrl):
         css.append("display:flex")
-        direction = _static_map(props.get("LayoutDirection"), DIRECTION_MAP)
+        direction = mapped("LayoutDirection", DIRECTION_MAP)
         if direction:
             css.append(f"flex-direction:{direction}")
-        align = _static_map(props.get("LayoutAlignItems"), ALIGN_MAP)
+        align = mapped("LayoutAlignItems", ALIGN_MAP)
         if align:
             css.append(f"align-items:{align}")
-        justify = _static_map(props.get("LayoutJustifyContent"), JUSTIFY_MAP)
+        justify = mapped("LayoutJustifyContent", JUSTIFY_MAP)
         if justify:
             css.append(f"justify-content:{justify}")
-        wrap = _static_map(props.get("LayoutWrap"), WRAP_MAP)
+        wrap = mapped("LayoutWrap", WRAP_MAP)
         if wrap:
             css.append(f"flex-wrap:{wrap}")
     for prop, css_prop in COSMETIC_PX.items():
         v = px(prop)
         if v:
             css.append(f"{css_prop}:{v}")
+    # BorderColor is independent of the text color. Omitting it lets CSS use
+    # currentColor and turns transparent Power Apps borders into dark boxes.
+    border_width = px("BorderThickness")
+    border_color = color("BorderColor")
+    if border_color:
+        css.append(f"border-color:{border_color}")
+
     # border style: explicit enum, else solid when thickness+color present
-    border_style = _static_map(props.get("BorderStyle"), BORDER_STYLE_MAP)
-    if border_style and px("BorderThickness"):
+    border_style = mapped("BorderStyle", BORDER_STYLE_MAP)
+    if border_style and border_width:
         css.append(f"border-style:{border_style}")
-    elif px("BorderThickness") and color("BorderColor"):
+    elif border_width and border_color:
         css.append("border-style:solid")
 
-    shadow = _static_map(props.get("DropShadow"), SHADOW_MAP)
+    shadow = mapped("DropShadow", SHADOW_MAP)
     if shadow:
         css.append(f"box-shadow:{shadow}")
 
@@ -278,51 +376,61 @@ def _static_style(ctrl: ControlNode, in_flex: bool, rules: list[str]) -> str:
     text_color = color("Color") or color("FontColor")
     if text_color:
         css.append(f"color:{text_color}")
-    font = _static_raw(props.get("Font"))
+    font = raw("Font")
     if font:
         css.append(f"font-family:'{font}'")
-    weight = _static_map(props.get("FontWeight"), WEIGHT_MAP) or _static_px(props.get("FontWeight"))
+    weight = mapped("FontWeight", WEIGHT_MAP) or px("FontWeight")
     if weight:
         css.append(f"font-weight:{weight}")
-    size = px("Size") or px("FontSize")
+    size = pt("Size") or pt("FontSize")
     if size:
         css.append(f"font-size:{size}")
     for prop, (css_prop, css_val) in BOOL_TEXT_PROPS.items():
         if _static_bool(props.get(prop)) is True:
+            mark_emission(props.get(prop))
             css.append(f"{css_prop}:{css_val}")
-    lh = px("LineHeight")
-    if lh:
-        css.append(f"line-height:{lh}")
-    valign = _static_map(props.get("VerticalAlign"), {"Top": "top", "Middle": "middle", "Bottom": "bottom"})
+    line_height = props.get("LineHeight")
+    if line_height and line_height.js and _NUM_RE.match(line_height.js.strip()):
+        # Power Apps LineHeight is a multiplier (1.2), not a CSS pixel value.
+        css.append(f"line-height:{line_height.js.strip()}")
+        mark_emission(line_height)
+    valign = mapped("VerticalAlign", {"Top": "flex-start", "Middle": "center", "Bottom": "flex-end"})
     if valign:
         css.append(f"display:flex;align-items:{valign}")
-    vwrap = _static_raw(props.get("LayoutOverflowX"))
+    vwrap = raw("LayoutOverflowX")
     if vwrap == "Overflow":
         css.append("overflow-x:auto")
-    vwrap_y = _static_raw(props.get("LayoutOverflowY"))
+    vwrap_y = raw("LayoutOverflowY")
     if vwrap_y == "Overflow":
         css.append("overflow-y:auto")
-    ov = _static_raw(props.get("Overflow"))
+    ov = raw("Overflow")
     if ov == "Overflow":
         css.append("overflow:visible")
     elif ov in {"Hide", "Scrollbar"}:
         css.append("overflow:hidden")
-    wrap = _static_bool(props.get("Wrap"))
+    wrap = boolean("Wrap")
     if wrap is False:
         css.append("white-space:nowrap")
     elif wrap is True:
         css.append("white-space:normal")
     if ctrl.type == "Image":
-        pos = _static_map(props.get("ImagePosition"),
-                          {"Fit": "contain", "Fill": "cover", "Stretch": "fill", "Tile": "cover"})
+        pos = mapped("ImagePosition",
+                     {"Fit": "contain", "Fill": "cover", "Stretch": "fill", "Tile": "cover"})
         if pos:
             css.append(f"object-fit:{pos}")
         rot = _static_px(props.get("ImageRotation"))
         if rot:
             css.append(f"transform:rotate({rot})")
-    text_align = _static_map(props.get("Align"), {"Center": "center", "Start": "left", "End": "right"})
+    text_align = mapped("Align", {
+        "Center": "center", "Left": "left", "Start": "left",
+        "Right": "right", "End": "right", "Justify": "justify",
+    })
     if text_align and not in_flex:
         css.append(f"text-align:{text_align}")
+        if valign:
+            # VerticalAlign makes classic text controls flex containers; in
+            # that layout text-align alone does not move the flex item.
+            css.append(f"justify-content:{text_align}")
 
     # --- hover/pressed/disabled CSS rules --------------------------------------
     for prop, (css_prop, pseudo) in HOVER_PROPS.items():
@@ -336,27 +444,84 @@ def _static_style(ctrl: ControlNode, in_flex: bool, rules: list[str]) -> str:
 
 def _static_text(ctrl: ControlNode) -> str:
     expr = ctrl.properties.get("Text")
-    if expr and ctrl.type in {"Button", "Label"} and expr.js and expr.js.startswith("'"):
-        return expr.js[1:-1]
+    text = _static_raw(expr)
+    if text is not None and ctrl.type in {"Button", "Label"}:
+        mark_emission(expr)
+        return html.escape(text)
     return ""
 
 
+def _static_html(ctrl: ControlNode) -> str:
+    if ctrl.type != "HtmlText":
+        return ""
+    expr = ctrl.properties.get("HtmlText") or ctrl.properties.get("Content")
+    content = _static_raw(expr)
+    if content is None:
+        return ""
+    mark_emission(
+        expr,
+        "approximated",
+        "static HtmlText markup is rendered after executable tags and attributes are removed",
+    )
+    return _sanitize_static_html(content)
+
+
+def _static_scalar(expr) -> str | None:
+    """Return a safe-to-embed scalar value from translated literal JS."""
+    if not expr or expr.js is None:
+        return None
+    raw = _static_raw(expr)
+    if raw is not None:
+        return raw
+    js = expr.js.strip()
+    if _NUM_RE.match(js) or js in {"true", "false"}:
+        return js
+    return None
+
+
+def _input_attrs(ctrl: ControlNode) -> str:
+    """Static input defaults used both at first paint and by Reset()."""
+    if ctrl.type not in {"TextInput", "TextArea", "Dropdown", "ComboBox",
+                          "CheckBox", "DatePicker", "Slider"}:
+        return ""
+    props = ctrl.properties
+    out = ""
+    default = _static_scalar(props.get("Default"))
+    if default is not None:
+        escaped = html.escape(default, quote=True)
+        out += f' data-fx-default="{escaped}"'
+        if ctrl.type == "CheckBox":
+            if default == "true":
+                out += " checked"
+        elif ctrl.type not in {"Dropdown", "ComboBox"}:
+            out += f' value="{escaped}"'
+        mark_emission(
+            props.get("Default"),
+            "approximated" if ctrl.type == "TextArea" else "emitted",
+            "textarea defaults are restored by Reset; non-empty first-paint text remains limited"
+            if ctrl.type == "TextArea" else "",
+        )
+    placeholder = _static_scalar(props.get("HintText") or props.get("Placeholder"))
+    if placeholder is not None and ctrl.type in {"TextInput", "TextArea"}:
+        out += f' placeholder="{html.escape(placeholder, quote=True)}"'
+        mark_emission(props.get("HintText") or props.get("Placeholder"))
+    return out
+
+
 def _static_extra_attrs(ctrl: ControlNode) -> str:
-    """Static src/href-style attributes: Image.Image, Icon glyph, HtmlText content."""
+    """Static src/title-style attributes for images and icons."""
     props = ctrl.properties
     out = ""
     if ctrl.type == "Image":
         src = _static_raw(props.get("Image"))
         if src:
-            out += f' src="{src}"'
+            out += f' src="{html.escape(src, quote=True)}"'
+            mark_emission(props.get("Image"))
     if ctrl.type == "Icon":
         glyph_name = _static_raw(props.get("Icon"))
         if glyph_name:
-            out += f' title="{glyph_name}"'
-    if ctrl.type in {"HtmlText"}:
-        content = _static_raw(props.get("HtmlText") or props.get("Content"))
-        if content:
-            out += f' data-static-html="{content}"'
+            out += f' title="{html.escape(glyph_name, quote=True)}"'
+            mark_emission(props.get("Icon"))
     return out
 
 
@@ -388,32 +553,41 @@ def _static_attrs(ctrl: ControlNode) -> str:
     role = _static_raw(props.get("Role"))
     if role and role in ACCESSIBILITY_ROLES:
         out += f' role="{ACCESSIBILITY_ROLES[role]}"'
+        mark_emission(props.get("Role"))
     label = _static_raw(props.get("AccessibleLabel")) or _static_raw(props.get("Tooltip"))
     if label:
-        out += f' aria-label="{label}"'
+        out += f' aria-label="{html.escape(label, quote=True)}"'
+        mark_emission(props.get("AccessibleLabel") or props.get("Tooltip"))
     live = _static_raw(props.get("Live"))
     if live:
         out += f' aria-live="{live.lower()}"'
+        mark_emission(props.get("Live"))
     # DisplayMode: static Disabled -> disabled/readonly attribute
     if _static_raw(props.get("DisplayMode")) == "Disabled":
-        if ctrl.type in {"Button", "Icon"}:
+        if ctrl.type in {"Button", "Icon", "Dropdown", "ComboBox",
+                         "CheckBox", "DatePicker", "Slider"}:
             out += " disabled"
-        elif ctrl.type in {"TextInput", "TextArea", "Dropdown", "ComboBox",
-                           "CheckBox", "DatePicker", "Slider"}:
+        elif ctrl.type in {"TextInput", "TextArea"}:
             out += " readonly"
+        mark_emission(props.get("DisplayMode"))
     if ctrl.type in {"TextInput", "TextArea"}:
-        max_len = _static_raw(props.get("MaxLength"))
+        max_len = _static_scalar(props.get("MaxLength"))
         if max_len:
             out += f' maxlength="{max_len}"'
+            mark_emission(props.get("MaxLength"))
         if _static_bool(props.get("DelayOutput")) is True:
             out += ' data-delay-output="true"'
-    tab_idx = _static_raw(props.get("TabIndex"))
+            mark_emission(props.get("DelayOutput"), "approximated",
+                          "DelayOutput is retained as runtime metadata")
+    tab_idx = _static_scalar(props.get("TabIndex"))
     if tab_idx in {"0", "1", "-1", "2"}:
         out += f' tabindex="{tab_idx}"'
+        mark_emission(props.get("TabIndex"))
     if ctrl.type == "TextInput":
         vk = _static_raw(props.get("VirtualKeyboardMode"))
         if vk:
             out += f' inputmode="{"numeric" if "num" in vk.lower() else "text"}"'
+            mark_emission(props.get("VirtualKeyboardMode"))
     return out
 
 
@@ -432,6 +606,11 @@ def _render_control(ctrl: ControlNode, depth: int, in_flex: bool, rules: list[st
         extra = ' type="date"'
     elif ctrl.type == "Slider":
         extra = ' type="range"'
+    if ctrl.type == "CanvasComponent":
+        template = html.escape(ctrl.component_template or "unknown", quote=True)
+        extra += f' class="fx-component" data-component-template="{template}"'
+    elif ctrl.type == "Image":
+        extra += ' class="fx-image"'
 
     # --- icon rendering -----------------------------------------------------
     # Power Apps stores icon *names* ('customer-service', 'Icon.Filter') in
@@ -440,6 +619,8 @@ def _render_control(ctrl: ControlNode, depth: int, in_flex: bool, rules: list[st
     if ctrl.type == "Image":
         src = _static_raw(ctrl.properties.get("Image"))
         if src and is_icon_name(src):
+            mark_emission(ctrl.properties.get("Image"), "approximated",
+                          "Power Apps icon name mapped to a Unicode glyph")
             return (f'{indent}<span data-control="{ctrl.name}"{style_attr}'
                     f' class="fx-icon" title="{src}" data-icon-name="{src}"'
                     f'{_static_attrs(ctrl)}>{icon_glyph(src)}</span>')
@@ -447,6 +628,8 @@ def _render_control(ctrl: ControlNode, depth: int, in_flex: bool, rules: list[st
         glyph_name = _static_raw(ctrl.properties.get("Icon"))
         glyph = icon_glyph(glyph_name) if glyph_name else None
         if glyph:
+            mark_emission(ctrl.properties.get("Icon"), "approximated",
+                          "Power Apps icon mapped to a Unicode glyph")
             return (f'{indent}<span data-control="{ctrl.name}"{style_attr}'
                     f' class="fx-icon" title="{glyph_name}" data-icon-name="{glyph_name}"'
                     f'{_static_attrs(ctrl)}>{glyph}</span>')
@@ -472,8 +655,9 @@ def _render_control(ctrl: ControlNode, depth: int, in_flex: bool, rules: list[st
     if ctrl.children and ctrl.type not in VOID_CONTENT_TYPES:
         child_html = "\n".join(_render_control(c, depth + 1, flex, rules) for c in ctrl.children)
         inner = "\n" + child_html + "\n" + indent
-    attrs = _static_extra_attrs(ctrl) + _static_attrs(ctrl)
-    return f'{indent}<{tag} data-control="{ctrl.name}"{style_attr}{attrs}{extra}>{_static_text(ctrl)}{inner}{close}'
+    attrs = _static_extra_attrs(ctrl) + _static_attrs(ctrl) + _input_attrs(ctrl)
+    content = _static_html(ctrl) if ctrl.type == "HtmlText" else _static_text(ctrl)
+    return f'{indent}<{tag} data-control="{ctrl.name}"{style_attr}{attrs}{extra}>{content}{inner}{close}'
 
 
 def render_screens_html(ir: AppIR) -> str:
@@ -492,23 +676,61 @@ def render_screens_html(ir: AppIR) -> str:
     return style_block + "\n".join(parts)
 
 
+def _control_parents(ir: AppIR) -> dict[str, str]:
+    parents: dict[str, str] = {}
+
+    def visit(ctrl: ControlNode, parent_name: str) -> None:
+        parents[ctrl.name] = parent_name
+        for child in ctrl.children:
+            visit(child, ctrl.name)
+
+    for screen in ir.screens:
+        for ctrl in screen.controls:
+            visit(ctrl, screen.name)
+    return parents
+
+
+def _referenced_control_properties(ir: AppIR, parents: dict[str, str]) -> dict[str, set[str]]:
+    """Properties that must be readable through val() by another formula."""
+    controls = {ctrl.name for screen in ir.screens for ctrl in screen.walk_controls()}
+    referenced: dict[str, set[str]] = {}
+    for screen in ir.screens:
+        for owner in screen.walk_controls():
+            for expr in owner.properties.values():
+                for base, prop in re.findall(
+                    r"(?<![A-Za-z0-9_])([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)",
+                    expr.raw,
+                ):
+                    if base == "Parent" and owner.name in parents:
+                        referenced.setdefault(parents[owner.name], set()).add(prop)
+                    elif base in controls:
+                        referenced.setdefault(base, set()).add(prop)
+    return referenced
+
+
 def render_app_js(ir: AppIR) -> str:
     lines = [
         "// App.js — generated by pfx2gas; transpiled Power Fx lives here.",
         "APP_MAIN = async function () {",
     ]
+    parent_names = _control_parents(ir)
+    referenced_props = _referenced_control_properties(ir, parent_names)
     # Collections are client-side state; declare them as empty arrays instead
     # of refreshing them from the server.
     for ds in ir.data_sources:
         if ds.origin == "collection":
             lines.append(f"  state.{ds.name} = [];")
-    for ds in ir.data_sources:
-        if ds.fields and ds.origin != "collection":
-            lines.append(f"  refreshData({ds.name!r});")
+    external_sources = [ds.name for ds in ir.data_sources
+                        if ds.fields and ds.origin != "collection"]
+    if external_sources:
+        calls = ", ".join(f"refreshData({name!r})" for name in external_sources)
+        lines.append("  // Load external data before formulas/evaluators consume it.")
+        lines.append(f"  await Promise.all([{calls}]);")
     if ir.on_start and ir.on_start.js:
         lines.append("  // OnStart (transpiled from Power Fx)")
         for stmt in ir.on_start.js.splitlines():
             lines.append(f"  {stmt}")
+        mark_emission(ir.on_start)
     lines.append("  var __INITIAL_STATE_ONLY = null;")
     lines.append("")
 
@@ -518,6 +740,7 @@ def render_app_js(ir: AppIR) -> str:
             for stmt in screen.on_visible.js.splitlines():
                 lines.append(f"    {stmt}")
             lines.append("  });")
+            mark_emission(screen.on_visible)
 
     for screen in ir.screens:
         # Row-scoped container children (gallery rows, data-table rows) are
@@ -532,6 +755,34 @@ def render_app_js(ir: AppIR) -> str:
         for ctrl in screen.walk_controls():
             if ctrl.name in gallery_children:
                 continue
+            wanted_props = set(referenced_props.get(ctrl.name, set()))
+            wanted_props.update(ctrl.component_inputs)
+            if wanted_props:
+                registered = []
+                for prop_name in ctrl.properties:
+                    if prop_name not in wanted_props:
+                        continue
+                    expr = ctrl.properties.get(prop_name)
+                    if (expr and expr.js and "await " not in expr.js
+                            and not re.search(r"\bitem\b", expr.js)):
+                        registered.append((prop_name, expr))
+                if registered:
+                    lines.append(f"  // {ctrl.name} properties consumed by dependent controls")
+                    lines.append(
+                        f"  FXRuntime.registerControlProps({ctrl.name!r}, "
+                        f"{parent_names.get(ctrl.name)!r}, {{"
+                    )
+                    for prop_name, expr in registered:
+                        lines.append(f"    {_snake(prop_name)!r}: function () {{ return {expr.js}; }},")
+                        if prop_name in ctrl.component_inputs:
+                            mark_emission(
+                                expr,
+                                "approximated",
+                                f"input is wired into emulated {ctrl.component_template} component children",
+                            )
+                        else:
+                            mark_emission(expr, "emitted", "exposed to dependent control formulas")
+                    lines.append("  });")
             for event in ("OnSelect", "OnChange"):
                 expr = ctrl.properties.get(event)
                 if expr and expr.js:
@@ -539,16 +790,23 @@ def render_app_js(ir: AppIR) -> str:
                     lines.append(f"  bind({ctrl.name!r}, {event!r}, async function () {{")
                     for stmt in expr.js.splitlines():
                         lines.append(f"    {stmt}")
-                    lines.append("  });")
+                    lines.append(f"  }}, {parent_names.get(ctrl.name)!r});")
+                    if any(fn in expr.raw for fn in ("NewForm(", "EditForm(", "ViewForm(")):
+                        mark_emission(expr, "approximated",
+                                      "form mode is tracked; full data-card semantics are not implemented")
+                    else:
+                        mark_emission(expr)
 
             if ctrl.type == "Gallery":
                 items = ctrl.properties.get("Items")
                 if items and items.js:
+                    mark_emission(items)
                     row_fns = []
                     handlers = {}
                     for child in ctrl.children:
                         texpr = child.properties.get("Text")
                         if texpr and texpr.js and not texpr.js.startswith("'"):
+                            mark_emission(texpr)
                             row_fns.append(
                                 f"        var el_{child.name} = row.querySelector('[data-control=\"{child.name}\"]');"
                                 f" if (el_{child.name}) el_{child.name}.textContent = {texpr.js};"
@@ -556,6 +814,7 @@ def render_app_js(ir: AppIR) -> str:
                         onsel = child.properties.get("OnSelect")
                         if onsel and onsel.js:
                             handlers[child.name] = onsel.js
+                            mark_emission(onsel)
                     lines.append(f"  // {ctrl.name}.Items (gallery)")
                     lines.append("  FXRuntime.gallery(")
                     lines.append(f"    {ctrl.name!r},")
@@ -580,6 +839,8 @@ def render_app_js(ir: AppIR) -> str:
             if ctrl.type in CHART_TYPES:
                 items = ctrl.properties.get("Items")
                 if items and items.js:
+                    mark_emission(items, "approximated",
+                                  "chart data is rendered by the generated SVG chart runtime")
                     lines.append(f"  // {ctrl.name} (chart)")
                     lines.append("  FXRuntime.addEvaluator(async function () {")
                     lines.append(f'    var el = document.querySelector(\'[data-control="{ctrl.name}"]\');')
@@ -594,6 +855,7 @@ def render_app_js(ir: AppIR) -> str:
             if ctrl.type in {"Dropdown", "ComboBox", "ListBox"}:
                 items_expr = ctrl.properties.get("Items")
                 if items_expr and items_expr.js:
+                    mark_emission(items_expr)
                     needs_async = "await " in items_expr.js
                     fn_head = "async function () {" if needs_async else "function () {"
                     lines.append(f"  // {ctrl.name}.Items (options)")
@@ -604,11 +866,11 @@ def render_app_js(ir: AppIR) -> str:
                     lines.append(f"    var rows = {items_expr.js};" if needs_async
                                  else f"    var rows = {items_expr.js};")
                     lines.append("    var opts = (rows || []).map(function (r) {")
-                    lines.append("        var v = (r && r.Value !== undefined && r.Value !== null) ? r.Value : r;")
-                    lines.append("        var n = (r && r.Name !== undefined && r.Name !== null) ? r.Name : r;")
-                    lines.append("        return '<option value=\"' + esc(v) + '\">' + esc(n) + '</option>';")
+                    lines.append("        var option = FXRuntime.optionRecord(r);")
+                    lines.append("        return '<option value=\"' + esc(option.value) + '\">' + esc(option.label) + '</option>';")
                     lines.append("    }).join('');")
                     lines.append("    if (el.__fxOpts !== opts) { el.__fxOpts = opts; el.innerHTML = opts; if (current) el.value = current; }")
+                    lines.append("    if (!el.__fxDefaultApplied) { el.__fxDefaultApplied = true; var d = el.getAttribute('data-fx-default'); if (d !== null) el.value = d; }")
                     lines.append("  });")
 
             text_expr = ctrl.properties.get("Text")
@@ -617,8 +879,28 @@ def render_app_js(ir: AppIR) -> str:
                 lines.append(f"  // {ctrl.name}.Text (reactive)")
                 lines.append("  FXRuntime.addEvaluator(function () {")
                 lines.append('    var el = document.querySelector(\'[data-control="' + ctrl.name + '"]\');')
-                lines.append("    if (el) el.textContent = " + text_expr.js + ";")
+                lines.append("    if (el) {")
+                lines.append("      var previousSelf = selfRef, previousParent = parentRef;")
+                lines.append("      selfRef = val(" + repr(ctrl.name) + "); parentRef = val(" +
+                             repr(parent_names.get(ctrl.name)) + ");")
+                lines.append("      try { el.textContent = " + text_expr.js +
+                             "; } finally { selfRef = previousSelf; parentRef = previousParent; }")
+                lines.append("    }")
                 lines.append("  });")
+                mark_emission(text_expr)
+
+            image_expr = ctrl.properties.get("Image")
+            if (ctrl.type == "Image" and image_expr and image_expr.js
+                    and _static_raw(image_expr) is None):
+                lines.append(f"  // {ctrl.name}.Image (reactive source)")
+                lines.append(f"  FXRuntime.attrControl({ctrl.name!r}, 'src', function () {{")
+                lines.append(f"    return {image_expr.js};")
+                lines.append(f"  }}, {parent_names.get(ctrl.name)!r});")
+                mark_emission(
+                    image_expr,
+                    "approximated",
+                    "dynamic image source is bound; an empty or failed source uses the generated placeholder",
+                )
 
             # Reactive fallbacks: layout/visual properties whose values are
             # formulas (static ones already became inline CSS above).
@@ -627,12 +909,17 @@ def render_app_js(ir: AppIR) -> str:
                 ("Width", "width", "px"), ("Height", "height", "px"),
                 ("Fill", "backgroundColor", "lower"), ("Color", "color", "lower"),
                 ("FontColor", "color", "lower"),
-                ("Size", "fontSize", "px"), ("FontSize", "fontSize", "px"),
+                ("Size", "fontSize", "pt"), ("FontSize", "fontSize", "pt"),
                 ("Visible", "display", None),
             ]
             for prop, css_prop, unit in reactive:
                 expr = ctrl.properties.get(prop)
                 if not expr or not expr.js or expr.js.strip().isdigit():
+                    continue
+                if prop in {"Fill", "Color", "FontColor"} and _static_color(expr) is not None:
+                    continue
+                if prop in {"X", "Y", "Width", "Height", "Size", "FontSize"} \
+                        and _static_px(expr) is not None:
                     continue
                 if expr.js.startswith("'"):
                     continue  # static literal already emitted as CSS
@@ -640,11 +927,12 @@ def render_app_js(ir: AppIR) -> str:
                 if prop == "Visible":
                     lines.append(f"  FXRuntime.styleControl({ctrl.name!r}, 'display', function () {{")
                     lines.append(f"    return ({expr.js}) ? '' : 'none';")
-                    lines.append("  }, null);")
+                    lines.append(f"  }}, null, {parent_names.get(ctrl.name)!r});")
                 else:
                     lines.append(f"  FXRuntime.styleControl({ctrl.name!r}, {css_prop!r}, function () {{")
                     lines.append(f"    return {expr.js};")
-                    lines.append(f"  }}, {unit!r});")
+                    lines.append(f"  }}, {unit!r}, {parent_names.get(ctrl.name)!r});")
+                mark_emission(expr)
     # Bootstrap: reveal the start screen after APP_MAIN runs. APP_MAIN is
     # invoked on DOMContentLoaded (gas-runtime), and APP_MAIN closes with this
     # navigation so the first paint matches Power Apps' start screen.
@@ -656,17 +944,26 @@ def render_app_js(ir: AppIR) -> str:
 
 
 INDEX_CSS = """
-    body { font-family: system-ui, sans-serif; margin: 0; padding: 16px; }
+    html, body { margin: 0; padding: 0; }
+    body { font-family: system-ui, sans-serif; overflow: auto; }
     [data-screen] { max-width: 100%; margin: 0 auto; position: relative; min-height: 90vh; }
+    [data-control] { box-sizing: border-box; }
     [data-screen] > [data-control] { position: absolute; }
     button { cursor: pointer; }
     input, select, textarea { box-sizing: border-box; }
     .fx-gallery { overflow: auto; }
+    .fx-component { position: absolute; overflow: hidden; }
+    .fx-component > [data-control] { position: absolute; box-sizing: border-box; }
     .fx-rows { display: block; }
     .fx-row { display: block; position: relative; border-bottom: 1px solid #eee; padding: 4px 0; }
-    .fx-icon { font-family: 'Segoe MDL2 Assets', 'Segoe Fluent Icons', sans-serif;
+    .fx-icon { font-family: 'Apple Symbols', 'Noto Sans Symbols 2', 'Segoe UI Symbol', sans-serif;
       display: inline-flex; align-items: center; justify-content: center;
       user-select: none; line-height: 1; }
+    .fx-image { background-color: #eef2f7;
+      background-image: radial-gradient(circle at 50% 34%, #94a3b8 0 16%, transparent 17%),
+        radial-gradient(ellipse at 50% 96%, #94a3b8 0 34%, transparent 35%);
+      background-repeat: no-repeat; }
+    .fx-image[src] { background-image: none; }
     .fx-toast { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
       background: #333; color: #fff; padding: 8px 16px; border-radius: 4px; display: none; z-index: 9999; }
     .fx-toast.error { background: #b3261e; }

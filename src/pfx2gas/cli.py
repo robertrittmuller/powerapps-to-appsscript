@@ -28,18 +28,37 @@ def main(argv: list[str] | None = None) -> int:
                       help="disable the LLM fallback (stubbed formulas stay stubs)")
     conv.add_argument("--no-review", action="store_true",
                       help="disable the LLM behavioral-equivalence review + QA scenarios")
+    conv.add_argument(
+        "--webapp-access",
+        choices=("MYSELF", "DOMAIN", "ANYONE", "ANYONE_ANONYMOUS"),
+        default="ANYONE",
+        help="deployment audience (default: signed-in users; anonymous is explicit)",
+    )
+    conv.add_argument(
+        "--execute-as",
+        choices=("USER_ACCESSING", "USER_DEPLOYING"),
+        default="USER_ACCESSING",
+        help="Apps Script execution identity (default: the signed-in user)",
+    )
+    conv.add_argument("--strict-fidelity", action="store_true",
+                      help="exit non-zero when the generated fidelity ledger has gaps")
 
     validate_p = sub.add_parser("validate", help="validate a synthesized project directory")
     validate_p.add_argument("project_dir")
+    validate_p.add_argument("--strict-fidelity", action="store_true")
 
     args = parser.parse_args(argv)
 
     if args.command == "validate":
         from .validate import validate_project
         result = validate_project(args.project_dir)
-        if result["ok"]:
-            out.print(f"[green]OK[/green] — {result['stub_count']} stub call sites")
+        if result["ok"] and (not args.strict_fidelity or not result["fidelity_gap_count"]):
+            out.print(f"[green]OK[/green] — {result['stub_count']} stub call sites, "
+                      f"{result['fidelity_gap_count']} fidelity gaps")
             return 0
+        if result["ok"]:
+            err.print(f"strict fidelity failed: {result['fidelity_gap_count']} ledgered gaps")
+            return 1
         for p in result["problems"]:
             err.print(p)
         return 1
@@ -68,6 +87,8 @@ def main(argv: list[str] | None = None) -> int:
     out.print(f"[bold]{unpacked.app_name}[/bold]: {len(unpacked.screens)} screens, "
               f"{len(unpacked.data_sources)} data sources")
     ir = analyze(parse(unpacked))
+    ir.webapp_access = args.webapp_access
+    ir.webapp_execute_as = args.execute_as
 
     # LLM fallback for unmapped formulas (opt-in via env, --no-llm to force off)
     if not args.no_llm:
@@ -85,6 +106,8 @@ def main(argv: list[str] | None = None) -> int:
               f"({sum(1 for e in ir.support_matrix if e.status == 'full')} full)")
 
     if args.report_only:
+        from .synth.build import assess_fidelity
+        assess_fidelity(ir)
         report = render_report(ir)
         out_dir.mkdir(parents=True, exist_ok=True)
         (out_dir / "conversion-report.md").write_text(report)
@@ -112,16 +135,22 @@ def main(argv: list[str] | None = None) -> int:
     (out_dir / "conversion-report.md").write_text(
         render_report(ir, validation, review_rows=review_rows, qa_scenarios=qa_scenarios))
 
-    if validation["ok"]:
+    if validation["ok"] and (not args.strict_fidelity or not validation["fidelity_gap_count"]):
         out.print(f"[green]converted:[/green] {out_dir}")
-        out.print(f"  validator: PASS, {validation['stub_count']} stub call sites")
+        out.print(f"  validator: PASS, {validation['stub_count']} stub call sites, "
+                  f"{validation['fidelity_gap_count']} fidelity gaps")
         out.print("  next steps:")
-        out.print("    1. npx @google/clasp create --title <name> --type webapp (or reuse a scriptId)")
-        out.print("    2. copy the project files, then npx @google/clasp push --force")
+        out.print(f"    1. ./pfx2gas clasp -w {out_dir.resolve()} create "
+                  "--title <name> --type webapp (or reuse a scriptId)")
+        out.print("    2. re-run convert to restore appsscript.json, then "
+                  f"./pfx2gas clasp -w {out_dir.resolve()} push --force")
         out.print("    3. in the Apps Script editor run setup() once (DataInit.gs)")
-        out.print("    4. npx @google/clasp deploy")
+        out.print(f"    4. ./pfx2gas clasp -w {out_dir.resolve()} deploy")
         out.print(f"  review {out_dir / 'conversion-report.md'} for manual follow-ups")
         return 0
+    if validation["ok"]:
+        err.print(f"strict fidelity failed: {validation['fidelity_gap_count']} ledgered gaps")
+        return 1
     for problem in validation["problems"]:
         err.print(problem)
     return 1
@@ -140,6 +169,7 @@ def _llm_fallback(ir, client) -> None:
                                           behavior=(expr.kind == "behavior"))
         if result and result["js"]:
             expr.js = result["js"]
+            expr.translation_status = "llm"
             from .ir import SupportEntry
             ir.support_matrix.append(SupportEntry(
                 subject=expr.raw[:80], status="partial",

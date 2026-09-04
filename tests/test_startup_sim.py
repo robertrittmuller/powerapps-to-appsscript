@@ -29,6 +29,8 @@ function makeEl(tag, attrs) {
   return {
     tag, attrs, style: {}, children: [], listeners: {}, textContent: '',
     getAttribute(k) { return attrs[k] !== undefined ? attrs[k] : null; },
+    setAttribute(k, v) { attrs[k] = String(v); },
+    removeAttribute(k) { delete attrs[k]; },
     addEventListener(ev, fn) { (this.listeners[ev] = this.listeners[ev] || []).push(fn); },
     appendChild(c) { this.children.push(c); },
     querySelector() { return null; },
@@ -101,12 +103,30 @@ while ((cm = ctrlRe.exec(screensSrc)) !== null) {
 (0, eval)(__APP__);
 global.__domReady();
 
-setTimeout(() => {
-  const visible = Object.values(elements)
+function visibleScreens() {
+  return Object.values(elements)
     .filter(e => e.attrs['data-screen'] && (!e.style.display || e.style.display === ''))
     .map(e => e.attrs['data-screen']);
+}
+
+setTimeout(async () => {
+  const behavior = {};
+  const next = elements['ctrl:Button1'];
+  const back = elements['ctrl:ButtonBack'];
+  if (next && back) {
+    behavior.initialText = elements['ctrl:Label1'].textContent;
+    behavior.initialCounter = FXRuntime.state.counter;
+    next.click();
+    await new Promise(resolve => setTimeout(resolve, 20));
+    behavior.afterNextCounter = FXRuntime.state.counter;
+    behavior.afterNextVisible = visibleScreens();
+    back.click();
+    await new Promise(resolve => setTimeout(resolve, 20));
+    behavior.afterBackVisible = visibleScreens();
+  }
+  const visible = visibleScreens();
   const refErrors = consoleErrors.filter(e => e.includes('is not defined'));
-  console.log(JSON.stringify({ visible, refErrors, totalConsoleErrors: consoleErrors.length }));
+  console.log(JSON.stringify({ visible, refErrors, totalConsoleErrors: consoleErrors.length, behavior }));
   process.exit(0);
 }, 80);
 """
@@ -147,6 +167,13 @@ def test_fixture_a_startup_clean(ir_a=None):
     assert verdict["refErrors"] == [], f"ReferenceErrors at startup: {verdict['refErrors']}"
     assert verdict["visible"] == ["Screen1"], verdict
     assert verdict["totalConsoleErrors"] == 0, verdict
+    assert verdict["behavior"] == {
+        "initialText": "Hello",
+        "initialCounter": 1,
+        "afterNextCounter": 2,
+        "afterNextVisible": ["Screen2"],
+        "afterBackVisible": ["Screen1"],
+    }
 
 
 def test_fixture_b_startup_clean():

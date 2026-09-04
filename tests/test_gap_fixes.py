@@ -80,6 +80,63 @@ def legacy_ir(legacy_msapp):
     return parse(unpack(legacy_msapp))
 
 
+@pytest.fixture(scope="module")
+def component_msapp(tmp_path_factory):
+    """Legacy component definition + instance, shaped like the real progress bars."""
+    d = tmp_path_factory.mktemp("legacy-component")
+    path = d / "ComponentApp.msapp"
+    template_id = "c08844b7dea64279b88b31d857d0bc4d"
+    custom = [{"Name": name} for name in (
+        "barMaxValue", "barCurrentValue", "barMaxFill", "barCurrentFill",
+        "barWidth", "barHeight", "labelColor", "targetScreen",
+    )]
+    definition = {
+        "TopParent": {
+            "Name": "cmp_ProgressBar_hor",
+            "Template": {"Name": template_id, "IsComponentDefinition": True,
+                         "CustomProperties": custom},
+            "Rules": [],
+            "Children": [
+                _legacy_control("track", "label", {
+                    "Text": '""', "X": "5", "Y": "5",
+                    "Width": "cmp_ProgressBar_hor.barWidth",
+                    "Height": "cmp_ProgressBar_hor.barHeight",
+                    "Fill": "cmp_ProgressBar_hor.barMaxFill",
+                    "OnSelect": "Navigate(cmp_ProgressBar_hor.targetScreen)",
+                }),
+                _legacy_control("current", "label", {
+                    "Text": 'RoundUp(100*(cmp_ProgressBar_hor.barCurrentValue/'
+                            'cmp_ProgressBar_hor.barMaxValue),0) & "%"',
+                    "X": "track.X", "Y": "track.Y",
+                    "Width": "track.Width*cmp_ProgressBar_hor.barCurrentValue/"
+                             "cmp_ProgressBar_hor.barMaxValue",
+                    "Height": "track.Height", "Fill": "cmp_ProgressBar_hor.barCurrentFill",
+                    "Color": "cmp_ProgressBar_hor.labelColor",
+                }),
+            ],
+        }
+    }
+    instance = _legacy_control("progress1", template_id, {
+        "barMaxValue": "100", "barCurrentValue": "42",
+        "barMaxFill": 'ColorValue("#eee")',
+        "barCurrentFill": 'ColorValue("#168aad")',
+        "barWidth": "200", "barHeight": "42", "labelColor": "White",
+        "targetScreen": "DETAIL",
+        "X": "16", "Y": "20", "Width": "progress1.barWidth+10",
+        "Height": "progress1.barHeight+10",
+    })
+    instance["Template"]["CustomProperties"] = custom
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("Properties.json", json.dumps({"Name": "ComponentApp"}))
+        zf.writestr("Controls\\1.json", _legacy_screen("HOME", [instance]))
+        zf.writestr("Controls\\2.json", _legacy_screen("DETAIL", []))
+        zf.writestr("Components\\1.json", json.dumps(definition))
+        zf.writestr("ComponentsMetadata.json", json.dumps({"Components": [{
+            "Name": "cmp_ProgressBar_hor", "TemplateName": template_id,
+        }]}))
+    return path
+
+
 def test_legacy_text_disambiguation(legacy_ir):
     """`text` + input props -> TextInput/TextArea; plain `label` stays Label."""
     types = {c.name: c.type for s in legacy_ir.screens for c in s.walk_controls()}
@@ -87,6 +144,71 @@ def test_legacy_text_disambiguation(legacy_ir):
     assert types["inpNotes"] == "TextArea"
     assert types["lblTitle"] == "Label"
     assert types["btnSave"] == "Button"
+
+
+def test_legacy_component_definition_is_expanded_and_namespaced(component_msapp, tmp_path):
+    from pfx2gas.analyze import analyze
+    from pfx2gas.parse import parse
+    from pfx2gas.report import render_report
+    from pfx2gas.synth.build import synthesize
+    from pfx2gas.unpack import unpack
+
+    ir = analyze(parse(unpack(component_msapp)))
+    component = ir.screens[0].controls[0]
+    assert component.type == "CanvasComponent"
+    assert component.component_template == "cmp_ProgressBar_hor"
+    assert [c.name for c in component.children] == ["progress1__track", "progress1__current"]
+    assert component.children[1].properties["Width"].raw == (
+        "progress1__track.Width*progress1.barCurrentValue/progress1.barMaxValue"
+    )
+    assert component.children[0].properties["OnSelect"].raw == (
+        "Navigate(progress1.targetScreen)"
+    )
+
+    out = synthesize(ir, tmp_path / "ComponentOut")
+    screens = (out / "Screens.html").read_text()
+    app_js = (out / "App.js.html").read_text()
+    assert 'class="fx-component" data-component-template="cmp_ProgressBar_hor"' in screens
+    assert 'data-control="progress1__track"' in screens
+    assert 'data-control="progress1__current"' in screens
+    assert "FXRuntime.registerControlProps('progress1'" in app_js
+    assert "val('progress1').bar_width" in app_js
+    assert "val('progress1__track').width" in app_js
+    assert "state.White" not in app_js and "return 'white'" in app_js
+    assert "'target_screen': function () { return 'DETAIL'; }" in app_js
+    assert "go(val('progress1').target_screen);" in app_js
+
+    report = render_report(ir)
+    assert "component templates x1 were expanded" in report
+    assert "component instances x1 render as generic containers" not in report
+
+
+def test_static_htmltext_renders_sanitized_markup():
+    from pfx2gas.ir import AppIR, ControlNode, FxExpr, ScreenNode
+    from pfx2gas.synth.client import render_screens_html
+
+    content = (
+        "<div style='width:400px;box-shadow:0 5px 8px #ccc'>"
+        "<img src='javascript:alert(1)' onerror='alert(2)'>"
+        "<a href=javascript:alert(4)>Tile</a></div>"
+        "<script>alert(3)</script>"
+    )
+    ir = AppIR(name="HtmlText", start_screen="HOME", screens=[
+        ScreenNode(name="HOME", controls=[
+            ControlNode(name="tile", type="HtmlText", properties={
+                "HtmlText": FxExpr(raw=repr(content), js=repr(content),
+                                   translation_status="rule"),
+            }),
+        ]),
+    ])
+
+    screens = render_screens_html(ir)
+    assert "<div style='width:400px;box-shadow:0 5px 8px #ccc'>" in screens
+    assert "<a>Tile</a></div>" in screens
+    assert "data-static-html" not in screens
+    assert "javascript:" not in screens
+    assert "onerror=" not in screens
+    assert "<script" not in screens
 
 
 def test_legacy_schema_fields_and_types(legacy_ir):

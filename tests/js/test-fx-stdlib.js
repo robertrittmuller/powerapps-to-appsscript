@@ -33,6 +33,12 @@ test('value coerces text numbers and currency', () => {
   assert.strictEqual(FX.value('abc'), 0);
 });
 
+test('rgba preserves transparency', () => {
+  assert.strictEqual(FX.rgba(0, 0, 0, 0), 'rgba(0,0,0,0)');
+  assert.strictEqual(FX.rgba(24, 124, 245, 0.5), 'rgba(24,124,245,0.5)');
+  assert.strictEqual(FX.rgba(300, -2, 4), 'rgba(255,0,4,1)');
+});
+
 test('text number formatting', () => {
   assert.strictEqual(FX.text(3.14159, '0.00'), '3.14');
   assert.strictEqual(FX.text(new Date(2026, 8, 1), 'yyyy-mm-dd'), '2026-09-01');

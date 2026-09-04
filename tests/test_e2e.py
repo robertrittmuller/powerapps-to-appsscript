@@ -27,7 +27,7 @@ def test_cli_convert_fixture_a(tmp_path):
     report = (out_dir / "conversion-report.md").read_text()
     assert "Conversion report" in report
     assert "Manual follow-ups" in report
-    assert "None — every formula was transpiled by rules." in report
+    assert "None — every formula was rule-translated and wired by synthesis." in report
 
 
 def test_cli_convert_fixture_b(tmp_path):

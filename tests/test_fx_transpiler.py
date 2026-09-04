@@ -8,6 +8,17 @@ def js(fx: str, behavior: bool = False) -> str:
     return transpile(fx, behavior=behavior).js
 
 
+def test_js_string_literals_escape_crlf():
+    from pfx2gas.fx.emitter import _q
+
+    assert _q("line 1\r\nline 2") == "'line 1\\r\\nline 2'"
+
+
+def test_visual_enums_emit_as_static_literals():
+    assert transpile("BorderStyle.None").js == "'None'"
+    assert transpile("ImageRotation.None").js == "'None'"
+
+
 def test_concat_operator():
     assert js('"hello " & Name') == "FX.concatStr('hello ', state.Name)"
 
@@ -24,12 +35,52 @@ def test_control_property_ref():
     assert js("TextInput1.Text") == "val('TextInput1').text"
 
 
+def test_lowercase_control_and_parent_refs_use_runtime_context():
+    assert transpile("progress1.Width", control_names={"progress1"}).js == (
+        "val('progress1').width"
+    )
+    assert js("Parent.Width") == "parentRef.width"
+
+
+def test_optional_function_arguments_never_leak_template_tokens():
+    assert js("Text(score)") == "FX.text(state.score, null)"
+    assert "{a" not in js("Round(score)")
+
+
 def test_set_behavior():
-    assert js("Set(counter, counter + 1)", behavior=True) == "state.counter = (state.counter + 1);"
+    assert js("Set(counter, counter + 1)", behavior=True) == (
+        "FXRuntime.setState({counter: (state.counter + 1)});"
+    )
+
+
+def test_update_context_uses_reactive_state_api():
+    assert js("UpdateContext({menuOpen: true, count: 2})", behavior=True) == (
+        "FXRuntime.setState({'menuOpen': true, 'count': 2});"
+    )
+
+
+def test_reset_has_a_real_runtime_hook_and_submit_form_fails_honestly():
+    assert js("Reset(TextInput1)", behavior=True) == "resetControl('TextInput1');"
+    result = transpile("SubmitForm(Form1)", behavior=True)
+    assert result.js == "FX.unsupported('SubmitForm');"
+    assert result.unmapped == ["SubmitForm"]
 
 
 def test_navigate():
     assert js("Navigate(Screen2)", behavior=True) == "go('Screen2');"
+
+
+def test_navigate_dynamic_component_property_and_known_screen():
+    from pfx2gas.fx import transpile
+
+    dynamic = transpile("Navigate(Menu.link1)", behavior=True,
+                        control_names={"Menu"}, screen_names={"HOME", "DETAIL"})
+    assert dynamic.js == "go(val('Menu').link1);"
+    direct = transpile("Navigate(DETAIL)", behavior=True,
+                       screen_names={"HOME", "DETAIL"})
+    assert direct.js == "go('DETAIL');"
+    value = transpile("DETAIL", screen_names={"HOME", "DETAIL"})
+    assert value.js == "'DETAIL'"
 
 
 def test_back():
@@ -120,7 +171,7 @@ def test_char_literal_arg():
 
 def test_multi_statement_value_formula():
     out = js('Set(a, 1); a + 1')
-    assert "state.a = 1" in out
+    assert "FXRuntime.setState({a: 1})" in out
 
 
 def test_concat_chain():

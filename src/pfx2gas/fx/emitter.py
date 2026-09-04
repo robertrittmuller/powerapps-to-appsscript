@@ -6,6 +6,8 @@ Anything the map misses becomes a ledger 'unmapped' entry handled upstream.
 """
 from __future__ import annotations
 
+import re
+
 from . import lexer as lx
 from .function_map import FUNCTION_MAP
 from .naming import snake as _snake
@@ -20,7 +22,8 @@ class TranspileResult:
 
 def _q(s: str) -> str:
     """JS-escape a string literal."""
-    return "'" + s.replace("\\", "\\\\").replace("'", "\\'").replace("\n", "\\n") + "'"
+    return ("'" + s.replace("\\", "\\\\").replace("'", "\\'")
+            .replace("\r", "\\r").replace("\n", "\\n") + "'")
 
 
 # Functions whose later arguments are evaluated per-row (lambda context):
@@ -33,12 +36,22 @@ ENUM_TYPES = {"Color", "Icon", "Font", "FontWeight", "Align", "Image",
               "LayoutSize", "DisplayMode", "FormStatus", "SortOrder",
               "LayoutDirection", "LayoutAlignItems", "LayoutJustifyContent",
               "LayoutWrap", "VerticalAlign", "FillPortions", "Overflow",
-              "ImagePosition", "TextPosition", "FontWeight2"}
+              "ImagePosition", "ImageRotation", "TextPosition", "FontWeight2",
+              "BorderStyle", "TextRole", "Live"}
+
+# Legacy component exports sometimes serialize Color.White/Color.Black as
+# bare reserved names. Treat the Power Apps constants as colors rather than
+# app-state variables.
+NAMED_COLORS = {
+    "Black", "White", "Red", "Green", "Blue", "Yellow", "Gray", "Grey",
+    "Orange", "Purple", "Brown", "Pink", "Transparent",
+}
 
 
 class Emitter:
     def __init__(self, res: TranspileResult, behavior: bool, row_fields: set[str] | None = None,
-                 control_names: set[str] | None = None, collections: set[str] | None = None):
+                 control_names: set[str] | None = None, collections: set[str] | None = None,
+                 screen_names: set[str] | None = None):
         self.res = res
         self.behavior = behavior
         self.row_fields = row_fields or set()
@@ -46,6 +59,10 @@ class Emitter:
         # Data-source names that are Power Apps collections (client-side
         # state arrays); data calls against them run locally, not server-side.
         self.collections = collections or set()
+        # None preserves the standalone transpiler's historical assumption
+        # that a bare Navigate target is a screen. Analysis always supplies
+        # the app's concrete screen set.
+        self.screen_names = screen_names
         self.in_row = False
 
     # ---- top level ---------------------------------------------------------
@@ -100,9 +117,13 @@ class Emitter:
         if name in ("ThisItem", "ThisRecord"):
             return "item"
         if name == "Parent":
-            return "parent"
+            return "parentRef"
         if name == "Self":
             return "selfRef"
+        if self.screen_names is not None and name in self.screen_names:
+            return _q(name)
+        if name in NAMED_COLORS:
+            return _q(name.lower())
         if "'" in name:
             base, _, member = name.partition(".")
             member = member.strip("'\"")
@@ -119,12 +140,12 @@ class Emitter:
             if base == "ThisItem":
                 return f"item.{_snake(rest)}"
             if base == "Parent":
-                return f"parent.{_snake(rest)}"
+                return f"parentRef.{_snake(rest)}"
             if base == "Self":
                 return f"selfRef.{_snake(rest)}"
             if base in ENUM_TYPES:
                 return _q(rest)
-            if base[0].isupper():
+            if base in self.control_names or base[0].isupper():
                 # Control.Property reference -> val('Ctrl').prop
                 return f"val({_q(base)}).{_snake(rest)}"
             return f"state.{base}.{_snake(rest)}"
@@ -167,12 +188,21 @@ class Emitter:
     def call(self, node) -> str:
         name = str(node.value)
         args = node.children
-        if name in {"Set", "UpdateContext"}:
+        if name == "Set":
             return self.set_call(node)
+        if name == "UpdateContext":
+            if not args or args[0].kind != "record":
+                raise lx.FxSyntaxError("UpdateContext requires a record")
+            fields = ", ".join(
+                f"{_q(str(field))}: {self.expr(value)}" for field, value in args[0].value
+            )
+            return f"FXRuntime.setState({{{fields}}})"
         if name == "Navigate":
             target = args[0]
-            screen = target.value if target.kind == "ident" else self.expr(target)
-            return f"go({_q(str(screen))})"
+            if target.kind == "ident" and self.screen_names is None \
+                    and "." not in str(target.value):
+                return f"go({_q(str(target.value))})"
+            return f"go({self.expr(target)})"
         if name == "Back":
             return "goBack()"
         if name == "Notify":
@@ -189,11 +219,16 @@ class Emitter:
             target = args[0]
             if target.kind != "ident":
                 raise lx.FxSyntaxError("Clear target must be an identifier")
-            return f"state.{target.value} = []"
-        if name in {"SubmitForm", "Reset", "Select"}:
+            return f"FXRuntime.setState({{{target.value}: []}})"
+        if name == "SubmitForm":
+            # A no-op is more dangerous than an explicit gap: full Power Apps
+            # form/data-card semantics are not implemented yet.
+            self.res.unmapped.append("SubmitForm")
+            return "FX.unsupported('SubmitForm')"
+        if name in {"Reset", "Select"}:
             target = args[0]
             ctrl = str(target.value) if target.kind == "ident" else self.expr(target)
-            fn = "selectControl" if name == "Select" else "submitForm"
+            fn = "selectControl" if name == "Select" else "resetControl"
             return f"{fn}({_q(ctrl)})"
         if name == "Search":
             # Search(t, needle, col1, col2, ...) -> rows where any col contains needle
@@ -262,6 +297,18 @@ class Emitter:
             out = out.replace("{rest}", rest)
         for idx, a in enumerate(js_args):
             out = out.replace("{a%d}" % idx, a)
+        # A number of Power Fx functions have optional trailing arguments.
+        # Never leave a template token behind as executable JavaScript.
+        def optional(match):
+            preferred, fallback = int(match.group(1)), int(match.group(2))
+            if preferred < len(js_args):
+                return js_args[preferred]
+            if fallback < len(js_args):
+                return js_args[fallback]
+            return "null"
+
+        out = re.sub(r"\{a(\d+) \?\? a(\d+)\}", optional, out)
+        out = re.sub(r"\{a\d+\}", "null", out)
         out = out.replace("{args}", ", ".join(js_args))
         out = out.replace("{it}", "item")
         return out
@@ -294,7 +341,7 @@ class Emitter:
         value = self.expr(node.children[1])
         if target.kind != "ident":
             raise lx.FxSyntaxError("Set target must be an identifier")
-        return f"state.{target.value} = {value}"
+        return f"FXRuntime.setState({{{target.value}: {value}}})"
 
     def data_call(self, name: str, node) -> str:
         args = node.children

@@ -1,22 +1,23 @@
-# pfx2gas — Gap Assessment & Roadmap (updated 2026-09-02, after fix batch)
+# pfx2gas — Gap Assessment & Roadmap (updated 2026-09-04)
 
 Forward-looking view: what to work on next. Historical findings and the P0
 fixes they produced are at the bottom. Everything here was re-verified against
-the code and the real-app corpus (10 apps, ~22k formulas) on this date.
+the code and the real-app corpus (10 apps, 23,746 formulas) on this date.
 
 ## Where we stand (verified)
 
 | Check | Result |
 |---|---|
-| Python suite (`uv run pytest -q`) | 80 passed |
-| JS runtime suite (`node --test tests/js/*.js`) | 35 passed, 0 fail |
-| Formula coverage on 10-app corpus | 21,905 / 21,940 rule-transpiled (99.8%) |
-| Ignored properties | 538 / 21,955 (2.5%) |
-| Real-app soak (`scripts/soak_check.py`) | **10/10 convert + validate** under the strict validator |
+| Python suite (`./pfx2gas test`) | 104 passed |
+| JS runtime suite (`./pfx2gas test`) | 47 passed, 0 fail |
+| Formula translation on 10-app corpus | 23,724 / 23,746 translated (99.9%) |
+| Runtime wiring on 10-app corpus | 15,267 / 23,746 emitted (64.3%); 276 approximated |
+| Ignored/unsupported property formulas | 8,203 / 23,746 (34.5%; conservative emission ledger) |
+| Real-app soak (`./pfx2gas soak`) | **10/10 convert + validate + generated-app boot cleanly**; exact start screen, zero reference errors |
 | Emitter↔runtime consistency (`scripts/check_runtime_consistency.py`) | pass |
 | Generated server code syntax | all `.gs` node --check clean (validated every soak app) |
 | Data layer | external sources → typed, sample-seeded Sheet tabs; collections → client-side state |
-| Deployed a converted app via clasp | **done 2026-09-03** — HelpDesk live at a public web-app URL, 6 screens + 935 controls served (see §1) |
+| Deployed a converted app via clasp | **redeployed and inspected 2026-09-04** — HelpDesk @12 uses the current component/runtime/visual output and authenticated-user defaults (see §1) |
 | CI | green — pytest + JS + consistency + soak + container job + wrapper smoke |
 
 Plan milestones: M1–M3 done. M4 ("two real apps converted, deployed via clasp,
@@ -32,16 +33,63 @@ code ↔ static runtime contracts need a cross-check in CI, not just unit tests.
 
 ---
 
+## Corrective roadmap (2026-09-04 review)
+
+The green syntax/soak baseline is necessary but is not behavioral-fidelity
+evidence. The 2026-09-04 review found five release-blocking correctness gaps.
+The first corrective pass is now implemented and regression-gated:
+
+1. **✅ Truthful fidelity ledger.** Track translation separately from generated
+   runtime wiring. Report ignored properties, generic component fallbacks,
+   approximations, unpack warnings, and unsupported behavior; never call a
+   formula converted merely because it produced syntactically valid JS.
+   Acceptance: HelpDesk reports its empty components and unsupported form
+   semantics instead of "no follow-ups."
+2. **✅ Reactive and async runtime correctness.** Route `Set`/`UpdateContext` and
+   `Clear` through the state update API, refresh bindings after handlers, wait
+   for initial data loads, and surface rejected `APP_MAIN`/evaluator promises.
+   Acceptance: a click-driven `Set` immediately changes dependent text,
+   visibility, styles, and gallery items without navigation or a server call.
+3. **✅ Fail-safe external mutations.** Never send executable predicates to Apps
+   Script and never interpret a missing predicate as "match all." Evaluate the
+   supported `RemoveIf` subset deterministically and send explicit record IDs;
+   reject unsupported/malformed requests. Acceptance: only matching rows are
+   removed and an empty match performs no mutation.
+4. **✅ Reset and form honesty.** Implement real `Reset` plus input defaults and
+   placeholders. Until data-card collection, validation, create/update, and
+   success/failure events exist, ledger `SubmitForm` as unsupported rather than
+   a successful no-op. Acceptance: Reset restores the generated default and
+   every unimplemented form action is visible in the report.
+5. **✅ Secure deployment defaults.** Require an authenticated user by default,
+   make anonymous/deployer execution explicit, whitelist generated data
+   sources, validate API payloads, and remove unneeded scopes. Acceptance: a
+   default conversion cannot expose deployer-owned Sheet mutation anonymously.
+
+With these gates green, the next pass has started: every real generated app is
+now booted by the soak gate, and legacy component definitions are expanded into
+their actual child controls. Continue with interaction assertions over real
+apps, visual/deployed comparison, a modern app with real external data,
+data-layer scaling/correctness, control/chart/CSS parity, identity enrichment,
+and finally full-app LLM review.
+
+---
+
 ## Next up, in recommended order
 
-### 1. ✅ M4 — deployed a converted app end-to-end (done 2026-09-03)
+### 1. ⏳ M4 — first deployment complete; second app still required
 
-HelpDesk-2021.msapp → converted in the container → `clasp create` → push →
-`setup()` run once (created the workbook: 6 tabs + 44 seeded rows) → deployed
-@3 → **HTTP 200 from the live URL** with all 6 screens, 935 bound controls,
-8 input fields, runtime + FX stdlib inlined, 7 collections seeded client-side
-and 11 Sheet-backed sources refreshing. Runs at:
-`https://script.google.com/macros/s/AKfycbw0Dephn4Siz1ni6GVRfBiekfPWxWfOi9ARQgE0N6MKQDuVbMUI0ZEg-PQggDlR5tg7/exec`
+HelpDesk-2021.msapp → converted in the container → pushed to the existing Apps
+Script project → deployed @12 on 2026-09-04 with component expansion, HtmlText
+interiors, dynamic MENU navigation, and the current runtime. A live Chrome pass
+verified HOME rendering and HOME → NEW navigation, including a record-valued
+Category dropdown displaying `IT` rather than `[object Object]`. The manifest now
+requires a signed-in user and executes as that user (`ANYONE` /
+`USER_ACCESSING`) with only the Sheets scope. Runs at:
+`https://script.google.com/macros/s/AKfycbwbyTp89b-J_KEQ9N9wAf0OdJ8faH3k5gwAj_K1ToUFjaDPf8X35VBEnFQvfu5f2OJH/exec`
+
+The earlier @3 anonymous/deployer-owned deployment is retained only as
+historical evidence and should not be used for current testing. The second
+representative-app deployment remains the open part of M4.
 
 Deploy-hardening bugs found and fixed along the way (all with regression
 tests): `render_manifest` shipped invalid JSON (doubled braces) so clasp lost
@@ -50,6 +98,18 @@ that never existed in `Code.gs`; includes used bare names instead of the full
 `.js.html` filenames. Also documented: `clasp run` needs a standard GCP
 project (default clasp projects can't use it) — one-time `setup()` runs in the
 editor instead.
+
+Visual bugs found by inspecting the deployed app and fixed in the deterministic
+renderer (all regression-gated): RGBA alpha was discarded, making transparent
+fills solid black; content-box sizing inflated positioned controls; body padding
+shifted the canvas; `LineHeight` was emitted as pixels; Power Apps font sizes
+were emitted as CSS pixels rather than points; `BorderColor` was never written
+and `BorderStyle.None` was not recognized; bare legacy alignment/weight enums
+were ignored; `User().Image` was not bound to image `src`; Windows private-use
+icon glyphs rendered as boxes on macOS; and record-valued dropdown choices
+rendered as `[object Object]`. The current deployed HOME audit found 49 visible
+controls, zero private-use icon glyphs, and only the intended search-input
+border. Browser logs contained no generated-app warning/error.
 
 ### 2. ✅ CI workflow (done 2026-09-02, run #1 green)
 
@@ -62,18 +122,25 @@ apps stay covered by the committed synthetic fixtures.
 Regression-class bugs (like the emitter↔runtime drift) now fail CI instead of
 surfacing in a converted app.
 
-### 3. Component-template emulation (large, biggest remaining fidelity gap)
+### 3. ⏳ Component-template emulation (in progress)
 
-37 first-party component instances render as empty divs: MENU, TILES1/TILES2,
-BUSCADOR (helpdesk), ProgressBar horiz/vert (clean-ui). Their custom properties
-transpile fine but mean nothing without the component's inner control tree —
-helpdesk's nav and tile dashboards are blank.
+The 37 first-party component instances in the corpus no longer render as empty
+divs. The legacy adapter reads `ComponentsMetadata.json` and `Components/*.json`,
+inlines each definition's child tree under its instance, namespaces child
+controls, and binds component inputs plus `Self`/`Parent`/control references.
+Static HtmlText markup now renders after executable markup is removed, so the
+HelpDesk MENU, TILES1/TILES2, and BUSCADOR visuals have real interiors; Clean
+UI's horizontal/vertical progress bars have reactive child geometry, fill, and
+text. Menu screen-valued inputs and `App.ActiveScreen` now generate working
+dynamic navigation instead of invalid dotted screen-name strings.
 
-Next actions: read `ComponentsMetadata.json` + `References\Templates.json`
-(each template is a small control tree with custom properties, already in the
-archive); synthesize component instances by inlining the template tree with
-instance properties bound. Start with ProgressBar (simplest visual), then MENU.
-Acceptance: helpdesk nav renders and navigates; progress bars render in clean-ui.
+Remaining actions: turn the live HOME → NEW smoke into an automated real-sample
+click assertion for every HelpDesk menu target and add numeric/style assertions
+for Clean UI progress bars; compare rendered screens side-by-side with the
+originals; then cover component output properties and modern pa.yaml component
+definitions. Acceptance: interaction assertions and visual comparison pass for
+HelpDesk navigation/tiles and Clean UI progress bars. One deployed smoke on the
+regenerated output now passes.
 
 ### 4. Modern pa.yaml app with real external data (corpus gap)
 
@@ -86,14 +153,17 @@ Excel table into `samples/real/`; run the soak + deploy flow on it.
 Acceptance: CRUD against the real list works through the Sheet layer; report
 fields match the list columns.
 
-### 5. User() enrichment (small)
+### 5. User() enrichment (small, in progress)
 
-`whoami()` returns email only; `fullName`/`pictureUrl` are always blank, so
-helpdesk's header user name/avatar are empty.
+`whoami()` now derives a display name from the email local part when Apps Script
+exposes the active user's email, and a neutral avatar placeholder replaces the
+broken image state. `pictureUrl` remains unavailable, and the current deployed
+environment returned a blank active-user email, so its header name is still
+empty.
 
-Next actions: derive display name from the email local part at minimum;
-optionally Directory API on Workspace accounts (document the consumer-account
-limitation). Acceptance: header shows a sensible name for the deployed app.
+Next actions: optionally use the Directory API on Workspace accounts and
+document both domain-policy and consumer-account limitations. Acceptance:
+header shows a sensible name for the deployed app when identity is available.
 
 ### 6. LLM review seams at scale (medium, needs configured `.env`)
 
@@ -123,13 +193,12 @@ Known, documented, lower stakes — pick up as user demand appears:
 
 | Step | Item | Effort | Depends on |
 |---|---|---|---|
-| 1 | ~~CI workflow~~ | ✅ done | — |
-| 2 | clasp install + login (you), then deploy smoke test (#1) | small–medium | you (5 min) |
-| 3 | v0.1.0 tag | minutes | 2 green |
-| 4 | Component-template emulation (#3) | large | — |
-| 5 | Real modern data app into soak (#4) | small + your export | you |
-| 6 | User() enrichment (#5), LLM review at scale (#6) | small / medium | .env present |
-| 7 | Parity tail (#7) | ongoing | demand |
+| 1 | Correctness gates 1–5 above | medium | — |
+| 2 | ✅ Generated-app boot matrix + strict-fidelity CI fixture; expand interaction coverage | medium | 1 |
+| 3 | ⏳ Legacy component expansion landed; finish interaction + visual/deploy evidence | large | 1–2 |
+| 4 | Real modern data app into soak + second deployment (#4/M4) | medium + your export | 1–2, you |
+| 5 | Data scaling, control/chart/CSS parity | ongoing | 2 |
+| 6 | User() enrichment, then LLM review at scale | small / medium | authenticated deployment, .env |
 
 ---
 

@@ -9,6 +9,7 @@ expects, so the rest of the pipeline is format-agnostic.
 from __future__ import annotations
 
 import json
+import re
 import zipfile
 from pathlib import Path
 
@@ -102,7 +103,24 @@ def _normalize_template_for(node: dict) -> str:
     return base
 
 
-def _rules_to_properties(rules: list) -> dict[str, str]:
+def _rewrite_formula(script: str, names: dict[str, str] | None) -> str:
+    """Namespace control references inside an instantiated component tree."""
+    if not names:
+        return script
+    rewritten = script
+    for old, new in sorted(names.items(), key=lambda item: len(item[0]), reverse=True):
+        rewritten = re.sub(
+            # A component child can have the same name as a custom property
+            # (MENU.link1). Only namespace identifiers in reference position;
+            # never rewrite a member/property token after a dot.
+            rf"(?<![A-Za-z0-9_.]){re.escape(old)}(?![A-Za-z0-9_])",
+            new,
+            rewritten,
+        )
+    return rewritten
+
+
+def _rules_to_properties(rules: list, names: dict[str, str] | None = None) -> dict[str, str]:
     props: dict[str, str] = {}
     for rule in rules or []:
         if not isinstance(rule, dict):
@@ -110,23 +128,121 @@ def _rules_to_properties(rules: list) -> dict[str, str]:
         prop = rule.get("Property")
         script = rule.get("InvariantScript")
         if prop and isinstance(script, str):
+            script = _rewrite_formula(script, names)
             value = script if script.startswith("=") else f"={script}"
             props[prop] = value
     return props
 
 
-def _control_to_yaml(node: dict) -> dict:
+def _descendant_names(node: dict) -> list[str]:
+    names: list[str] = []
+    for child in node.get("Children") or []:
+        if not isinstance(child, dict):
+            continue
+        if child.get("Name"):
+            names.append(str(child["Name"]))
+        names.extend(_descendant_names(child))
+    return names
+
+
+def _component_definitions(zf: zipfile.ZipFile, names: list[str]) -> dict[str, dict]:
+    """Load legacy Components/*.json definitions keyed by template GUID."""
+    display_names: dict[str, str] = {}
+    metadata_name = next(
+        (n for n in names if n.lower().replace("\\", "/") == "componentsmetadata.json"),
+        None,
+    )
+    if metadata_name:
+        try:
+            metadata = json.loads(zf.read(metadata_name))
+            for entry in metadata.get("Components", []):
+                if isinstance(entry, dict) and entry.get("TemplateName"):
+                    display_names[str(entry["TemplateName"])] = str(entry.get("Name") or "")
+        except (json.JSONDecodeError, AttributeError):
+            pass
+
+    definitions: dict[str, dict] = {}
+    for archive_name in names:
+        normalized = archive_name.lower().replace("\\", "/")
+        if not (normalized.startswith("components/") and normalized.endswith(".json")):
+            continue
+        try:
+            top = json.loads(zf.read(archive_name)).get("TopParent")
+        except (json.JSONDecodeError, AttributeError):
+            continue
+        if not isinstance(top, dict):
+            continue
+        template = top.get("Template") or {}
+        template_name = str(template.get("Name") or "")
+        if not template_name:
+            continue
+        definitions[template_name] = {
+            "name": display_names.get(template_name) or str(top.get("Name") or template_name),
+            "root": top,
+        }
+    return definitions
+
+
+def _control_to_yaml(
+    node: dict,
+    component_defs: dict[str, dict] | None = None,
+    names: dict[str, str] | None = None,
+    parent_name: str | None = None,
+) -> dict:
     """Legacy control node -> pa.yaml-style control mapping."""
+    template = node.get("Template") if isinstance(node.get("Template"), dict) else {}
+    template_name = str(template.get("Name") or "")
+    component = (component_defs or {}).get(template_name)
+    if component and not template.get("IsComponentDefinition"):
+        definition = component["root"]
+        instance_name = str(node.get("Name") or component["name"])
+        name_map = {str(definition.get("Name") or component["name"]): instance_name}
+        for child_name in _descendant_names(definition):
+            name_map[child_name] = f"{instance_name}__{child_name}"
+
+        # Definitions provide defaults; instance rules override them.
+        root_names = dict(name_map)
+        root_names["Self"] = instance_name
+        props = _rules_to_properties(definition.get("Rules") or [], root_names)
+        props.update(_rules_to_properties(node.get("Rules") or [], root_names))
+        custom = template.get("CustomProperties") or (
+            (definition.get("Template") or {}).get("CustomProperties") or []
+        )
+        out: dict = {
+            "Control": "CanvasComponent",
+            "ComponentTemplate": component["name"],
+            "ComponentInputs": [str(p["Name"]) for p in custom
+                                if isinstance(p, dict) and p.get("Name")],
+            "Properties": props,
+        }
+        children = [c for c in (definition.get("Children") or []) if isinstance(c, dict)]
+        if children:
+            out["Children"] = [
+                {name_map.get(str(c.get("Name") or f"Control{i}"), str(c.get("Name") or f"Control{i}")):
+                 _control_to_yaml(c, component_defs, name_map, instance_name)}
+                for i, c in enumerate(children)
+            ]
+        return out
+
+    original_name = str(node.get("Name") or "")
+    rendered_name = (names or {}).get(original_name, original_name)
+    formula_names = dict(names or {})
+    if names:
+        formula_names["Self"] = rendered_name
+        if parent_name:
+            formula_names["Parent"] = parent_name
     out: dict = {
         "Control": _normalize_template_for(node),
-        "Properties": _rules_to_properties(node.get("Rules")),
+        "Properties": _rules_to_properties(node.get("Rules"), formula_names),
     }
     variant = node.get("VariantName")
     if variant:
         out["Variant"] = variant
     children = [c for c in (node.get("Children") or []) if isinstance(c, dict)]
     if children:
-        out["Children"] = [{c.get("Name", f"Control{i}"): _control_to_yaml(c)}
+        out["Children"] = [{(names or {}).get(str(c.get("Name", f"Control{i}")),
+                                             str(c.get("Name", f"Control{i}"))):
+                            _control_to_yaml(c, component_defs, names, rendered_name)}
                            for i, c in enumerate(children)]
     return out
 
@@ -208,6 +324,7 @@ def convert_legacy_msapp(msapp_path: str | Path) -> dict:
         app_yaml: dict = {}
         screens: dict[str, dict] = {}
         screen_index: list[tuple[int, str]] = []
+        component_defs = _component_definitions(zf, names)
         for n in control_files:
             try:
                 doc = json.loads(zf.read(n))
@@ -223,7 +340,7 @@ def convert_legacy_msapp(msapp_path: str | Path) -> dict:
                 if props:
                     app_yaml = {"App": {"Control": "AppHost", "Properties": props}}
             elif template == "screen":
-                screens[name] = {"Screens": {name: _control_to_yaml(top)}}
+                screens[name] = {"Screens": {name: _control_to_yaml(top, component_defs)}}
                 idx = top.get("Index")
                 order = int(idx) if isinstance(idx, (int, float)) else len(screen_index)
                 screen_index.append((order, name))

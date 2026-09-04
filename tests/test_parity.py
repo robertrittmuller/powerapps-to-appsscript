@@ -56,6 +56,67 @@ def test_reactive_styles_registered():
     assert "backgroundColor" not in js.split("styleControl")[0]  # sanity
 
 
+def test_transparent_colors_sizing_line_height_and_dynamic_images():
+    from pfx2gas.ir import AppIR, ControlNode, FxExpr, ScreenNode
+    from pfx2gas.synth.client import render_app_js, render_index_html, render_screens_html
+
+    transparent = FxExpr(raw="RGBA(0,0,0,0)", js="FX.rgba(0, 0, 0, 0)",
+                         translation_status="rule")
+    ir = AppIR(name="Visual", start_screen="HOME", screens=[
+        ScreenNode(name="HOME", controls=[
+            ControlNode(name="Title", type="Label", properties={
+                "Text": FxExpr(raw='"Title"', js="'Title'", translation_status="rule"),
+                "Fill": transparent,
+                "BorderColor": transparent,
+                "BorderThickness": FxExpr(raw="2", js="2", translation_status="rule"),
+                "BorderStyle": FxExpr(raw="BorderStyle.None", js="'None'",
+                                      translation_status="rule"),
+                "Align": FxExpr(raw="Center", js="state.Center", translation_status="rule"),
+                "Size": FxExpr(raw="13", js="13", translation_status="rule"),
+                "VerticalAlign": FxExpr(raw="VerticalAlign.Middle", js="'Middle'",
+                                        translation_status="rule"),
+                "LineHeight": FxExpr(raw="1.2", js="1.2", translation_status="rule"),
+            }),
+            ControlNode(name="Avatar", type="Image", properties={
+                "Image": FxExpr(raw="User().Image", js="FXUser().image",
+                                translation_status="rule"),
+            }),
+            ControlNode(name="Category", type="Dropdown", properties={
+                "Items": FxExpr(raw="TicketCategory", js="state.TicketCategory",
+                                translation_status="rule"),
+            }),
+        ]),
+    ])
+
+    screens = render_screens_html(ir)
+    app_js = render_app_js(ir)
+    index = render_index_html(ir, screens)
+    assert "background-color:rgba(0,0,0,0.0)" in screens
+    assert "border-color:rgba(0,0,0,0.0)" in screens
+    assert "border-style:none" in screens
+    assert "text-align:center" in screens
+    assert "justify-content:center" in screens
+    assert "font-size:13pt" in screens and "font-size:13px" not in screens
+    assert "line-height:1.2" in screens and "line-height:1.2px" not in screens
+    assert "styleControl('Title', 'backgroundColor'" not in app_js
+    assert "FXRuntime.attrControl('Avatar', 'src'" in app_js
+    assert "FXRuntime.optionRecord(r)" in app_js
+    assert 'class="fx-image"' in screens
+    assert "[data-control] { box-sizing: border-box; }" in index
+    assert "padding: 16px" not in index
+
+
+def test_helpdesk_icon_names_have_visible_cross_platform_glyphs():
+    from pfx2gas.icons import icon_glyph
+
+    for name in ("AddDocument", "DocumentWithContent", "DetailList", "Trending",
+                 "Sort", "Reload", "CancelBadge", "customer-service", "Settings",
+                 "Filter", "EmojiSmile", "Home"):
+        glyph = icon_glyph(name)
+        assert glyph, name
+        assert not 0xE000 <= ord(glyph) <= 0xF8FF, name
+
+
 def test_form_modes_transpiled():
     from pfx2gas.fx import transpile
 
@@ -121,3 +182,20 @@ def test_report_without_review_notes_it():
                          "global_vars": [], "support_matrix": []})()
     md = render_report(ir)
     assert "Behavioral review not run" in md
+
+
+def test_report_separates_translation_from_runtime_wiring():
+    from pfx2gas.ir import AppIR, ControlNode, FxExpr, ScreenNode
+    from pfx2gas.report import render_report
+    from pfx2gas.synth.build import assess_fidelity
+
+    ir = AppIR(name="Ledger", screens=[ScreenNode(name="S", controls=[
+        ControlNode(name="C", type="CanvasComponent", properties={
+            "CustomValue": FxExpr(raw='"x"', js="'x'", translation_status="rule")
+        })
+    ])])
+    assess_fidelity(ir)
+    md = render_report(ir)
+    assert "| rule | ignored |" in md
+    assert "component instances x1 render as generic containers" in md
+    assert "None — every formula" not in md

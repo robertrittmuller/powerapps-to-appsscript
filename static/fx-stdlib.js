@@ -182,11 +182,11 @@
 
     // --- colors / encoding --------------------------------------------------
     rgba: function (r, g, b, a) {
-      var hex = function (n) {
-        var v = Math.max(0, Math.min(255, Math.round(toNum(n))));
-        return v.toString(16).padStart(2, '0');
+      var channel = function (n) {
+        return Math.max(0, Math.min(255, Math.round(toNum(n))));
       };
-      return '#' + hex(r) + hex(g) + hex(b);
+      var alpha = a === undefined || a === null ? 1 : Math.max(0, Math.min(1, toNum(a)));
+      return 'rgba(' + channel(r) + ',' + channel(g) + ',' + channel(b) + ',' + alpha + ')';
     },
     colorFade: function (color, percentage) {
       return color; // approximation: fade not implemented, color passes through

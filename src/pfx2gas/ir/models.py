@@ -12,6 +12,14 @@ class FxExpr(BaseModel):
     raw: str = ""  # original Power Fx (without the leading '=')
     kind: Literal["value", "behavior"] = "value"
     js: str | None = None  # transpiled JS; None when unsupported
+    # Translation and emission are deliberately separate. Syntactically valid
+    # JS is not a converted feature until synthesis actually wires it into the
+    # generated runtime.
+    translation_status: Literal["pending", "rule", "llm", "stubbed"] = "pending"
+    emission_status: Literal[
+        "pending", "emitted", "approximated", "ignored", "unsupported"
+    ] = "pending"
+    fidelity_note: str = ""
 
 
 class SupportEntry(BaseModel):
@@ -40,6 +48,11 @@ class ControlNode(BaseModel):
     name: str
     type: str
     variant: str | None = None
+    # Legacy canvas-component instances point at a reusable definition. The
+    # adapter expands the definition's child tree under the instance and keeps
+    # the declared input names so synthesis can expose them to child formulas.
+    component_template: str | None = None
+    component_inputs: list[str] = Field(default_factory=list)
     properties: dict[str, FxExpr] = Field(default_factory=dict)
     children: list["ControlNode"] = Field(default_factory=list)
 
@@ -67,5 +80,10 @@ class AppIR(BaseModel):
     global_vars: list[str] = Field(default_factory=list)
     choice_fields: list[str] = Field(default_factory=list)  # 'DataSource.Field'
     support_matrix: list[SupportEntry] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    # Safe defaults: signed-in users execute as themselves. Public/deployer
+    # execution must be an explicit conversion choice.
+    webapp_access: Literal["MYSELF", "DOMAIN", "ANYONE", "ANYONE_ANONYMOUS"] = "ANYONE"
+    webapp_execute_as: Literal["USER_ACCESSING", "USER_DEPLOYING"] = "USER_ACCESSING"
     # The screen Power Apps shows first (first in screen order).
     start_screen: str | None = None
