@@ -9,7 +9,7 @@ the code and the real-app corpus (10 apps, 23,746 formulas) on this date.
 | Check | Result |
 |---|---|
 | Python suite (`./pfx2gas test`) | 122 passed |
-| JS runtime suite (`./pfx2gas test`) | 54 passed, 0 fail |
+| JS runtime suite (`./pfx2gas test`) | 55 passed, 0 fail |
 | Formula translation on 10-app corpus | 23,724 / 23,746 translated (99.9%) |
 | Runtime wiring on 10-app corpus | 15,300 / 23,746 emitted (64.4%); 330 approximated |
 | Ignored/unsupported property formulas | 8,116 / 23,746 (34.2%; conservative emission ledger) |
@@ -186,7 +186,9 @@ the feature tail:
   apply gallery template size/padding/absolute row geometry; flatten structural
   GalleryTemplate nodes; embed safe packaged PNG/JPEG/GIF/WebP resources; render
   reactive HtmlText through a sanitizer; and treat `Select(Parent)` as row
-  selection/event bubbling.
+  selection/event bubbling. Cross-platform font stacks and chart foreground
+  colors are also emitted so macOS does not fall back to serif text or lose
+  labels on colored chart panels.
 - redeploy HelpDesk, capture the same HOME state and viewport, and assert ticket
   text, logo pixels, pie/legend geometry, and no broken/empty visible controls;
 - capture the original and converted app at the same viewport, screen, data,

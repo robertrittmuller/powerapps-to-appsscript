@@ -72,6 +72,8 @@ def test_transparent_colors_sizing_line_height_and_dynamic_images():
                 "BorderStyle": FxExpr(raw="BorderStyle.None", js="'None'",
                                       translation_status="rule"),
                 "Align": FxExpr(raw="Center", js="state.Center", translation_status="rule"),
+                "Font": FxExpr(raw="Font.'Segoe UI'", js="'Segoe UI'",
+                               translation_status="rule"),
                 "Size": FxExpr(raw="13", js="13", translation_status="rule"),
                 "VerticalAlign": FxExpr(raw="VerticalAlign.Middle", js="'Middle'",
                                         translation_status="rule"),
@@ -96,6 +98,7 @@ def test_transparent_colors_sizing_line_height_and_dynamic_images():
     assert "border-style:none" in screens
     assert "text-align:center" in screens
     assert "justify-content:center" in screens
+    assert "font-family:'Segoe UI', Arial, system-ui, sans-serif" in screens
     assert "font-size:13pt" in screens and "font-size:13px" not in screens
     assert "line-height:1.2" in screens and "line-height:1.2px" not in screens
     assert "styleControl('Title', 'backgroundColor'" not in app_js

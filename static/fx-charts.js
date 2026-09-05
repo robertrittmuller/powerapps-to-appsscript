@@ -69,13 +69,14 @@
     };
   }
 
-  function emptySvg(w, h) {
+  function emptySvg(w, h, foreground) {
     return '<svg width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '">' +
       '<text x="' + (w / 2) + '" y="' + (h / 2) + '" text-anchor="middle" ' +
-      'font-family="system-ui" font-size="12" fill="#888">No data</text></svg>';
+      'font-family="system-ui" font-size="12" fill="' + esc(foreground || '#888') +
+      '">No data</text></svg>';
   }
 
-  function barSvg(cats, vals, w, h) {
+  function barSvg(cats, vals, w, h, foreground) {
     var padL = 30, padB = 22, padT = 10;
     var innerW = w - padL - 10, innerH = h - padB - padT;
     var max = Math.max.apply(null, vals.concat([1]));
@@ -90,17 +91,19 @@
         '" width="' + bw.toFixed(1) + '" height="' + Math.max(bh, 1).toFixed(1) +
         '" fill="' + PALETTE[i % PALETTE.length] + '"/>');
       parts.push('<text x="' + (x + bw / 2).toFixed(1) + '" y="' + (h - 8) +
-        '" text-anchor="middle" font-family="system-ui" font-size="9" fill="#555">' +
+        '" text-anchor="middle" font-family="system-ui" font-size="9" fill="' +
+        esc(foreground || '#555') + '">' +
         esc(cats[i]) + '</text>');
       parts.push('<text x="' + (x + bw / 2).toFixed(1) + '" y="' + Math.max(9, y - 4).toFixed(1) +
-        '" text-anchor="middle" font-family="system-ui" font-size="9" fill="#555">' +
+        '" text-anchor="middle" font-family="system-ui" font-size="9" fill="' +
+        esc(foreground || '#555') + '">' +
         esc(v) + '</text>');
     });
     return '<svg width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '">' +
       parts.join('') + '</svg>';
   }
 
-  function lineSvg(cats, vals, w, h) {
+  function lineSvg(cats, vals, w, h, foreground) {
     var padL = 30, padB = 22, padT = 10;
     var innerW = w - padL - 10, innerH = h - padB - padT;
     var max = Math.max.apply(null, vals.concat([1]));
@@ -117,7 +120,8 @@
       parts.push('<circle cx="' + p[0].toFixed(1) + '" cy="' + p[1].toFixed(1) +
         '" r="3" fill="' + PALETTE[0] + '"/>');
       parts.push('<text x="' + p[0].toFixed(1) + '" y="' + (h - 8) +
-        '" text-anchor="middle" font-family="system-ui" font-size="9" fill="#555">' +
+        '" text-anchor="middle" font-family="system-ui" font-size="9" fill="' +
+        esc(foreground || '#555') + '">' +
         esc(cats[i]) + '</text>');
     });
     return '<svg width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '">' +
@@ -162,8 +166,8 @@
       parts.join('') + '</svg>';
   }
 
-  function legendSvg(series, w, h) {
-    if (!series.length) return emptySvg(w, h);
+  function legendSvg(series, w, h, foreground) {
+    if (!series.length) return emptySvg(w, h, foreground);
     var itemWidth = Math.max(90, Math.floor(w / Math.min(series.length, 3)));
     var columns = Math.max(1, Math.floor(w / itemWidth));
     var parts = [];
@@ -173,7 +177,8 @@
       parts.push('<rect x="' + x + '" y="' + y + '" width="10" height="10" rx="2" fill="' +
         esc(entry.color || PALETTE[i % PALETTE.length]) + '"/>');
       parts.push('<text x="' + (x + 15) + '" y="' + (y + 9) +
-        '" font-family="system-ui" font-size="10" fill="#333">' + esc(entry.label) + '</text>');
+        '" font-family="system-ui" font-size="10" fill="' + esc(foreground || '#333') + '">' +
+        esc(entry.label) + '</text>');
     });
     return '<svg width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '">' +
       parts.join('') + '</svg>';
@@ -184,13 +189,14 @@
     rows = Array.isArray(rows) ? rows : [];
     var type = cfg.type || 'bar';
     var w = cfg.width || 420, h = cfg.height || 300;
+    var foreground = cfg.foreground;
     var chart = model(rows, cfg);
-    if (!rows.length || !chart.val) return emptySvg(w, h);
-    if (type === 'legend') return legendSvg(chart.series, w, h);
+    if (!rows.length || !chart.val) return emptySvg(w, h, foreground);
+    if (type === 'legend') return legendSvg(chart.series, w, h, foreground);
     var cats = chart.cats, vals = chart.vals;
     if (type === 'pie') return pieSvg(cats, vals, w, h);
-    if (type === 'line') return lineSvg(cats, vals, w, h);
-    return barSvg(cats, vals, w, h);
+    if (type === 'line') return lineSvg(cats, vals, w, h, foreground);
+    return barSvg(cats, vals, w, h, foreground);
   }
 
   global.FXCharts = {

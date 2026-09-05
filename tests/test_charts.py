@@ -53,6 +53,7 @@ def test_chart_control_from_real_app(tmp_path):
         assert "FXRuntime.renderChart" in app_js
         assert 'data-control="PieChart2"' in screens
         assert '&quot;type&quot;: &quot;pie&quot;' in screens
+        assert '&quot;foreground&quot;: &quot;#333333&quot;' in screens
         assert 'data-control="Legend1"' in screens
         assert '&quot;type&quot;: &quot;legend&quot;' in screens
         assert "series_labels" in app_js

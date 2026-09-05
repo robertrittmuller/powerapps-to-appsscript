@@ -11,6 +11,13 @@ test('bar chart renders one rect per row', () => {
   assert.ok(svg.includes('<svg'));
 });
 
+test('chart foreground color is used for labels on colored panels', () => {
+  const svg = FXCharts.svg([{ name: 'A', amount: 10 }], {
+    type: 'bar', cat: 'name', val: 'amount', foreground: '#ffffff',
+  });
+  assert.ok(svg.includes('fill="#ffffff"'));
+});
+
 test('pie chart renders a path per row plus legend', () => {
   const rows = [{ name: 'X', n: 1 }, { name: 'Y', n: 3 }];
   const svg = FXCharts.svg(rows, { type: 'pie', cat: 'name', val: 'n' });

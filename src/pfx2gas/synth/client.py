@@ -221,6 +221,17 @@ SHADOW_MAP = {
 }
 WEIGHT_MAP = {"Bold": "bold", "Semibold": "600", "Light": "300", "Regular": "400"}
 
+
+def _font_stack(font: str) -> str:
+    """Keep the requested Power Apps face with a platform-safe fallback."""
+    safe = re.sub(r"[^A-Za-z0-9 ._-]", "", font) or "system-ui"
+    lower = safe.lower()
+    if lower in {"georgia", "times new roman", "times"}:
+        return f"'{safe}', Georgia, 'Times New Roman', serif"
+    if lower in {"courier", "courier new", "consolas"}:
+        return f"'{safe}', 'Courier New', monospace"
+    return f"'{safe}', Arial, system-ui, sans-serif"
+
 COSMETIC_PX = {
     "PaddingLeft": "padding-left", "PaddingRight": "padding-right",
     "PaddingTop": "padding-top", "PaddingBottom": "padding-bottom",
@@ -380,7 +391,7 @@ def _static_style(ctrl: ControlNode, in_flex: bool, rules: list[str]) -> str:
         css.append(f"color:{text_color}")
     font = raw("Font")
     if font:
-        css.append(f"font-family:'{font}'")
+        css.append(f"font-family:{_font_stack(font)}")
     weight = mapped("FontWeight", WEIGHT_MAP) or px("FontWeight")
     if weight:
         css.append(f"font-weight:{weight}")
@@ -548,6 +559,9 @@ def _chart_config(ctrl: ControlNode) -> str:
     show_labels = _static_bool(props.get("ShowLabels"))
     if show_labels is not None:
         cfg["showLabels"] = show_labels
+    foreground = _static_color(props.get("Color") or props.get("FontColor"))
+    if foreground:
+        cfg["foreground"] = foreground
     import json as _json
     return _json.dumps(cfg)
 

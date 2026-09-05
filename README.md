@@ -162,7 +162,8 @@ Converted apps aim to match the original visually and behaviorally:
   `FillPortions` (flex), `LayoutMinWidth/Height`, `LayoutOverflowX/Y`.
 - **Typography & text** — `Font`, `Size`, `FontColor`, `FontWeight`,
   `Italic`, `Underline`, `Strikethrough`, `LineHeight`, `Align`,
-  `VerticalAlign`, `Wrap`.
+  `VerticalAlign`, `Wrap`; requested faces retain cross-platform serif,
+  sans-serif, or monospace fallbacks.
 - **Borders & effects** — `BorderStyle` (solid/dashed/dotted/double),
   thickness, color, radius per corner, `DropShadow`, `HoverFill/Color/BorderColor`,
   `PressedFill/Color/BorderColor`, `DisabledFill/Color/BorderColor`,
