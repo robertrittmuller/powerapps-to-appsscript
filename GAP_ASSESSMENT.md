@@ -18,7 +18,7 @@ the code and the real-app corpus (10 apps, 23,746 formulas) on this date.
 | Emitter↔runtime consistency (`scripts/check_runtime_consistency.py`) | pass |
 | Generated server code syntax | all `.gs` node --check clean (validated every soak app) |
 | Data layer | external sources → typed, sample-seeded Sheet tabs; collections → client-side state |
-| Deployed a converted app via clasp | HelpDesk @12 was inspected 2026-09-05 and is **not release-quality**: silent blank-gallery, wrong-chart, empty-legend, and asset-substitution failures; fixes are locally verified but not redeployed |
+| Deployed a converted app via clasp | HelpDesk @14 was inspected 2026-09-05: gallery text, packaged logo, pie/bar charts, legends, typography, chart contrast, and HOME → NEW → HOME navigation are live; identity and original-app visual comparison remain open |
 | CI | workflow covers pytest + JS + consistency + soak + container/wrapper smoke; benchmark JSON/Markdown are now upload artifacts |
 
 Plan milestones: M1–M3 done. M4 ("two real apps converted, deployed via clasp,
@@ -76,7 +76,7 @@ usable app across representative Power Apps archetypes."
 
 The LLM should do more work, but it should not become the generator. Formula
 translation is already 23,724 / 23,746 (99.9%); the larger gap is that only
-15,292 formulas (64.4%) are wired into a runtime behavior or visual property.
+15,300 formulas (64.4%) are wired into a runtime behavior or visual property.
 Asking a model to translate the remaining 22 formulas cannot solve missing
 forms, controls, connector semantics, media, responsive layout, or component
 behavior. Whole-app model-generated JavaScript would also make conversions
@@ -104,26 +104,29 @@ usable baseline.
 
 ## Current deployment evidence
 
-HelpDesk-2021.msapp is deployed as @12, but the 2026-09-05 browser review
-invalidated its earlier visual-smoke result:
-`https://script.google.com/macros/s/AKfycbwbyTp89b-J_KEQ9N9wAf0OdJ8faH3k5gwAj_K1ToUFjaDPf8X35VBEnFQvfu5f2OJH/exec`
+HelpDesk-2021.msapp is deployed as @14 at:
+`https://script.google.com/a/macros/rittmuller.com/s/AKfycbwbyTp89b-J_KEQ9N9wAf0OdJ8faH3k5gwAj_K1ToUFjaDPf8X35VBEnFQvfu5f2OJH/exec`
 
-The app navigates and emits no console errors, but that is not sufficient. The
-HOME data query produced a ticket while the gallery row contained no rendered
-child controls; both `PieChart2` controls were generated as bars; their Legend
+The @12 browser review invalidated its earlier visual-smoke result: the HOME
+data query produced a ticket while the gallery row contained no rendered child
+controls; both `PieChart2` controls were generated as bars; their Legend
 controls displayed `No data`; and the packaged `customer-service` PNG was
-mistaken for an icon name. The signed-in user's display name/image can also be
-blank when Apps Script does not expose identity.
+mistaken for an icon name. That failure is retained here because it established
+that startup, navigation, and a clean console are not sufficient evidence.
 
 The deterministic pipeline now preserves legacy chart families, renders
 single-slice pies, publishes chart series to separate legends, renders gallery
 templates with their declared size/padding and row geometry, removes broken
 `Select(Parent)` calls, embeds safe packaged raster images, and binds dynamic
 HtmlText through a sanitizer. A generated-runtime HelpDesk journey proves a
-populated gallery, embedded PNG, pie output, and populated legend. These fixes
-still require a new clasp deployment and browser comparison before the live app
-can be called improved. A second representative deployment is still required
-to close M4.
+populated gallery, embedded PNG, pie output, and populated legend. The @14 live
+browser audit additionally proved two populated ticket cards, 64×64 decoded
+packaged logos, pie and legend SVG geometry, white bar-chart labels on the blue
+panel, platform-safe font stacks, and HOME → NEW → HOME navigation. The
+signed-in user's display name/image is still blank when Apps Script does not
+expose identity, and an original-app same-state screenshot comparison has not
+yet been completed. A second representative deployment is still required to
+close M4.
 
 ---
 
@@ -189,8 +192,10 @@ the feature tail:
   selection/event bubbling. Cross-platform font stacks and chart foreground
   colors are also emitted so macOS does not fall back to serif text or lose
   labels on colored chart panels.
-- redeploy HelpDesk, capture the same HOME state and viewport, and assert ticket
-  text, logo pixels, pie/legend geometry, and no broken/empty visible controls;
+- **✅ Converted-app live audit:** HelpDesk @14 was redeployed at the same URL
+  and browser-checked at the HOME viewport for ticket text, decoded logo pixels,
+  pie/bar/legend geometry, typography, chart-label contrast, and primary menu
+  navigation. The identity image remains an explicit known gap;
 - capture the original and converted app at the same viewport, screen, data,
   and interaction state;
 - compare bounding boxes, typography, colors, borders, visibility, images,
