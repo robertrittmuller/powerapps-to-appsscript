@@ -8,6 +8,7 @@ syntax checking of .gs files.
 from __future__ import annotations
 
 import json
+import base64
 import subprocess
 import zipfile
 from pathlib import Path
@@ -66,9 +67,20 @@ def legacy_msapp(tmp_path_factory):
                                                  "HintText": '"Title"'}),
             _legacy_control("inpNotes", "text", {"Default": '""', "Mode": "TextMode.MultiLine"}),
             _legacy_control("btnSave", "button", {"Text": '"Save"', "OnSelect": "Back()"}),
+            _legacy_control("brand", "image", {"Image": "'brand-logo'"}),
+            _legacy_control("pie", "pieChart", {"Items": "Tickets"}),
+            _legacy_control("bars", "barChart", {"Items": "Tickets"}),
+            _legacy_control("trend", "lineChart", {"Items": "Tickets"}),
+            _legacy_control("legend", "legend", {"Items": "pie.SeriesLabels"}),
         ]))
         zf.writestr("Controls\\2.json", _legacy_screen("EDIT", []))
         zf.writestr("References\\DataSources.json", _legacy_datasources())
+        zf.writestr("References\\Resources.json", json.dumps({"Resources": [{
+            "Name": "brand-logo", "ResourceKind": "LocalFile", "Content": "Image",
+            "FileName": "brand.png", "Path": "Assets\\Images\\brand.png",
+            "RootPath": "https://expired.example.test/brand.png",
+        }]}))
+        zf.writestr("Assets\\Images\\brand.png", b"\x89PNG\r\n\x1a\nfixture")
     return path
 
 
@@ -146,6 +158,28 @@ def test_legacy_text_disambiguation(legacy_ir):
     assert types["btnSave"] == "Button"
 
 
+def test_legacy_chart_families_are_preserved(legacy_ir):
+    types = {c.name: c.type for s in legacy_ir.screens for c in s.walk_controls()}
+    assert types["pie"] == "PieChart"
+    assert types["bars"] == "BarChart"
+    assert types["trend"] == "LineChart"
+    assert types["legend"] == "Legend"
+
+
+def test_packaged_image_resource_beats_expired_url_and_icon_name(legacy_ir):
+    from pfx2gas.analyze import analyze
+    from pfx2gas.synth.client import render_screens_html
+
+    expected = "data:image/png;base64," + base64.b64encode(
+        b"\x89PNG\r\n\x1a\nfixture"
+    ).decode("ascii")
+    assert legacy_ir.media_resources == {"brand-logo": expected}
+    screens = render_screens_html(analyze(legacy_ir.model_copy(deep=True)))
+    assert f'src="{expected}"' in screens
+    assert 'data-control="brand"' in screens
+    assert 'data-icon-name="brand-logo"' not in screens
+
+
 def test_legacy_component_definition_is_expanded_and_namespaced(component_msapp, tmp_path):
     from pfx2gas.analyze import analyze
     from pfx2gas.parse import parse
@@ -209,6 +243,23 @@ def test_static_htmltext_renders_sanitized_markup():
     assert "javascript:" not in screens
     assert "onerror=" not in screens
     assert "<script" not in screens
+
+
+def test_dynamic_htmltext_is_runtime_bound_through_the_sanitizer():
+    from pfx2gas.ir import AppIR, ControlNode, FxExpr, ScreenNode
+    from pfx2gas.synth.client import render_app_js
+
+    expr = FxExpr(raw='"<b>" & title & "</b>"',
+                  js="['<b>', state.title, '</b>'].join('')",
+                  translation_status="rule")
+    ir = AppIR(name="HtmlText", start_screen="HOME", screens=[
+        ScreenNode(name="HOME", controls=[
+            ControlNode(name="dynamicHtml", type="HtmlText", properties={"HtmlText": expr}),
+        ]),
+    ])
+    app_js = render_app_js(ir)
+    assert "FXRuntime.htmlControl('dynamicHtml'" in app_js
+    assert expr.emission_status == "approximated"
 
 
 def test_legacy_schema_fields_and_types(legacy_ir):
@@ -310,8 +361,8 @@ def test_icon_glyph_known_and_unknown():
     assert is_icon_name("/img/logo") is False
 
 
-def test_icon_name_image_renders_glyph_span():
-    """'customer-service' must render as a glyph, not <img src="customer-service">.
+def test_packaged_helpdesk_logo_renders_the_original_image():
+    """A packaged asset wins over the fallback icon-name heuristic.
 
     Uses the real helpdesk sample (local soak corpus) when present; skipped in
     CI where samples are fetched separately."""
@@ -331,8 +382,8 @@ def test_icon_name_image_renders_glyph_span():
     out = synthesize(ir, Path(__file__).parent.parent / "output" / "_icon-test")
     screens = (out / "Screens.html").read_text()
     assert 'src="customer-service"' not in screens
-    assert 'class="fx-icon"' in screens
-    assert 'data-icon-name="customer-service"' in screens
+    assert 'src="data:image/png;base64,' in screens
+    assert 'data-icon-name="customer-service"' not in screens
     # Icon-type controls render their glyph too
     assert 'data-icon-name="Filter"' in screens
     assert 'data-icon-name="Settings"' in screens

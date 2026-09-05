@@ -59,7 +59,7 @@ ELEMENT_MAP = {
 # Chart family per control type / variant (Power Apps chart controls).
 CHART_TYPES = {
     "Chart": "bar", "PieChart": "pie", "BarChart": "bar", "LineChart": "line",
-    "ColumnChart": "bar", "Legend": "pie",  # legend renders with pie layout
+    "ColumnChart": "bar", "Legend": "legend",
 }
 
 # Properties consumed by the chart renderer (excluded from generic styling).
@@ -510,13 +510,14 @@ def _input_attrs(ctrl: ControlNode) -> str:
     return out
 
 
-def _static_extra_attrs(ctrl: ControlNode) -> str:
+def _static_extra_attrs(ctrl: ControlNode, media_resources: dict[str, str]) -> str:
     """Static src/title-style attributes for images and icons."""
     props = ctrl.properties
     out = ""
     if ctrl.type == "Image":
         src = _static_raw(props.get("Image"))
         if src:
+            src = media_resources.get(src, src)
             out += f' src="{html.escape(src, quote=True)}"'
             mark_emission(props.get("Image"))
     if ctrl.type == "Icon":
@@ -544,6 +545,9 @@ def _chart_config(ctrl: ControlNode) -> str:
         cfg["width"] = int(float(width.replace("px", "")))
     if height:
         cfg["height"] = int(float(height.replace("px", "")))
+    show_labels = _static_bool(props.get("ShowLabels"))
+    if show_labels is not None:
+        cfg["showLabels"] = show_labels
     import json as _json
     return _json.dumps(cfg)
 
@@ -596,7 +600,24 @@ def _static_attrs(ctrl: ControlNode) -> str:
     return out
 
 
-def _render_control(ctrl: ControlNode, depth: int, in_flex: bool, rules: list[str]) -> str:
+def _gallery_row_controls(ctrl: ControlNode) -> list[ControlNode]:
+    """Flatten structural GalleryTemplate nodes into one rendered row."""
+    controls: list[ControlNode] = []
+    for child in ctrl.children:
+        if child.type == "GalleryTemplate":
+            controls.extend(child.children)
+        else:
+            controls.append(child)
+    return controls
+
+
+def _render_control(
+    ctrl: ControlNode,
+    depth: int,
+    in_flex: bool,
+    rules: list[str],
+    media_resources: dict[str, str],
+) -> str:
     tag = ELEMENT_MAP.get(ctrl.type, "div")
     indent = "  " * (depth + 1)
     style = _static_style(ctrl, in_flex, rules)
@@ -627,7 +648,7 @@ def _render_control(ctrl: ControlNode, depth: int, in_flex: bool, rules: list[st
     # Unicode glyph (Segoe MDL2) instead of a broken <img> / empty <span>.
     if ctrl.type == "Image":
         src = _static_raw(ctrl.properties.get("Image"))
-        if src and is_icon_name(src):
+        if src and src not in media_resources and is_icon_name(src):
             mark_emission(ctrl.properties.get("Image"), "approximated",
                           "Power Apps icon name mapped to a Unicode glyph")
             return (f'{indent}<span data-control="{ctrl.name}"{style_attr}'
@@ -644,9 +665,29 @@ def _render_control(ctrl: ControlNode, depth: int, in_flex: bool, rules: list[st
                     f'{_static_attrs(ctrl)}>{glyph}</span>')
 
     if ctrl.type == "Gallery" or ctrl.type == "GalleryTemplate":
-        inner_row = "\n".join(_render_control(c, depth + 2, flex, rules) for c in ctrl.children)
+        row_controls = _gallery_row_controls(ctrl)
+        inner_row = "\n".join(
+            _render_control(c, depth + 2, flex, rules, media_resources)
+            for c in row_controls
+        )
+        row_size = _static_scalar(ctrl.properties.get("TemplateSize"))
+        row_padding = _static_scalar(ctrl.properties.get("TemplatePadding"))
+        wrap_count = _static_scalar(ctrl.properties.get("WrapCount"))
+        gallery_attrs = ""
+        if row_size:
+            gallery_attrs += f' data-template-size="{html.escape(row_size, quote=True)}"'
+            mark_emission(ctrl.properties.get("TemplateSize"), "approximated",
+                          "gallery row minimum height follows TemplateSize")
+        if row_padding:
+            gallery_attrs += f' data-template-padding="{html.escape(row_padding, quote=True)}"'
+            mark_emission(ctrl.properties.get("TemplatePadding"), "approximated",
+                          "gallery row padding follows TemplatePadding")
+        if wrap_count:
+            gallery_attrs += f' data-wrap-count="{html.escape(wrap_count, quote=True)}"'
+            mark_emission(ctrl.properties.get("WrapCount"), "approximated",
+                          "gallery wrap count is retained as runtime metadata")
         return (
-            f'{indent}<div data-control="{ctrl.name}"{style_attr} class="fx-gallery">\n'
+            f'{indent}<div data-control="{ctrl.name}"{style_attr}{gallery_attrs} class="fx-gallery">\n'
             f'{indent}  <div class="fx-rows"></div>\n'
             f'{indent}  <template>\n'
             f'{indent}    <div class="fx-row">\n{inner_row}\n{indent}    </div>\n'
@@ -670,9 +711,12 @@ def _render_control(ctrl: ControlNode, depth: int, in_flex: bool, rules: list[st
     inner = ""
     close = f"</{tag}>" if tag not in {"input", "img", "br", "hr"} else ""
     if ctrl.children and ctrl.type not in VOID_CONTENT_TYPES:
-        child_html = "\n".join(_render_control(c, depth + 1, flex, rules) for c in ctrl.children)
+        child_html = "\n".join(
+            _render_control(c, depth + 1, flex, rules, media_resources)
+            for c in ctrl.children
+        )
         inner = "\n" + child_html + "\n" + indent
-    attrs = _static_extra_attrs(ctrl) + _static_attrs(ctrl) + _input_attrs(ctrl)
+    attrs = _static_extra_attrs(ctrl, media_resources) + _static_attrs(ctrl) + _input_attrs(ctrl)
     content = _static_html(ctrl) if ctrl.type == "HtmlText" else _static_text(ctrl)
     return f'{indent}<{tag} data-control="{ctrl.name}"{style_attr}{attrs}{extra}>{content}{inner}{close}'
 
@@ -685,7 +729,7 @@ def render_screens_html(ir: AppIR) -> str:
         # bootstrap (Power Apps shows the first screen in screen order).
         parts.append(f'  <section data-screen="{screen.name}" style="display:none">')
         for ctrl in screen.controls:
-            parts.append(_render_control(ctrl, 1, False, rules))
+            parts.append(_render_control(ctrl, 1, False, rules, ir.media_resources))
         parts.append("  </section>")
     style_block = ""
     if rules:
@@ -958,18 +1002,63 @@ def render_app_js(ir: AppIR) -> str:
                     mark_emission(items)
                     row_fns = []
                     handlers = {}
-                    for child in ctrl.children:
+                    row_controls = [descendant for child in _gallery_row_controls(ctrl)
+                                    for descendant in child.walk()]
+                    for child in row_controls:
                         texpr = child.properties.get("Text")
-                        if texpr and texpr.js and not texpr.js.startswith("'"):
-                            mark_emission(texpr)
+                        row_properties: list[tuple[str, object]] = []
+                        if texpr and texpr.js and _static_raw(texpr) is None:
+                            row_properties.append(("text", texpr))
+                        row_reactive = [
+                            ("X", "left"), ("Y", "top"),
+                            ("Width", "width"), ("Height", "height"),
+                            ("Fill", "backgroundColor"), ("Color", "color"),
+                            ("FontColor", "color"), ("Size", "fontSize"),
+                            ("FontSize", "fontSize"), ("Visible", "display"),
+                        ]
+                        for prop_name, runtime_key in row_reactive:
+                            prop_expr = child.properties.get(prop_name)
+                            if not prop_expr or not prop_expr.js:
+                                continue
+                            if prop_name in {"Fill", "Color", "FontColor"} \
+                                    and _static_color(prop_expr) is not None:
+                                continue
+                            if prop_name in {"X", "Y", "Width", "Height", "Size", "FontSize"} \
+                                    and _static_px(prop_expr) is not None:
+                                continue
+                            if prop_expr.js.startswith("'"):
+                                continue
+                            row_properties.append((runtime_key, prop_expr))
+                        if row_properties:
                             row_fns.append(
-                                f"        var el_{child.name} = row.querySelector('[data-control=\"{child.name}\"]');"
-                                f" if (el_{child.name}) el_{child.name}.textContent = {texpr.js};"
+                                f"        FXRuntime.rowControl(row, {child.name!r}, {ctrl.name!r}, {{"
                             )
+                            for runtime_key, prop_expr in row_properties:
+                                row_fns.append(
+                                    f"          {runtime_key!r}: function () {{ return {prop_expr.js}; }},"
+                                )
+                                mark_emission(
+                                    prop_expr,
+                                    "approximated" if runtime_key == "display" else "emitted",
+                                    "gallery-row formula is evaluated in ThisItem/Self/Parent context",
+                                )
+                            row_fns.append("        });")
                         onsel = child.properties.get("OnSelect")
                         if onsel and onsel.js:
-                            handlers[child.name] = onsel.js
-                            mark_emission(onsel)
+                            handler_js = re.sub(
+                                r"\bselectControl\((['\"])Parent\1\);?",
+                                "",
+                                onsel.js,
+                            ).strip()
+                            if handler_js:
+                                handlers[child.name] = handler_js
+                                mark_emission(onsel)
+                            else:
+                                mark_emission(
+                                    onsel,
+                                    "approximated",
+                                    "Select(Parent) is satisfied by gallery row selection and event bubbling",
+                                )
                     lines.append(f"  // {ctrl.name}.Items (gallery)")
                     lines.append("  FXRuntime.gallery(")
                     lines.append(f"    {ctrl.name!r},")
@@ -1003,7 +1092,7 @@ def render_app_js(ir: AppIR) -> str:
                     lines.append("    var cfg = JSON.parse(el.getAttribute('data-chart') || '{}');")
                     lines.append(f"    var rows = {items.js};")
                     lines.append("    if (rows && rows.then) rows = await rows;")
-                    lines.append("    el.innerHTML = FXCharts.svg(rows || [], cfg);")
+                    lines.append(f"    FXRuntime.renderChart({ctrl.name!r}, rows || [], cfg);")
                     lines.append("  });")
 
             # --- dropdown/combobox Items -> <option> population -------------
@@ -1079,6 +1168,19 @@ def render_app_js(ir: AppIR) -> str:
                     "dynamic image source is bound; an empty or failed source uses the generated placeholder",
                 )
 
+            html_expr = ctrl.properties.get("HtmlText") or ctrl.properties.get("Content")
+            if (ctrl.type == "HtmlText" and html_expr and html_expr.js
+                    and _static_raw(html_expr) is None):
+                lines.append(f"  // {ctrl.name}.HtmlText (reactive sanitized markup)")
+                lines.append(f"  FXRuntime.htmlControl({ctrl.name!r}, function () {{")
+                lines.append(f"    return {html_expr.js};")
+                lines.append(f"  }}, {parent_names.get(ctrl.name)!r});")
+                mark_emission(
+                    html_expr,
+                    "approximated",
+                    "dynamic HtmlText is rendered after executable markup is removed",
+                )
+
             # Reactive fallbacks: layout/visual properties whose values are
             # formulas (static ones already became inline CSS above).
             reactive = [
@@ -1133,6 +1235,7 @@ INDEX_CSS = """
     .fx-component > [data-control] { position: absolute; box-sizing: border-box; }
     .fx-rows { display: block; }
     .fx-row { display: block; position: relative; border-bottom: 1px solid #eee; padding: 4px 0; }
+    .fx-row > [data-control] { position: absolute; box-sizing: border-box; }
     .fx-icon { font-family: 'Apple Symbols', 'Noto Sans Symbols 2', 'Segoe UI Symbol', sans-serif;
       display: inline-flex; align-items: center; justify-content: center;
       user-select: none; line-height: 1; }

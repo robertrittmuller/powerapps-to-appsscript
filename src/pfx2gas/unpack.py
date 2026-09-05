@@ -8,6 +8,7 @@ This module normalizes all of that.
 """
 from __future__ import annotations
 
+import base64
 import json
 import zipfile
 from dataclasses import dataclass, field
@@ -27,9 +28,70 @@ class UnpackedApp:
     screens: dict[str, dict] = field(default_factory=dict)  # name -> yaml dict
     data_sources: list[dict] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    media_resources: dict[str, str] = field(default_factory=dict)
     # Screen names in the app's own order (first one is the start screen).
     # Legacy: TopParent.Index; modern: archive entry order / ScreenOrder.
     screen_order: list[str] = field(default_factory=list)
+
+
+_IMAGE_MIME_TYPES = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+}
+_MAX_EMBEDDED_IMAGE_BYTES = 1_500_000
+
+
+def _extract_media_resources(
+    text_entries: dict[str, str], raw_entries: dict[str, bytes], warnings: list[str]
+) -> dict[str, str]:
+    """Return safe local image resources as data URIs.
+
+    Legacy exports often carry an already-expired ``RootPath`` URL alongside
+    the real file under ``Assets/Images``.  Resolve the packaged path instead.
+    SVG is deliberately not embedded here because arbitrary SVG can contain
+    active content; dynamic SVG formulas continue through the existing image
+    binding and sanitizer path.
+    """
+    lookup = {name.lower(): name for name in text_entries}
+    refs_name = lookup.get("references/resources.json")
+    if not refs_name:
+        return {}
+    try:
+        resources = json.loads(text_entries[refs_name]).get("Resources", [])
+    except (json.JSONDecodeError, AttributeError):
+        warnings.append("unparseable media resource manifest: References/Resources.json")
+        return {}
+
+    raw_lookup = {name.lower(): name for name in raw_entries}
+    out: dict[str, str] = {}
+    for resource in resources:
+        if not isinstance(resource, dict) or resource.get("ResourceKind") != "LocalFile":
+            continue
+        name = str(resource.get("Name") or "")
+        resource_path = str(resource.get("Path") or resource.get("FileName") or "")
+        normalized = resource_path.replace("\\", "/").lstrip("/")
+        actual = raw_lookup.get(normalized.lower())
+        if not actual and resource.get("FileName"):
+            filename = str(resource["FileName"]).replace("\\", "/").rsplit("/", 1)[-1]
+            matches = [entry for key, entry in raw_lookup.items() if key.endswith("/" + filename.lower())]
+            actual = matches[0] if len(matches) == 1 else None
+        suffix = Path(normalized).suffix.lower()
+        mime = _IMAGE_MIME_TYPES.get(suffix)
+        if not name or not actual or not mime:
+            warnings.append(f"packaged media resource not embedded: {name or resource_path}")
+            continue
+        payload = raw_entries[actual]
+        if len(payload) > _MAX_EMBEDDED_IMAGE_BYTES:
+            warnings.append(
+                f"packaged media resource exceeds {_MAX_EMBEDDED_IMAGE_BYTES} bytes: {name}"
+            )
+            continue
+        encoded = base64.b64encode(payload).decode("ascii")
+        out[name] = f"data:{mime};base64,{encoded}"
+    return out
 
 
 def _load_yaml(text: str) -> dict:
@@ -57,12 +119,15 @@ def unpack(msapp_path: str | Path) -> UnpackedApp:
         with zipfile.ZipFile(path) as zf:
             # Normalize: forward slashes, drop directory entries.
             entries: dict[str, str] = {}
+            raw_entries: dict[str, bytes] = {}
             for name in zf.namelist():
                 norm = name.replace("\\", "/")
                 if norm.endswith("/"):
                     continue
                 try:
-                    entries[norm] = zf.read(name).decode("utf-8", errors="replace")
+                    payload = zf.read(name)
+                    raw_entries[norm] = payload
+                    entries[norm] = payload.decode("utf-8", errors="replace")
                 except (KeyError, zipfile.BadZipFile):
                     continue
     except zipfile.BadZipFile as exc:
@@ -108,8 +173,9 @@ def unpack(msapp_path: str | Path) -> UnpackedApp:
                 legacy = convert_legacy_msapp(path)
             except ValueError as exc:
                 raise UnpackError(f"legacy .msapp unreadable: {exc}") from exc
-            legacy["warnings"].extend(
-                [f"skipped auxiliary source file: {w}" for w in []])
+            legacy["media_resources"] = _extract_media_resources(
+                entries, raw_entries, legacy["warnings"]
+            )
             return UnpackedApp(**legacy)
         if any(n.lower().endswith(".fx.yaml") for n in entries):
             raise UnpackError(
@@ -119,6 +185,7 @@ def unpack(msapp_path: str | Path) -> UnpackedApp:
         raise UnpackError("no src/*.pa.yaml files found in the .msapp archive")
 
     out = UnpackedApp(app_name=str(app_name))
+    out.media_resources = _extract_media_resources(entries, raw_entries, out.warnings)
     for name in src_files:
         base = name.rsplit("/", 1)[-1]
         if base.startswith("_"):  # _EditorState.pa.yaml etc. are auxiliary

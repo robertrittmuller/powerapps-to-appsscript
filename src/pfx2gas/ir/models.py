@@ -81,6 +81,11 @@ class AppIR(BaseModel):
     choice_fields: list[str] = Field(default_factory=list)  # 'DataSource.Field'
     support_matrix: list[SupportEntry] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+    # Local image resources embedded in the .msapp, keyed by the Power Apps
+    # resource name and encoded as browser-safe data URIs.  Keeping these in
+    # the IR lets HtmlService render packaged assets without relying on the
+    # expired docserver URLs found in older exports.
+    media_resources: dict[str, str] = Field(default_factory=dict)
     # Safe defaults: signed-in users execute as themselves. Public/deployer
     # execution must be an explicit conversion choice.
     webapp_access: Literal["MYSELF", "DOMAIN", "ANYONE", "ANYONE_ANONYMOUS"] = "ANYONE"

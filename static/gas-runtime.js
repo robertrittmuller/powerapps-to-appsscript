@@ -317,6 +317,75 @@
     evaluator.apply();
   }
 
+  function sanitizeHtml(value) {
+    var content = String(value == null ? '' : value);
+    var previous = null;
+    var unsafeBlock = /<(script|iframe|object|embed|link|meta)\b[^>]*>[\s\S]*?<\/\1\s*>/gi;
+    while (previous !== content) {
+      previous = content;
+      content = content.replace(unsafeBlock, '');
+    }
+    content = content.replace(/<\/?(?:script|iframe|object|embed|link|meta)\b[^>]*>/gi, '');
+    content = content.replace(/\s+on[a-z0-9_-]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '');
+    content = content.replace(
+      /\s+style\s*=\s*("[^"]*(?:javascript\s*:|expression\s*\()[^"]*"|'[^']*(?:javascript\s*:|expression\s*\()[^']*')/gi,
+      ''
+    );
+    content = content.replace(
+      /\s+(href|src)\s*=\s*(["']?)\s*(?:javascript|vbscript|data\s*:\s*text\/html)[^\s>]*\2/gi,
+      ''
+    );
+    return content;
+  }
+
+  function htmlControl(name, valueFn, parentName) {
+    var evaluator = {
+      apply: function () {
+        var el = document.querySelector('[data-control="' + name + '"]');
+        if (!el) return;
+        var previousSelf = global.selfRef;
+        var previousParent = global.parentRef;
+        global.selfRef = val(name);
+        global.parentRef = val(parentName);
+        try {
+          var next = sanitizeHtml(valueFn());
+          if (el.__fxHtml !== next) { el.__fxHtml = next; el.innerHTML = next; }
+        } catch (err) { console.error('control html error', name, err); }
+        finally { global.selfRef = previousSelf; global.parentRef = previousParent; }
+      },
+    };
+    evaluators.push(evaluator);
+    evaluator.apply();
+  }
+
+  function rowControl(row, name, parentName, propertyFns) {
+    if (!row || typeof row.querySelector !== 'function') return;
+    var el = row.querySelector('[data-control="' + name + '"]');
+    if (!el) return;
+    var previousSelf = global.selfRef;
+    var previousParent = global.parentRef;
+    global.selfRef = val(name);
+    global.parentRef = val(parentName);
+    var px = { left: true, top: true, width: true, height: true };
+    try {
+      Object.keys(propertyFns || {}).forEach(function (key) {
+        var value = propertyFns[key]();
+        if (key === 'text') {
+          el.textContent = value == null ? '' : String(value);
+        } else if (key === 'display') {
+          el.style.display = value ? '' : 'none';
+        } else if (key === 'fontSize') {
+          el.style.fontSize = String(value == null ? '' : value) + 'pt';
+        } else if (px[key]) {
+          el.style[key] = String(value == null ? 0 : value) + 'px';
+        } else {
+          el.style[key] = value == null ? '' : String(value).toLowerCase();
+        }
+      });
+    } catch (err) { console.error('gallery row property error', name, err); }
+    finally { global.selfRef = previousSelf; global.parentRef = previousParent; }
+  }
+
   /**
    * Gallery rendering: itemsFn returns the row array, rowFn fills a cloned
    * row template, handlers maps child control name -> async fn(item).
@@ -340,11 +409,33 @@
           selected: selected,
           selected_items: selected ? [selected] : [],
         });
-        rowsEl.innerHTML = '';
-        items.forEach(function (item) {
-          var row = tpl.content.firstElementChild.cloneNode(true);
+        var rowMarkup = String(tpl.innerHTML || '').trim();
+        rowsEl.innerHTML = items.map(function () { return rowMarkup; }).join('');
+        var renderedRows = Array.prototype.slice.call(rowsEl.children || []);
+        var templateSize = parseFloat(host.getAttribute('data-template-size'));
+        var templatePadding = parseFloat(host.getAttribute('data-template-padding'));
+        var wrapCount = parseInt(host.getAttribute('data-wrap-count'), 10);
+        var galleryValue = val(name);
+        controlValues[name] = Object.assign({}, controlValues[name] || {}, {
+          template_size: Number.isFinite(templateSize) ? templateSize : 0,
+          template_height: Number.isFinite(templateSize) ? templateSize : 0,
+          template_width: galleryValue.width || 0,
+          template_padding: Number.isFinite(templatePadding) ? templatePadding : 0,
+        });
+        if (rowsEl.style && Number.isFinite(wrapCount) && wrapCount > 1) {
+          rowsEl.style.display = 'grid';
+          rowsEl.style.gridTemplateColumns = 'repeat(' + wrapCount + ', minmax(0, 1fr))';
+        }
+        items.forEach(function (item, index) {
+          var row = renderedRows[index];
+          if (!row) return;
           row.style.position = 'relative';
-          rowsEl.appendChild(row);
+          if (Number.isFinite(templateSize) && templateSize > 0) {
+            row.style.minHeight = templateSize + 'px';
+          }
+          if (Number.isFinite(templatePadding) && templatePadding >= 0) {
+            row.style.padding = templatePadding + 'px';
+          }
           row.addEventListener('click', function () {
             controlValues[name] = Object.assign({}, controlValues[name] || {}, {
               selected: item,
@@ -370,6 +461,20 @@
         });
       },
     });
+  }
+
+  function renderChart(name, rows, cfg) {
+    var el = document.querySelector('[data-control="' + name + '"]');
+    if (!el || !global.FXCharts) return null;
+    rows = Array.isArray(rows) ? rows : [];
+    cfg = cfg || {};
+    var chart = global.FXCharts.model(rows, cfg);
+    controlValues[name] = Object.assign({}, controlValues[name] || {}, {
+      series_labels: chart.series,
+      item_color_set: global.FXCharts.palette,
+    });
+    el.innerHTML = global.FXCharts.svg(rows, cfg);
+    return chart;
   }
 
   function controlElement(name) {
@@ -699,9 +804,13 @@
     registerControlProps: registerControlProps,
     styleControl: styleControl,
     attrControl: attrControl,
+    htmlControl: htmlControl,
+    sanitizeHtml: sanitizeHtml,
+    rowControl: rowControl,
     optionRecord: optionRecord,
     applyDefaultSelection: applyDefaultSelection,
     gallery: gallery,
+    renderChart: renderChart,
     setFormMode: setFormMode,
     resetForm: resetForm,
     exitApp: exitApp,

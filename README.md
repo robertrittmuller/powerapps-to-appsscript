@@ -167,14 +167,18 @@ Converted apps aim to match the original visually and behaviorally:
   thickness, color, radius per corner, `DropShadow`, `HoverFill/Color/BorderColor`,
   `PressedFill/Color/BorderColor`, `DisabledFill/Color/BorderColor`,
   `FocusedBorderColor/Fill` (as CSS `:hover/:active/:disabled/:focus-visible` rules).
-- **Images** — `Image` src, `ImagePosition` (object-fit), `ImageRotation`.
+- **Images and packaged media** — `Image` src, `ImagePosition` (object-fit),
+  `ImageRotation`; safe local PNG/JPEG/GIF/WebP resources are embedded as data
+  URIs so old docserver URLs and asset-name/icon-name collisions cannot break
+  the generated app.
 - **Accessibility & input semantics** — `Role` (ARIA roles), `AccessibleLabel`/
   `Tooltip` (aria-label), `Live` (aria-live), `TabIndex`, `DisplayMode: Disabled`
   (disabled/readonly attributes), `MaxLength`, `VirtualKeyboardMode` (inputmode),
   `DelayOutput`.
 - **Galleries** — the row template renders per item with `ThisItem` bound to
-  the row; child handlers receive the item, preserving per-row actions. Row
-  clicks expose record-valued `Selected`, `SelectedItems`, and `AllItems`.
+  the row; template size/padding and absolute child geometry are retained;
+  child handlers receive the item, preserving per-row actions. Row clicks
+  expose record-valued `Selected`, `SelectedItems`, and `AllItems`.
 - **Selectors** — Dropdown, ComboBox, and ListBox options preserve their source
   records for `Selected`/`SelectedItems`; `DisplayFields`, default selections,
   and multi-select are wired into native selects.
@@ -182,6 +186,9 @@ Converted apps aim to match the original visually and behaviorally:
   per instance with namespaced children and reactive custom inputs. This covers
   the corpus's MENU, TILES/BUSCADOR, and progress-bar components; static
   `HtmlText` interiors are preserved with executable markup removed.
+- **Charts** — legacy pie/bar/line families render as SVG, including visible
+  single-value pies; generated series labels/color sets feed separate Legend
+  controls instead of rendering `No data`.
 - **Forms** — `NewForm`/`EditForm`/`ViewForm`, `ResetForm`, and `SubmitForm` use
   DataCard metadata to load and collect values, validate required fields,
   create or update a stable Sheet row, expose `Error`/`Valid`/`LastSubmit`, and
@@ -191,8 +198,8 @@ Converted apps aim to match the original visually and behaviorally:
   called out in the report until browser/Drive adapters exist.
 
 What is *not* reproduced pixel-perfect: app themes/typography (a clean system
-stylesheet is used), responsive reflow behavior, chart interiors
-(`Chart`/`Legend` render as styled placeholders), and exotic container nesting
+stylesheet is used), responsive reflow behavior, full multi-series/chart-style
+semantics, active or oversized packaged media, and exotic container nesting
 (these are the first things to check in QA).
 
 ## Review seams (how the LLM helps without touching code)
@@ -284,7 +291,7 @@ legacy binary-`.msapp` format via adapter.
   complex property sets
 - Delegation semantics: data is read whole-tab (client-side filtering);
   keep Sheets under ~5,000 rows or extend `Code.gs` with server-side filters
-- Media assets beyond basic images
+- Active/oversized media, audio/video resources, and Drive-backed attachments
 
 ## Development
 

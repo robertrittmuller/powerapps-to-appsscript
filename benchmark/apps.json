@@ -77,6 +77,20 @@
           "id": "create-ticket",
           "description": "Create a valid ticket, reload, and verify it appears in the ticket list.",
           "required": true
+        },
+        {
+          "id": "home-dashboard-content",
+          "description": "Verify the HOME gallery, packaged logo, pie chart, and chart legend render real content.",
+          "required": true,
+          "steps": [
+            {"action": "expectScreen", "screen": "HOME"},
+            {"action": "expectImageSource", "control": "iconApp", "startsWith": "data:image/png;base64,"},
+            {"action": "expectGalleryRows", "control": "MyTicket", "min": 1, "contains": "OPEN"},
+            {"action": "expectGalleryControlStyle", "gallery": "MyTicket", "control": "NextArrow3", "property": "left", "equals": "312px"},
+            {"action": "expectGalleryControlStyle", "gallery": "MyTicket", "control": "Subtitle3", "property": "left", "equals": "0px"},
+            {"action": "expectChart", "control": "PieChart2", "type": "pie", "contains": "OPEN"},
+            {"action": "expectChart", "control": "Legend1", "type": "legend", "contains": "OPEN"}
+          ]
         }
       ]
     },

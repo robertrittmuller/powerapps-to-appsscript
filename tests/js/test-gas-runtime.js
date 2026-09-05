@@ -16,6 +16,7 @@ global.document = {
 };
 global.window = global;
 
+require('../../static/fx-charts.js');
 require('../../static/gas-runtime.js');
 const RT = global.FXRuntime;
 
@@ -169,27 +170,83 @@ test('gallery row selection exposes Selected and AllItems records', () => {
   const original = global.document.querySelector;
   const rows = [];
   function rowElement() {
+    const child = { tagName: 'SPAN', style: { width: '60px', height: '20px' },
+      textContent: '', selectedOptions: [] };
     return {
-      style: {}, listeners: {},
+      style: {}, listeners: {}, child,
       addEventListener(ev, fn) { this.listeners[ev] = fn; },
-      querySelector() { return null; },
+      querySelector(selector) { return selector.includes('Name') ? child : null; },
       click() { this.listeners.click(); },
     };
   }
-  const rowsEl = { innerHTML: '', appendChild(row) { rows.push(row); } };
-  const template = { content: { firstElementChild: { cloneNode: () => rowElement() } } };
+  const rowsEl = { style: {}, children: [] };
+  Object.defineProperty(rowsEl, 'innerHTML', {
+    set(markup) {
+      const count = (String(markup).match(/class="fx-row"/g) || []).length;
+      rows.length = 0;
+      for (let i = 0; i < count; i += 1) rows.push(rowElement());
+      this.children = rows;
+    },
+  });
+  const template = { innerHTML: '<div class="fx-row"><span data-control="Name"></span></div>' };
+  const attrs = { 'data-template-size': '87', 'data-template-padding': '3' };
   const host = {
-    tagName: 'DIV', textContent: '', style: {}, selectedOptions: [],
+    tagName: 'DIV', textContent: '', style: { width: '210px' }, selectedOptions: [],
+    getAttribute(name) { return attrs[name] === undefined ? null : attrs[name]; },
     querySelector(selector) { return selector === 'template' ? template : rowsEl; },
   };
-  global.document.querySelector = () => host;
+  global.document.querySelector = (selector) => selector.includes('PeopleGallery') ? host
+    : rows[0] ? rows[0].child : null;
   const items = [{ id: 1, name: 'Ada' }, { id: 2, name: 'Grace' }];
-  RT.gallery('PeopleGallery', () => items, null, null);
+  RT.gallery('PeopleGallery', () => items, (item, row) => {
+    RT.rowControl(row, 'Name', 'PeopleGallery', {
+      text: () => item.name,
+      left: () => global.parentRef.template_width - 5,
+    });
+  }, null);
   RT.updateBindings();
+  assert.strictEqual(rows.length, 2);
+  assert.strictEqual(rows[0].style.minHeight, '87px');
+  assert.strictEqual(rows[0].style.padding, '3px');
+  assert.strictEqual(rows[0].child.textContent, 'Ada');
+  assert.strictEqual(rows[1].child.textContent, 'Grace');
+  assert.strictEqual(rows[0].child.style.left, '205px');
   rows[1].click();
   assert.deepStrictEqual(global.val('PeopleGallery').selected, items[1]);
   assert.deepStrictEqual(global.val('PeopleGallery').all_items, items);
   global.document.querySelector = original;
+});
+
+test('renderChart exposes SeriesLabels for a separate Legend control', () => {
+  const original = global.document.querySelector;
+  const chartEl = { tagName: 'DIV', style: {}, innerHTML: '', selectedOptions: [] };
+  const legendEl = { tagName: 'DIV', style: {}, innerHTML: '', selectedOptions: [] };
+  global.document.querySelector = (selector) => selector.includes('StatusPie') ? chartEl
+    : selector.includes('StatusLegend') ? legendEl : null;
+  RT.renderChart('StatusPie', [{ status: 'OPEN', count: 5 }], {
+    type: 'pie', cat: 'status', val: 'count', width: 200, height: 120,
+  });
+  assert.ok(chartEl.innerHTML.includes('<circle'));
+  assert.deepStrictEqual(global.val('StatusPie').series_labels, [
+    { label: 'OPEN', value: 5, color: '#4e79a7' },
+  ]);
+  RT.renderChart('StatusLegend', global.val('StatusPie').series_labels, {
+    type: 'legend', cat: 'label', val: 'value', width: 200, height: 40,
+  });
+  assert.ok(legendEl.innerHTML.includes('OPEN'));
+  assert.ok(!legendEl.innerHTML.includes('No data'));
+  global.document.querySelector = original;
+});
+
+test('dynamic HtmlText sanitizer keeps formatting and strips executable markup', () => {
+  const clean = RT.sanitizeHtml(
+    '<b>Ticket</b><img src="javascript:alert(1)" onerror="alert(2)">' +
+    '<script>alert(3)</script>'
+  );
+  assert.ok(clean.includes('<b>Ticket</b>'));
+  assert.ok(!clean.includes('javascript:'));
+  assert.ok(!clean.includes('onerror'));
+  assert.ok(!clean.includes('<script'));
 });
 
 test('reactive point font sizes retain Power Apps units', () => {

@@ -18,6 +18,26 @@ test('pie chart renders a path per row plus legend', () => {
   assert.ok(svg.includes('Y')); // legend label present
 });
 
+test('single-slice pie renders a visible circle instead of a degenerate arc', () => {
+  const svg = FXCharts.svg([{ status: 'OPEN', n: 5 }], {
+    type: 'pie', cat: 'status', val: 'n', width: 200, height: 120,
+  });
+  assert.ok(svg.includes('<circle'));
+  assert.ok(svg.includes('OPEN'));
+});
+
+test('legend renders chart series-label records', () => {
+  const rows = [
+    { label: 'OPEN', value: 5, color: '#123456' },
+    { label: 'CLOSED', value: 2, color: '#654321' },
+  ];
+  const svg = FXCharts.svg(rows, { type: 'legend', width: 300, height: 40 });
+  assert.ok(svg.includes('OPEN'));
+  assert.ok(svg.includes('CLOSED'));
+  assert.ok(svg.includes('#123456'));
+  assert.ok(!svg.includes('No data'));
+});
+
 test('line chart renders polyline with points', () => {
   const rows = [{ m: 'Jan', v: 5 }, { m: 'Feb', v: 9 }, { m: 'Mar', v: 2 }];
   const svg = FXCharts.svg(rows, { type: 'line', cat: 'm', val: 'v' });

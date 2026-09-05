@@ -1,4 +1,4 @@
-# pfx2gas — Gap Assessment & Roadmap (updated 2026-09-04)
+# pfx2gas — Gap Assessment & Roadmap (updated 2026-09-05)
 
 Forward-looking view: what to work on next. Historical findings and the P0
 fixes they produced are at the bottom. Everything here was re-verified against
@@ -8,17 +8,17 @@ the code and the real-app corpus (10 apps, 23,746 formulas) on this date.
 
 | Check | Result |
 |---|---|
-| Python suite (`./pfx2gas test`) | 118 passed |
-| JS runtime suite (`./pfx2gas test`) | 50 passed, 0 fail |
+| Python suite (`./pfx2gas test`) | 122 passed |
+| JS runtime suite (`./pfx2gas test`) | 54 passed, 0 fail |
 | Formula translation on 10-app corpus | 23,724 / 23,746 translated (99.9%) |
-| Runtime wiring on 10-app corpus | 15,292 / 23,746 emitted (64.4%); 287 approximated |
-| Ignored/unsupported property formulas | 8,167 / 23,746 (34.4%; conservative emission ledger) |
+| Runtime wiring on 10-app corpus | 15,300 / 23,746 emitted (64.4%); 330 approximated |
+| Ignored/unsupported property formulas | 8,116 / 23,746 (34.2%; conservative emission ledger) |
 | Real-app soak (`./pfx2gas soak`) | **10/10 Bootable**; exact start screen, zero startup runtime errors |
-| Compatibility benchmark | versioned 10-app archetype/journey catalog; per-app JSON + Markdown Bootable/Usable/High-fidelity scorecards |
+| Compatibility benchmark | versioned 10-app catalog; HelpDesk now checks gallery rows, packaged media, pie output, and legends at runtime |
 | Emitter↔runtime consistency (`scripts/check_runtime_consistency.py`) | pass |
 | Generated server code syntax | all `.gs` node --check clean (validated every soak app) |
 | Data layer | external sources → typed, sample-seeded Sheet tabs; collections → client-side state |
-| Deployed a converted app via clasp | **redeployed and inspected 2026-09-04** — HelpDesk @12 contains the component/runtime/visual pass and authenticated-user defaults; the newer benchmark/nullable-field pass is locally verified but not redeployed |
+| Deployed a converted app via clasp | HelpDesk @12 was inspected 2026-09-05 and is **not release-quality**: silent blank-gallery, wrong-chart, empty-legend, and asset-substitution failures; fixes are locally verified but not redeployed |
 | CI | workflow covers pytest + JS + consistency + soak + container/wrapper smoke; benchmark JSON/Markdown are now upload artifacts |
 
 Plan milestones: M1–M3 done. M4 ("two real apps converted, deployed via clasp,
@@ -104,31 +104,32 @@ usable baseline.
 
 ## Current deployment evidence
 
-HelpDesk-2021.msapp is deployed as @12 with component expansion, HtmlText
-interiors, dynamic MENU navigation, and the visual/runtime pass that preceded
-the new benchmark work:
+HelpDesk-2021.msapp is deployed as @12, but the 2026-09-05 browser review
+invalidated its earlier visual-smoke result:
 `https://script.google.com/macros/s/AKfycbwbyTp89b-J_KEQ9N9wAf0OdJ8faH3k5gwAj_K1ToUFjaDPf8X35VBEnFQvfu5f2OJH/exec`
 
-A live Chrome pass verified HOME rendering, HOME → NEW → HOME navigation, and a
-record-valued Category dropdown displaying `IT` rather than `[object Object]`.
-The HOME audit found 49 visible controls, zero private-use icon glyphs, only the
-intended search-input border, and no generated-app warning/error. The manifest
-requires a signed-in user and executes as that user (`ANYONE` /
-`USER_ACCESSING`) with only the Sheets scope. A second representative deployment
-is still required to close M4.
+The app navigates and emits no console errors, but that is not sufficient. The
+HOME data query produced a ticket while the gallery row contained no rendered
+child controls; both `PieChart2` controls were generated as bars; their Legend
+controls displayed `No data`; and the packaged `customer-service` PNG was
+mistaken for an icon name. The signed-in user's display name/image can also be
+blank when Apps Script does not expose identity.
 
-The deployed review produced regression gates for RGBA alpha, content-box
-sizing, canvas offset, line-height, point-based font sizes, border color/style,
-legacy alignment/weight enums, dynamic image sources, cross-platform icons, and
-record-valued dropdown labels. Deployment plumbing is also gated: valid
-manifest JSON, the server `include()` helper, full `.js.html` include names, and
-generated `.gs` syntax.
+The deterministic pipeline now preserves legacy chart families, renders
+single-slice pies, publishes chart series to separate legends, renders gallery
+templates with their declared size/padding and row geometry, removes broken
+`Select(Parent)` calls, embeds safe packaged raster images, and binds dynamic
+HtmlText through a sanitizer. A generated-runtime HelpDesk journey proves a
+populated gallery, embedded PNG, pie output, and populated legend. These fixes
+still require a new clasp deployment and browser comparison before the live app
+can be called improved. A second representative deployment is still required
+to close M4.
 
 ---
 
 ## Next up, in recommended order
 
-### 1. P0 — compatibility benchmark and quality tiers (foundation complete)
+### 1. P0 — compatibility benchmark and rendered-content gates (in progress)
 
 Implemented in the first priority pass: `benchmark/apps.json` now classifies
 all 10 current apps by archetype and declares a critical journey for each;
@@ -145,6 +146,14 @@ The stricter gate exposed two previously hidden blank-record crashes in SVG App
 and Wordle. Nullable Power Fx field reads now compile through a deterministic
 `FX.field` helper (Blank instead of a JavaScript exception), with unit and full
 corpus regression coverage.
+
+The HelpDesk deployment then exposed the next blind spot: startup and navigation
+could pass while the primary gallery was blank and dashboard controls were the
+wrong visualization type. `home-dashboard-content` is now a required generated-
+runtime journey. It asserts actual gallery row text, the packaged logo data URI,
+pie output, and populated legend output. This is the minimum pattern for every
+benchmark app: require visible/content evidence for the app's primary screen,
+not only absence of exceptions.
 
 Expand the corpus from 10 examples to a versioned benchmark of at least 25–30
 apps spanning: CRUD/forms, dashboards/charts, galleries/search/filter, approval
@@ -167,7 +176,37 @@ automate every required journey, add deterministic visual baselines/tolerances,
 and persist cross-run regression history. No aggregate percentage may hide a
 broken critical workflow.
 
-### 2. P0 — usable-app primitives: forms, records, tables, and media
+### 2. P0 — visual/content equivalence lab (promoted by deployment failure)
+
+Turn the HelpDesk inspection into repeatable browser evidence before expanding
+the feature tail:
+
+- **✅ First corrective tranche:** preserve legacy pie/bar/line types; handle
+  single-value pies; wire `SeriesLabels` and color sets into Legend controls;
+  apply gallery template size/padding/absolute row geometry; flatten structural
+  GalleryTemplate nodes; embed safe packaged PNG/JPEG/GIF/WebP resources; render
+  reactive HtmlText through a sanitizer; and treat `Select(Parent)` as row
+  selection/event bubbling.
+- redeploy HelpDesk, capture the same HOME state and viewport, and assert ticket
+  text, logo pixels, pie/legend geometry, and no broken/empty visible controls;
+- capture the original and converted app at the same viewport, screen, data,
+  and interaction state;
+- compare bounding boxes, typography, colors, borders, visibility, images,
+  scroll regions, and screenshots;
+- automate every HelpDesk menu target and Clean UI progress-bar geometry/styles;
+- finish responsive/reflow formulas, nested containers, multi-series chart
+  semantics, gallery horizontal/wrap behavior, themes, and transitions by
+  measured corpus impact.
+
+An LLM vision review may prioritize and describe mismatches, but the evidence is
+the deterministic screenshot/DOM/style diff and the fix remains a generator or
+runtime rule.
+
+Acceptance: every benchmark critical screen has reproducible content and visual
+baselines; pixel/geometry thresholds fail CI; intended approximations are
+allowlisted and ledgered rather than hidden.
+
+### 3. P0 — usable-app primitives: forms, records, tables, and media
 
 Implement the features most likely to turn a bootable conversion into a usable
 business app:
@@ -186,8 +225,10 @@ business app:
   attachments, and AddMediaButton render visible unsupported placeholders and
   are enumerated in the conversion report instead of appearing as empty UI.
 - editable DataTable and gallery patterns, validation messages, and error state;
-- packaged media/resource extraction, attachments backed by Drive, and image
-  fallbacks that distinguish "no image" from a failed asset;
+- **✅ Safe packaged raster resources:** local PNG/JPEG/GIF/WebP assets are
+  embedded into HtmlService output and take precedence over icon-name guesses;
+- attachments backed by Drive, larger/active media handling, and image fallbacks
+  that distinguish "no image" from a failed asset;
 - complete DataTable selection/display/search behavior and searchable ComboBox
   interaction beyond the native select approximation.
 
@@ -195,7 +236,7 @@ Acceptance: benchmark apps can create, view, edit, validate, and delete records;
 reload preserves data; attachment/media paths work; the report identifies any
 control that prevents a critical journey.
 
-### 3. P0 — Google-native data and connector adapters
+### 4. P0 — Google-native data and connector adapters
 
 Separate formula/control conversion from source migration through a typed
 adapter contract. Keep Sheets as the default table store, then add Drive for
@@ -211,28 +252,6 @@ app required by M4.
 Acceptance: schema/choice/lookup metadata round-trips, CRUD works after reload,
 permissions follow the selected execution identity, and connector-specific
 losses appear in the fidelity report.
-
-### 4. P1 — visual, component, and responsive equivalence lab
-
-Turn the HelpDesk inspection process into repeatable tooling:
-
-- capture the original and converted app at the same viewport, screen, data,
-  and interaction state;
-- compare bounding boxes, typography, colors, borders, visibility, images,
-  scroll regions, and screenshots;
-- automate all HelpDesk menu targets and Clean UI progress-bar geometry/styles;
-- finish component outputs and modern `pa.yaml` component definitions;
-- implement theme tokens, responsive/reflow formulas, nested containers, chart
-  series/legends, gallery template size/padding/wrap, and transitions by measured
-  corpus impact.
-
-An LLM vision review may prioritize and describe mismatches, but the evidence is
-the deterministic screenshot/DOM/style diff and the fix remains a generator or
-runtime rule.
-
-Acceptance: every benchmark critical screen has a reproducible visual baseline;
-pixel/geometry thresholds fail CI; intended approximations are allowlisted and
-ledgered rather than hidden.
 
 ### 5. P1 — guarded LLM coverage and review at scale
 
@@ -281,10 +300,10 @@ must continue to be flagged rather than dropped.
 | Step | Item | Effort | Depends on |
 |---|---|---|---|
 | 0 | ✅ Correctness, secure defaults, startup/consistency gates, first deployed visual smoke | complete | — |
-| 1 | ⏳ Compatibility benchmark and three-tier scorecard foundation complete; corpus/journey/visual/history expansion remains | medium | representative app exports |
-| 2 | Forms/DataCards, selected records, tables, media, and attachments | large | 1 |
-| 3 | Typed Google adapter layer + modern real-data app + second deployment/M4 | large | 1–2, representative data app |
-| 4 | Automated interaction and visual-equivalence lab; component/responsive/chart parity | large/ongoing | 1 |
+| 1 | ⏳ Compatibility benchmark foundation plus primary-screen rendered-content journeys | medium | representative app exports |
+| 2 | ⏳ Redeploy HelpDesk; automate DOM/style/screenshot equivalence; component/responsive/multi-series chart parity | large/ongoing | 1 |
+| 3 | Forms/DataCards, selected records, editable tables, Drive attachments, and large/active media | large | 1–2 |
+| 4 | Typed Google adapter layer + modern real-data app + second deployment/M4 | large | 1–3, representative data app |
 | 5 | Guarded LLM review/fallback and gap-to-deterministic-rule flywheel | medium/ongoing | 1 and the existing safety gates |
 | 6 | Pagination/concurrency/quota hardening, least privilege, and identity enrichment | medium/large | 3 |
 

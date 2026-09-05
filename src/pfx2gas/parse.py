@@ -118,7 +118,11 @@ def _origin_of(ds: dict) -> str:
 
 
 def parse(unpacked: UnpackedApp) -> AppIR:
-    ir = AppIR(name=unpacked.app_name, warnings=list(unpacked.warnings))
+    ir = AppIR(
+        name=unpacked.app_name,
+        warnings=list(unpacked.warnings),
+        media_resources=dict(unpacked.media_resources),
+    )
 
     # App-level OnStart
     app_props = ((unpacked.app_yaml or {}).get("App") or {}).get("Properties") or {}

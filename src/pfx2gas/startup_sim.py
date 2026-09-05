@@ -19,7 +19,7 @@ const consoleErrors = [];
 function makeEl(tag, attrs) {
   return {
     tag, tagName: String(tag).toUpperCase(), attrs, style: {}, children: [], listeners: {},
-    textContent: '', value: '', selectedOptions: [],
+    textContent: '', innerHTML: '', value: '', selectedOptions: [],
     getAttribute(k) { return attrs[k] !== undefined ? attrs[k] : null; },
     setAttribute(k, v) { attrs[k] = String(v); },
     removeAttribute(k) { delete attrs[k]; },
@@ -119,18 +119,90 @@ const runner = new Proxy({}, {
 global.google = { script: { run: runner } };
 
 const screensSrc = __SCREENS__;
+function decodeAttr(value) {
+  return String(value).replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+    .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+}
+function parseAttrs(source) {
+  const attrs = {};
+  const attrRe = /([:\w-]+)="([^"]*)"/g;
+  let match;
+  while ((match = attrRe.exec(source)) !== null) attrs[match[1]] = decodeAttr(match[2]);
+  return attrs;
+}
+function hydrateInlineStyle(el) {
+  String(el.attrs.style || '').split(';').forEach(function (declaration) {
+    const split = declaration.indexOf(':');
+    if (split < 0) return;
+    const rawName = declaration.slice(0, split).trim();
+    const value = declaration.slice(split + 1).trim();
+    const name = rawName.replace(/-([a-z])/g, (_m, letter) => letter.toUpperCase());
+    if (name) el.style[name] = value;
+  });
+  return el;
+}
 const screenRe = /<section data-screen="([^"]+)" style="display:none">/g;
 let sm;
 while ((sm = screenRe.exec(screensSrc)) !== null) {
   elements['screen:' + sm[1]] = makeEl('section', { 'data-screen': sm[1] });
 }
-const ctrlRe = /<([a-z]+)[^>]*data-control="([^"]+)"/g;
+const ctrlRe = /<([a-z]+)([^>]*data-control="([^"]+)"[^>]*)>/g;
 let cm; const seen = new Set();
 while ((cm = ctrlRe.exec(screensSrc)) !== null) {
-  if (!seen.has(cm[2])) {
-    seen.add(cm[2]);
-    elements['ctrl:' + cm[2]] = makeEl(cm[1], { 'data-control': cm[2] });
+  if (!seen.has(cm[3])) {
+    seen.add(cm[3]);
+    elements['ctrl:' + cm[3]] = hydrateInlineStyle(makeEl(cm[1], parseAttrs(cm[2])));
   }
+}
+
+// Give gallery controls enough DOM behavior to execute their generated row
+// templates. This catches the production class where an app boots cleanly but
+// every data card is visually empty.
+const galleryRows = {};
+const galleryRe = /<div data-control="([^"]+)"([^>]*)class="fx-gallery">/g;
+let gm;
+while ((gm = galleryRe.exec(screensSrc)) !== null) {
+  const name = gm[1];
+  const host = elements['ctrl:' + name];
+  if (!host || galleryRows[name]) continue;
+  const templateStart = screensSrc.indexOf('<template>', galleryRe.lastIndex);
+  const templateEnd = screensSrc.indexOf('</template>', templateStart);
+  if (templateStart < 0 || templateEnd < 0) continue;
+  const rowMarkup = screensSrc.slice(templateStart + '<template>'.length, templateEnd).trim();
+  const template = { innerHTML: rowMarkup };
+  const rowsEl = makeEl('div', { class: 'fx-rows' });
+  Object.defineProperty(rowsEl, 'innerHTML', {
+    get() { return this.__html || ''; },
+    set(value) {
+      this.__html = String(value || '');
+      this.children = [];
+      if (!rowMarkup) return;
+      let cursor = 0;
+      while ((cursor = this.__html.indexOf(rowMarkup, cursor)) >= 0) {
+        const row = makeEl('div', { class: 'fx-row' });
+        row.__controls = {};
+        const rowControlRe = /<([a-z]+)([^>]*data-control="([^"]+)"[^>]*)>/g;
+        let rowMatch;
+        while ((rowMatch = rowControlRe.exec(rowMarkup)) !== null) {
+          row.__controls[rowMatch[3]] = hydrateInlineStyle(
+            makeEl(rowMatch[1], parseAttrs(rowMatch[2]))
+          );
+        }
+        row.querySelector = function (selector) {
+          if (!selector.startsWith('[data-control=')) return null;
+          const hit = selector.match(/"([^"]+)"/);
+          return hit ? this.__controls[hit[1]] || null : null;
+        };
+        this.children.push(row);
+        cursor += rowMarkup.length;
+      }
+    },
+  });
+  host.querySelector = (selector) => selector === 'template' ? template
+    : selector === '.fx-rows' ? rowsEl : null;
+  host.attrs = Object.assign(host.attrs, parseAttrs(gm[2]));
+  host.__fxRows = rowsEl;
+  galleryRows[name] = rowsEl;
 }
 
 (0, eval)(__FX__);
@@ -184,6 +256,53 @@ async function runJourneys(journeys) {
           if (actual !== String(step.equals)) {
             throw new Error('expected ' + step.control + ' text ' + JSON.stringify(step.equals)
               + ', got ' + JSON.stringify(actual));
+          }
+        } else if (step.action === 'expectGalleryRows') {
+          const rowsEl = galleryRows[step.control];
+          const count = rowsEl ? rowsEl.children.length : 0;
+          if (count < Number(step.min || 1)) {
+            throw new Error('expected at least ' + (step.min || 1) + ' rows in '
+              + step.control + ', got ' + count);
+          }
+          if (step.contains) {
+            const text = rowsEl.children.map(row => Object.values(row.__controls || {})
+              .map(el => String(el.textContent || '')).join(' ')).join(' ');
+            if (!text.includes(String(step.contains))) {
+              throw new Error('expected ' + step.control + ' rows to contain '
+                + JSON.stringify(step.contains) + ', got ' + JSON.stringify(text));
+            }
+          }
+        } else if (step.action === 'expectGalleryControlStyle') {
+          const rowsEl = galleryRows[step.gallery];
+          const row = rowsEl && rowsEl.children[Number(step.row || 0)];
+          const el = row && row.__controls && row.__controls[step.control];
+          const actual = el && el.style ? String(el.style[step.property] || '') : null;
+          if (actual !== String(step.equals)) {
+            throw new Error('expected ' + step.gallery + '[' + (step.row || 0) + '].'
+              + step.control + ' style.' + step.property + '=' + JSON.stringify(step.equals)
+              + ', got ' + JSON.stringify(actual));
+          }
+        } else if (step.action === 'expectChart') {
+          const el = elements['ctrl:' + step.control];
+          const cfg = el ? JSON.parse(el.getAttribute('data-chart') || '{}') : {};
+          if (!el) throw new Error('chart control not found: ' + step.control);
+          if (step.type && cfg.type !== step.type) {
+            throw new Error('expected ' + step.control + ' chart type ' + step.type
+              + ', got ' + cfg.type);
+          }
+          if (step.contains && !String(el.innerHTML || '').includes(String(step.contains))) {
+            throw new Error('expected ' + step.control + ' chart output to contain '
+              + JSON.stringify(step.contains));
+          }
+          if (String(el.innerHTML || '').includes('No data')) {
+            throw new Error(step.control + ' rendered No data');
+          }
+        } else if (step.action === 'expectImageSource') {
+          const el = elements['ctrl:' + step.control];
+          const source = el && el.getAttribute('src') || '';
+          if (!source.startsWith(String(step.startsWith || ''))) {
+            throw new Error('expected ' + step.control + ' source to start with '
+              + JSON.stringify(step.startsWith) + ', got ' + JSON.stringify(source.slice(0, 60)));
           }
         } else if (step.action === 'expectState') {
           const actual = FXRuntime.state[step.key];
@@ -274,8 +393,10 @@ def simulate_project(
     """Execute generated code and optionally exercise declarative journeys.
 
     Supported journey actions include ``click``, ``change``, ``setValue``,
-    ``expectScreen``, ``expectText``, ``expectValue``, ``expectState``, and
-    ``expectDataRow``. The returned ``visible`` and ``consoleErrors`` fields
+    ``expectScreen``, ``expectText``, ``expectValue``, ``expectState``,
+    ``expectDataRow``, ``expectGalleryRows``, ``expectGalleryControlStyle``,
+    ``expectChart``, and ``expectImageSource``. The returned ``visible`` and
+    ``consoleErrors`` fields
     are startup snapshots, so later interaction failures do not get
     misreported as a failure to boot.
     """

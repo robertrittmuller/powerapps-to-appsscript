@@ -43,6 +43,32 @@
     return { cat: cat, val: val };
   }
 
+  function model(rows, cfg) {
+    cfg = cfg || {};
+    rows = Array.isArray(rows) ? rows : [];
+    var cat = cfg.cat, val = cfg.val;
+    if (!cat || !val) {
+      var picked = pickColumns(rows);
+      cat = cat || picked.cat;
+      val = val || picked.val;
+    }
+    var cats = rows.map(function (r) { return cat && r[cat] != null ? r[cat] : ''; });
+    var vals = rows.map(function (r) { return num(val ? r[val] : 0); });
+    return {
+      cat: cat,
+      val: val,
+      cats: cats,
+      vals: vals,
+      series: cats.map(function (label, i) {
+        return {
+          label: label,
+          value: vals[i],
+          color: rows[i] && rows[i].color || PALETTE[i % PALETTE.length],
+        };
+      }),
+    };
+  }
+
   function emptySvg(w, h) {
     return '<svg width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '">' +
       '<text x="' + (w / 2) + '" y="' + (h / 2) + '" text-anchor="middle" ' +
@@ -54,7 +80,7 @@
     var innerW = w - padL - 10, innerH = h - padB - padT;
     var max = Math.max.apply(null, vals.concat([1]));
     var slot = innerW / vals.length;
-    var bw = Math.max(4, slot * 0.65);
+    var bw = Math.min(72, Math.max(4, slot * 0.65));
     var parts = [];
     vals.forEach(function (v, i) {
       var bh = Math.max(0, (v / max) * innerH);
@@ -66,6 +92,9 @@
       parts.push('<text x="' + (x + bw / 2).toFixed(1) + '" y="' + (h - 8) +
         '" text-anchor="middle" font-family="system-ui" font-size="9" fill="#555">' +
         esc(cats[i]) + '</text>');
+      parts.push('<text x="' + (x + bw / 2).toFixed(1) + '" y="' + Math.max(9, y - 4).toFixed(1) +
+        '" text-anchor="middle" font-family="system-ui" font-size="9" fill="#555">' +
+        esc(v) + '</text>');
     });
     return '<svg width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '">' +
       parts.join('') + '</svg>';
@@ -105,6 +134,15 @@
       vals.forEach(function (v, i) {
         var frac = Math.max(0, v) / total;
         if (frac <= 0) return;
+        if (frac >= 0.999999) {
+          parts.push('<circle cx="' + cx + '" cy="' + cy + '" r="' + r +
+            '" fill="' + PALETTE[i % PALETTE.length] + '"/>');
+          parts.push('<text x="' + cx + '" y="' + (cy + 4) +
+            '" text-anchor="middle" font-family="system-ui" font-size="10" fill="#fff">' +
+            esc(cats[i]) + '</text>');
+          angle += Math.PI * 2;
+          return;
+        }
         var a2 = angle + frac * Math.PI * 2;
         var x1 = cx + r * Math.cos(angle), y1 = cy + r * Math.sin(angle);
         var x2 = cx + r * Math.cos(a2), y2 = cy + r * Math.sin(a2);
@@ -112,17 +150,30 @@
         parts.push('<path d="M ' + cx + ' ' + cy + ' L ' + x1.toFixed(1) + ' ' + y1.toFixed(1) +
           ' A ' + r + ' ' + r + ' 0 ' + large + ' 1 ' + x2.toFixed(1) + ' ' + y2.toFixed(1) + ' Z" fill="' +
           PALETTE[i % PALETTE.length] + '"/>');
+        var mid = angle + (a2 - angle) / 2;
+        parts.push('<text x="' + (cx + r * 0.62 * Math.cos(mid)).toFixed(1) + '" y="' +
+          (cy + r * 0.62 * Math.sin(mid) + 3).toFixed(1) +
+          '" text-anchor="middle" font-family="system-ui" font-size="9" fill="#fff">' +
+          esc(cats[i]) + '</text>');
         angle = a2;
       });
     }
-    // legend
-    var lx = cx + r + 14, ly = Math.max(14, cy - vals.length * 7);
-    cats.forEach(function (c, i) {
-      parts.push('<rect x="' + lx + '" y="' + ly + '" width="10" height="10" fill="' +
-        PALETTE[i % PALETTE.length] + '"/>');
-      parts.push('<text x="' + (lx + 14) + '" y="' + (ly + 9) +
-        '" font-family="system-ui" font-size="10" fill="#333">' + esc(c) + '</text>');
-      ly += 16;
+    return '<svg width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '">' +
+      parts.join('') + '</svg>';
+  }
+
+  function legendSvg(series, w, h) {
+    if (!series.length) return emptySvg(w, h);
+    var itemWidth = Math.max(90, Math.floor(w / Math.min(series.length, 3)));
+    var columns = Math.max(1, Math.floor(w / itemWidth));
+    var parts = [];
+    series.forEach(function (entry, i) {
+      var col = i % columns, row = Math.floor(i / columns);
+      var x = 4 + col * itemWidth, y = 5 + row * 18;
+      parts.push('<rect x="' + x + '" y="' + y + '" width="10" height="10" rx="2" fill="' +
+        esc(entry.color || PALETTE[i % PALETTE.length]) + '"/>');
+      parts.push('<text x="' + (x + 15) + '" y="' + (y + 9) +
+        '" font-family="system-ui" font-size="10" fill="#333">' + esc(entry.label) + '</text>');
     });
     return '<svg width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '">' +
       parts.join('') + '</svg>';
@@ -133,20 +184,21 @@
     rows = Array.isArray(rows) ? rows : [];
     var type = cfg.type || 'bar';
     var w = cfg.width || 420, h = cfg.height || 300;
-    var cat = cfg.cat, val = cfg.val;
-    if (!cat || !val) {
-      var picked = pickColumns(rows);
-      cat = cat || picked.cat;
-      val = val || picked.val;
-    }
-    if (!rows.length || !val) return emptySvg(w, h);
-    var cats = rows.map(function (r) { return cat && r[cat] != null ? r[cat] : ''; });
-    var vals = rows.map(function (r) { return num(val ? r[val] : 0); });
+    var chart = model(rows, cfg);
+    if (!rows.length || !chart.val) return emptySvg(w, h);
+    if (type === 'legend') return legendSvg(chart.series, w, h);
+    var cats = chart.cats, vals = chart.vals;
     if (type === 'pie') return pieSvg(cats, vals, w, h);
     if (type === 'line') return lineSvg(cats, vals, w, h);
     return barSvg(cats, vals, w, h);
   }
 
-  global.FXCharts = { svg: svg, pickColumns: pickColumns, palette: PALETTE };
+  global.FXCharts = {
+    svg: svg,
+    model: model,
+    legend: legendSvg,
+    pickColumns: pickColumns,
+    palette: PALETTE,
+  };
   if (typeof module !== 'undefined' && module.exports) module.exports = global.FXCharts;
 })(typeof window !== 'undefined' ? window : globalThis);
