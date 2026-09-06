@@ -6,7 +6,8 @@ import re
 from .fx import lexer as lx
 from .fx import transpile
 from .fx.emitter import LAMBDA_FNS
-from .ir import AppIR, ControlNode, FieldDef, FxExpr, SupportEntry
+from .fx.naming import snake as _snake
+from .ir import AppIR, ControlNode, DataSource, FieldDef, FxExpr, SupportEntry
 
 BEHAVIOR = {"OnSelect", "OnChange", "OnVisible", "OnHidden", "OnStart", "OnSuccess", "OnFailure"}
 NON_LOGIC_PROPS = {"X", "Y", "Width", "Height", "ZIndex", "Text", "Default", "Items",
@@ -14,10 +15,28 @@ NON_LOGIC_PROPS = {"X", "Y", "Width", "Height", "ZIndex", "Text", "Default", "It
                    "AccessibleLabel", "Tooltip", "Placeholder", "ItemsOrder"}
 
 
+def behavior_formulas(ir: AppIR):
+    if ir.on_start:
+        yield ir.on_start
+    for screen in ir.screens:
+        if screen.on_visible:
+            yield screen.on_visible
+        for ctrl in screen.walk_controls():
+            yield from (expr for expr in ctrl.properties.values() if expr.kind == "behavior")
+
+
+def walk_formula(node):
+    yield node
+    for child in node.children:
+        yield from walk_formula(child)
+    if node.kind == "record":
+        for _key, value in node.value:
+            yield from walk_formula(value)
+
+
 def collect_global_vars(ir: AppIR) -> list[str]:
     """All identifiers assigned via Set/UpdateContext/Collect in behavior formulas."""
     names: set[str] = set()
-    targets: list[str] = []
 
     def add_from(formula: FxExpr) -> None:
         if not formula.raw:
@@ -26,7 +45,7 @@ def collect_global_vars(ir: AppIR) -> list[str]:
             stmts = lx.parse_formula(formula.raw)
         except lx.FxSyntaxError:
             return
-        for st in stmts:
+        for st in (node for root in stmts for node in walk_formula(root)):
             if st.kind == "call" and st.value == "UpdateContext" and st.children:
                 record = st.children[0]
                 if record.kind == "record":
@@ -34,18 +53,33 @@ def collect_global_vars(ir: AppIR) -> list[str]:
             elif st.kind == "call" and st.value in {"Set", "Collect", "ClearCollect"}:
                 t = st.children[0] if st.children else None
                 if t is not None and t.kind == "ident":
-                    names.add(str(t.value))
+                    names.add(lx.reference_parts(str(t.value))[0])
 
-    if ir.on_start:
-        add_from(ir.on_start)
-    for screen in ir.screens:
-        if screen.on_visible:
-            add_from(screen.on_visible)
-        for ctrl in screen.walk_controls():
-            for prop in ctrl.properties.values():
-                if prop.kind == "behavior":
-                    add_from(prop)
+    for expr in behavior_formulas(ir):
+        add_from(expr)
     return sorted(names)
+
+
+def infer_local_collections(ir: AppIR) -> None:
+    """Collections can be created by formulas without exported source metadata.
+
+    Existing external sources retain their origin: Collect can also append to
+    an external table. Only a previously undeclared target creates a collection.
+    """
+    known = {ds.name for ds in ir.data_sources}
+    for expr in behavior_formulas(ir):
+        try:
+            roots = lx.parse_formula(expr.raw)
+        except lx.FxSyntaxError:
+            continue
+        for node in (node for root in roots for node in walk_formula(root)):
+            if node.kind != "call" or node.value not in {"Collect", "ClearCollect"} or not node.children:
+                continue
+            target = node.children[0]
+            name = lx.reference_parts(str(target.value))[0]
+            if target.kind == "ident" and name not in known:
+                ir.data_sources.append(DataSource(name=name, origin="collection"))
+                known.add(name)
 
 
 def collect_row_fields(ir: AppIR) -> set[str]:
@@ -135,7 +169,7 @@ def infer_data_source_fields(ir: AppIR) -> None:
                     ds.fields.append(FieldDef(name=field_name, type=card_field_type(card)))
                     known.add(field_name)
 
-    def record_fields_from(record_node) -> list[str]:
+    def record_fields_from(record_node) -> list[tuple[str, str]]:
         out = []
         if record_node.kind == "record":
             for fname, vexpr in record_node.value:
@@ -149,32 +183,45 @@ def infer_data_source_fields(ir: AppIR) -> None:
                 out.append((str(fname), ftype))
         return out
 
-    for screen in ir.screens:
-        for ctrl in screen.walk_controls():
-            for expr in ctrl.properties.values():
-                if expr.kind != "behavior":
-                    continue
-                try:
-                    stmts = lx.parse_formula(expr.raw)
-                except lx.FxSyntaxError:
-                    continue
-                for st in stmts:
-                    if st.kind != "call" or not st.children:
-                        continue
-                    if st.value in {"Patch", "Collect", "ClearCollect"} and st.children[0].kind == "ident":
-                        ds_name = str(st.children[0].value)
-                        rec = st.children[-1] if st.value == "Patch" else (st.children[1] if len(st.children) > 1 else None)
-                        ds = by_name.get(ds_name)
-                        if ds is not None and rec is not None:
-                            known = {f.name for f in ds.fields}
-                            for fname, ftype in record_fields_from(rec):
-                                if fname not in known:
-                                    ds.fields.append(FieldDef(name=fname, type=ftype))
-                                    known.add(fname)
-                    elif st.value in {"Remove", "RemoveIf", "Refresh"} and st.children[0].kind == "ident":
-                        ds_name = str(st.children[0].value)
-                        if ds_name in by_name and not by_name[ds_name].fields:
-                            by_name[ds_name].fields.append(FieldDef(name="id", type="number"))
+    # Mutations may live in With/IfError/If or App.OnStart, not just a
+    # top-level button expression. Decode quoted source names consistently
+    # with emission, or the generated server silently has no backing table.
+    for expr in behavior_formulas(ir):
+        try:
+            stmts = lx.parse_formula(expr.raw)
+        except lx.FxSyntaxError:
+            continue
+        for st in (node for root in stmts for node in walk_formula(root)):
+            if st.kind != "call" or not st.children or st.children[0].kind != "ident":
+                continue
+            ds_name = lx.reference_parts(str(st.children[0].value))[0]
+            ds = by_name.get(ds_name)
+            if ds is None:
+                continue
+            if st.value in {"Patch", "Collect", "ClearCollect"}:
+                records = st.children[2:] if st.value == "Patch" else st.children[1:]
+                known = {f.name for f in ds.fields}
+                for record in records:
+                    for fname, ftype in record_fields_from(record):
+                        if fname not in known:
+                            ds.fields.append(FieldDef(name=fname, type=ftype))
+                            known.add(fname)
+                if ds.origin != "collection":
+                    # A partial Patch must not discard untouched fields from
+                    # embedded rows, even when the export omitted its schema.
+                    normalized = {_snake(field.name) for field in ds.fields}
+                    for row in ds.sample_data:
+                        for field, value in row.items():
+                            if field not in normalized:
+                                kind = "bool" if isinstance(value, bool) else "number" if isinstance(value, (int, float)) else "text"
+                                ds.fields.append(FieldDef(name=field, type=kind))
+                                normalized.add(field)
+                    # Patch updates by identity, not row position. Form-backed
+                    # sources already get this key; standalone Patch needs it too.
+                    if "id" not in normalized:
+                        ds.fields.insert(0, FieldDef(name="id", type="text"))
+            elif st.value in {"Remove", "RemoveIf", "Refresh"} and not ds.fields:
+                ds.fields.append(FieldDef(name="id", type="number"))
 
     # dotted data-source refs from value formulas (Tasks.Status etc.)
     for screen in ir.screens:
@@ -204,6 +251,7 @@ def verdict_for_property(prop: FxExpr, control_names: set[str], row_fields: set[
 
 def analyze(ir: AppIR, uncovered: list[dict] | None = None) -> AppIR:
     ir.global_vars = collect_global_vars(ir)
+    infer_local_collections(ir)
     infer_data_source_fields(ir)
 
     control_names = {c.name for s in ir.screens for c in s.walk_controls()}
@@ -217,7 +265,9 @@ def analyze(ir: AppIR, uncovered: list[dict] | None = None) -> AppIR:
         try:
             res = transpile(expr.raw, behavior=(expr.kind == "behavior"),
                             row_fields=row_fields, control_names=control_names,
-                            collections=collections, screen_names=screen_names)
+                            collections=collections, screen_names=screen_names,
+                            global_names=set(ir.global_vars) | {ds.name for ds in ir.data_sources},
+                            media_resources=ir.media_resources)
             expr.js = res.js
             expr.translation_status = "stubbed" if res.unmapped else "rule"
             if res.unmapped:

@@ -547,9 +547,11 @@ def _chart_config(ctrl: ControlNode) -> str:
     values = _static_raw(props.get("ItemsValues"))
     cfg: dict[str, object] = {"type": ctype}
     if labels:
-        cfg["cat"] = labels
+        cfg["cat"] = _snake(labels)
+        mark_emission(props.get("ItemsLabels"))
     if values:
-        cfg["val"] = values
+        cfg["val"] = _snake(values)
+        mark_emission(props.get("ItemsValues"))
     width = _static_px(props.get("Width"))
     height = _static_px(props.get("Height"))
     if width:
@@ -918,7 +920,7 @@ def render_app_js(ir: AppIR) -> str:
     # of refreshing them from the server.
     for ds in ir.data_sources:
         if ds.origin == "collection":
-            lines.append(f"  state.{ds.name} = [];")
+            lines.append(f"  state[{ds.name!r}] = [];")
     external_sources = [ds.name for ds in ir.data_sources
                         if ds.fields and ds.origin != "collection"]
     if external_sources:
@@ -1104,6 +1106,14 @@ def render_app_js(ir: AppIR) -> str:
                     lines.append(f'    var el = document.querySelector(\'[data-control="{ctrl.name}"]\');')
                     lines.append("    if (!el) return;")
                     lines.append("    var cfg = JSON.parse(el.getAttribute('data-chart') || '{}');")
+                    lines.append(f"    var selfRef = val({ctrl.name!r}), parentRef = val({parent_names.get(ctrl.name)!r});")
+                    for prop, key in [("ShowLabels", "showLabels"), ("ItemColorSet", "colors"),
+                                      ("Width", "width"), ("Height", "height"),
+                                      ("Color", "foreground"), ("FontColor", "foreground")]:
+                        expr = ctrl.properties.get(prop)
+                        if expr and expr.js:
+                            lines.append(f"    cfg.{key} = {expr.js};")
+                            mark_emission(expr)
                     lines.append(f"    var rows = {items.js};")
                     lines.append("    if (rows && rows.then) rows = await rows;")
                     lines.append(f"    FXRuntime.renderChart({ctrl.name!r}, rows || [], cfg);")
@@ -1282,6 +1292,7 @@ def render_index_html(ir: AppIR, screens_html: str) -> str:
 </head>
 <body>
 <?!= include('Screens.html'); ?>
+<script type="application/json" id="fx-launch-parameters"><?!= launchParametersJSON ?></script>
 <script>
 <?!= include('gas-runtime.js.html'); ?>
 <?!= include('fx-stdlib.js.html'); ?>

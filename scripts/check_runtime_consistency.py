@@ -33,7 +33,7 @@ EXPECTED = {
 ALLOWED = {
     # language / builtins
     "if", "for", "while", "switch", "catch", "return", "function", "typeof",
-    "new", "Promise", "Object", "Array", "String", "Number", "Boolean",
+    "new", "async", "await", "Promise", "Object", "Array", "String", "Number", "Boolean",
     "Date", "JSON", "parseInt", "parseFloat", "isNaN", "Error", "Set", "Map",
     "console",
     # namespaced calls
@@ -74,7 +74,7 @@ def generated_fixture_bare_calls() -> tuple[list[str], Path]:
     tmp = Path(tempfile.mkdtemp())
     apps = []
     out = tmp / "FixtureA"
-    for fixture_name in ("fixtureA.msapp", "fixtureForm.msapp"):
+    for fixture_name in ("fixtureA.msapp", "fixtureForm.msapp", "fixtureCharts.msapp", "fixtureScopes.msapp"):
         ir = analyze(parse(unpack(fixture_build.FIXTURE_DIR / fixture_name)))
         out = synthesize(ir, tmp / fixture_name.removesuffix(".msapp"))
         apps.append((out / "App.js.html").read_text())

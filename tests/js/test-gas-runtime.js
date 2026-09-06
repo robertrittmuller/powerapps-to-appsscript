@@ -20,6 +20,25 @@ require('../../static/fx-charts.js');
 require('../../static/gas-runtime.js');
 const RT = global.FXRuntime;
 
+test('launch parameters are case-sensitive text with Blank for absent keys', () => {
+  const vm = require('node:vm');
+  const fs = require('node:fs');
+  const parameters = JSON.stringify({recordId: 'A + B', numeric: '42', empty: '', language: 'not-a-locale'});
+  const context = vm.createContext({document: {...global.document,
+    getElementById: name => name === 'fx-launch-parameters' ? {textContent: parameters} : null,
+  }, navigator: {language: 'fr-CA'}});
+  context.window = context;
+  vm.runInContext(fs.readFileSync(require.resolve('../../static/gas-runtime.js'), 'utf8'), context);
+  assert.strictEqual(context.FXRuntime.param('recordId'), 'A + B');
+  assert.strictEqual(context.FXRuntime.param('RecordId'), null);
+  assert.strictEqual(context.FXRuntime.param('numeric'), '42');
+  assert.strictEqual(context.FXRuntime.param('empty'), '');
+  assert.strictEqual(context.FXRuntime.param('toString'), null);
+  assert.strictEqual(context.FXRuntime.language(), 'fr-CA');
+  delete context.navigator;
+  assert.strictEqual(context.FXRuntime.language(), 'en-US');
+});
+
 function installGoogleMock(mode) {
   const handlers = {};
   const runner = new Proxy({}, {
@@ -328,6 +347,13 @@ test('powerapps_clearCollect resets then appends', () => {
   const st = { colCache: [{ id: 9 }] };
   global.powerapps_clearCollect(st, 'colCache', { id: 1 });
   assert.deepStrictEqual(st.colCache, [{ id: 1 }]);
+});
+
+test('collection helpers retain every record and flatten table arguments in order', () => {
+  const st = { colCache: [{ id: 99 }] };
+  global.powerapps_clearCollect(st, 'colCache', { id: 1 }, [{ id: 2 }, { id: 3 }], { id: 4 });
+  global.powerapps_collect(st, 'colCache', { id: 5 }, { id: 6 });
+  assert.deepStrictEqual(st.colCache.map(row => row.id), [1, 2, 3, 4, 5, 6]);
 });
 
 test('powerapps_remove drops by identity then value', () => {

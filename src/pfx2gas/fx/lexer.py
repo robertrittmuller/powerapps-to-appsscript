@@ -22,6 +22,34 @@ IDENT_CHARS = IDENT_START | set("0123456789")
 KEYWORDS = {"true", "false", "in", "and", "or", "not", "As"}
 
 
+def reference_parts(name: str) -> list[str]:
+    """Split a dotted reference without splitting inside quoted field names."""
+    parts, current = [], []
+    quote = None
+    i = 0
+    while i < len(name):
+        char = name[i]
+        if quote:
+            if char == quote:
+                if i + 1 < len(name) and name[i + 1] == quote:
+                    current.append(char)
+                    i += 1
+                else:
+                    quote = None
+            else:
+                current.append(char)
+        elif char in "'\"":
+            quote = char
+        elif char == ".":
+            parts.append("".join(current))
+            current = []
+        else:
+            current.append(char)
+        i += 1
+    parts.append("".join(current))
+    return parts
+
+
 def tokenize(src: str) -> list[Tok]:
     toks: list[Tok] = []
     i, n = 0, len(src)
@@ -43,7 +71,12 @@ def tokenize(src: str) -> list[Tok]:
                 if src[k] in "\"'":
                     quote = src[k]
                     k += 1
-                    while k < n and src[k] != quote:
+                    while k < n:
+                        if src[k] == quote:
+                            if k + 1 < n and src[k + 1] == quote:
+                                k += 2
+                                continue
+                            break
                         k += 1
                     if k < n:
                         k += 1  # include closing quote
@@ -94,7 +127,9 @@ def tokenize(src: str) -> list[Tok]:
                 j += 1
             if j >= n:
                 raise FxSyntaxError(f"unterminated string at {i}")
-            toks.append(Tok("string", "".join(buf), i))
+            # Single quotes name symbols; only double quotes create text.
+            toks.append(Tok("ident" if quote == "'" else "string",
+                            src[i:j + 1] if quote == "'" else "".join(buf), i))
             i = j + 1
             continue
         if src.startswith("<>", i) or src.startswith("<=", i) or src.startswith(">=", i) \
@@ -269,7 +304,7 @@ class Parser:
                 if name.kind not in {"ident", "keyword"}:
                     raise FxSyntaxError(f"expected field name, got {name.value!r}")
                 self.expect("punct", ":")
-                fields.append((name.value, self.parse_expr(0)))
+                fields.append((reference_parts(name.value)[0], self.parse_expr(0)))
                 if self.peek().kind == "punct" and self.peek().value == ",":
                     self.next()
                     continue

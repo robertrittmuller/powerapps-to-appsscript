@@ -67,14 +67,14 @@ def test_quoted_member_on_thisitem():
     from pfx2gas.fx import transpile
 
     res = transpile("ThisItem.'File name with extension'")
-    assert res.js == "item.file_name_with_extension"
+    assert res.js == "FX.field(item, 'file_name_with_extension')"
 
 
 def test_launch_and_select():
     from pfx2gas.fx import transpile
 
     out = transpile("Launch(ThisItem.'Link to item');", behavior=True).js
-    assert "window.open(item.link_to_item" in out
+    assert "window.open(FX.field(item, 'link_to_item')" in out
     assert "selectControl('CollectionButton')" in transpile(
         "Select(CollectionButton)", behavior=True).js
 

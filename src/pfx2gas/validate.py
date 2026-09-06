@@ -1,6 +1,7 @@
 """Stage 5: validate a synthesized project (syntax, structure, stub census)."""
 from __future__ import annotations
 
+import re
 import subprocess
 import tempfile
 from pathlib import Path
@@ -49,7 +50,7 @@ def validate_project(out_dir: str | Path) -> dict:
         problems.append("Index.html does not reference Screens")
 
     gs = (out / "Code.gs").read_text() if (out / "Code.gs").exists() else ""
-    if gs and "function doGet()" not in gs:
+    if gs and not re.search(r"\bfunction\s+doGet\s*\([^)]*\)\s*\{", gs):
         problems.append("Code.gs has no doGet()")
     if gs and "function include(name)" not in gs:
         problems.append("Code.gs has no include() helper (Index.html templating needs it)")

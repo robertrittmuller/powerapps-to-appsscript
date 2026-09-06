@@ -21,9 +21,16 @@ function assertRecord(value, label) {{
   }}
 }}
 
-function doGet() {{
-  return HtmlService.createTemplateFromFile('Index')
-    .evaluate()
+function launchParametersJSON_(event) {{
+  // Request values are untrusted text. Escape HTML script terminators even
+  // though the payload is application/json, not executable JavaScript.
+  return JSON.stringify(event && event.parameter || {{}}).replace(/</g, '\\\\u003c');
+}}
+
+function doGet(event) {{
+  var template = HtmlService.createTemplateFromFile('Index');
+  template.launchParametersJSON = launchParametersJSON_(event);
+  return template.evaluate()
     .setTitle({app_name!r})
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
 }}

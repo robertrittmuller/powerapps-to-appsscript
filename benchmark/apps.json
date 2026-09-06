@@ -1,5 +1,6 @@
 {
   "schemaVersion": 1,
+  "requiredApps": ["editable-grid", "expandable-nav", "modern-card", "sentiment-feedback", "svg-app"],
   "apps": {
     "clean-ui": {
       "displayName": "Clean UI",
@@ -33,6 +34,10 @@
       "source": "sunilshetty07/Microsoft-PowerApps-Canvas",
       "journeyCoverage": "none",
       "visualCoverage": "none",
+      "sourceLimitations": [
+        "The export references Student Tracker but contains no data-source schema or connection for it.",
+        "varReset is used to filter rows but has no initialization in this export; persistent CRUD acceptance requires a complete source app."
+      ],
       "criticalJourneys": [
         {
           "id": "edit-grid-row",
@@ -60,6 +65,9 @@
       "archetypes": ["crud", "forms", "dashboard", "gallery", "reusable-components"],
       "journeyCoverage": "partial",
       "visualCoverage": "none",
+      "sourceLimitations": [
+        "NEW Save only navigates HOME; ticket collections are temporary source sample data. Persistent create-ticket is a separate business acceptance requirement, not implemented by this export."
+      ],
       "criticalJourneys": [
         {
           "id": "home-new-home",
@@ -74,8 +82,8 @@
           ]
         },
         {
-          "id": "create-ticket",
-          "description": "Create a valid ticket, reload, and verify it appears in the ticket list.",
+          "id": "source-form-and-list-interactions",
+          "description": "Exercise input/reset, list selection and source-defined navigation. Persistent CRUD is tracked separately because this export has no ticket creation action.",
           "required": true
         },
         {
@@ -85,7 +93,7 @@
           "steps": [
             {"action": "expectScreen", "screen": "HOME"},
             {"action": "expectImageSource", "control": "iconApp", "startsWith": "data:image/png;base64,"},
-            {"action": "expectGalleryRows", "control": "MyTicket", "min": 1, "contains": "OPEN"},
+            {"action": "expectGalleryRows", "control": "MyTicket", "min": 8, "contains": "CANCELLED"},
             {"action": "expectGalleryControlStyle", "gallery": "MyTicket", "control": "NextArrow3", "property": "left", "equals": "312px"},
             {"action": "expectGalleryControlStyle", "gallery": "MyTicket", "control": "Subtitle3", "property": "left", "equals": "0px"},
             {"action": "expectChart", "control": "PieChart2", "type": "pie", "contains": "OPEN"},

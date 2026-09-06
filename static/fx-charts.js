@@ -18,7 +18,16 @@
 
   function num(v) {
     var n = parseFloat(v);
-    return isNaN(n) ? 0 : n;
+    return Number.isFinite(n) ? n : 0;
+  }
+
+  function colors(cfg) {
+    var values = cfg && cfg.colors;
+    if (!Array.isArray(values) || !values.length) return PALETTE;
+    return values.map(function (value, i) {
+      if (value && typeof value === 'object') value = value.value || value.Value;
+      return typeof value === 'string' && value ? value : PALETTE[i % PALETTE.length];
+    });
   }
 
   /** Auto-detect category (first string-ish) and value (first numeric) columns. */
@@ -54,6 +63,7 @@
     }
     var cats = rows.map(function (r) { return cat && r[cat] != null ? r[cat] : ''; });
     var vals = rows.map(function (r) { return num(val ? r[val] : 0); });
+    var palette = colors(cfg);
     return {
       cat: cat,
       val: val,
@@ -63,7 +73,8 @@
         return {
           label: label,
           value: vals[i],
-          color: rows[i] && rows[i].color || PALETTE[i % PALETTE.length],
+          color: cfg.type === 'line' ? (rows[0] && rows[0].color || palette[0])
+            : (rows[i] && rows[i].color || palette[i % palette.length]),
         };
       }),
     };
@@ -76,25 +87,32 @@
       '">No data</text></svg>';
   }
 
-  function barSvg(cats, vals, w, h, foreground) {
+  function barSvg(cats, vals, w, h, foreground, palette, showLabels) {
     var padL = 30, padB = 22, padT = 10;
     var innerW = w - padL - 10, innerH = h - padB - padT;
     var max = Math.max.apply(null, vals.concat([1]));
+    var min = Math.min.apply(null, vals.concat([0]));
+    var scale = innerH / (max - min);
+    var zeroY = padT + max * scale;
     var slot = innerW / vals.length;
     var bw = Math.min(72, Math.max(4, slot * 0.65));
-    var parts = [];
+    var parts = ['<line data-zero-axis="true" x1="' + padL + '" x2="' + (w - 10) +
+      '" y1="' + zeroY.toFixed(1) + '" y2="' + zeroY.toFixed(1) +
+      '" stroke="' + esc(foreground || '#888') + '"/>'];
     vals.forEach(function (v, i) {
-      var bh = Math.max(0, (v / max) * innerH);
+      var bh = Math.abs(v) * scale;
       var x = padL + i * slot + (slot - bw) / 2;
-      var y = padT + innerH - bh;
+      var y = v >= 0 ? zeroY - bh : zeroY;
       parts.push('<rect x="' + x.toFixed(1) + '" y="' + y.toFixed(1) +
-        '" width="' + bw.toFixed(1) + '" height="' + Math.max(bh, 1).toFixed(1) +
-        '" fill="' + PALETTE[i % PALETTE.length] + '"/>');
+        '" width="' + bw.toFixed(1) + '" height="' + bh.toFixed(1) +
+        '" data-value="' + v + '" fill="' + esc(palette[i % palette.length]) + '"/>');
+      if (!showLabels) return;
       parts.push('<text x="' + (x + bw / 2).toFixed(1) + '" y="' + (h - 8) +
         '" text-anchor="middle" font-family="system-ui" font-size="9" fill="' +
         esc(foreground || '#555') + '">' +
         esc(cats[i]) + '</text>');
-      parts.push('<text x="' + (x + bw / 2).toFixed(1) + '" y="' + Math.max(9, y - 4).toFixed(1) +
+      parts.push('<text x="' + (x + bw / 2).toFixed(1) + '" y="' +
+        (v < 0 ? Math.min(h - padB, y + bh - 3) : Math.max(9, y - 4)).toFixed(1) +
         '" text-anchor="middle" font-family="system-ui" font-size="9" fill="' +
         esc(foreground || '#555') + '">' +
         esc(v) + '</text>');
@@ -103,7 +121,7 @@
       parts.join('') + '</svg>';
   }
 
-  function lineSvg(cats, vals, w, h, foreground) {
+  function lineSvg(cats, vals, w, h, foreground, palette, showLabels) {
     var padL = 30, padB = 22, padT = 10;
     var innerW = w - padL - 10, innerH = h - padB - padT;
     var max = Math.max.apply(null, vals.concat([1]));
@@ -114,11 +132,12 @@
       var y = padT + innerH - ((v - min) / range) * innerH;
       return [x, y];
     });
-    var parts = ['<polyline fill="none" stroke="' + PALETTE[0] + '" stroke-width="2" points="' +
+    var parts = ['<polyline fill="none" stroke="' + esc(palette[0]) + '" stroke-width="2" points="' +
       pts.map(function (p) { return p[0].toFixed(1) + ',' + p[1].toFixed(1); }).join(' ') + '"/>'];
     pts.forEach(function (p, i) {
       parts.push('<circle cx="' + p[0].toFixed(1) + '" cy="' + p[1].toFixed(1) +
-        '" r="3" fill="' + PALETTE[0] + '"/>');
+        '" r="3" fill="' + esc(palette[0]) + '"/>');
+      if (!showLabels) return;
       parts.push('<text x="' + p[0].toFixed(1) + '" y="' + (h - 8) +
         '" text-anchor="middle" font-family="system-ui" font-size="9" fill="' +
         esc(foreground || '#555') + '">' +
@@ -128,9 +147,10 @@
       parts.join('') + '</svg>';
   }
 
-  function pieSvg(cats, vals, w, h) {
+  function pieSvg(cats, vals, w, h, foreground, palette, showLabels) {
     var total = vals.reduce(function (a, b) { return a + Math.max(0, b); }, 0);
-    var r = Math.min(w, h) / 2 - 12;
+    if (total <= 0) return emptySvg(w, h, foreground);
+    var r = Math.max(1, Math.min(w, h) / 2 - 12);
     var cx = r + 12, cy = h / 2;
     var parts = [];
     var angle = -Math.PI / 2;
@@ -140,8 +160,8 @@
         if (frac <= 0) return;
         if (frac >= 0.999999) {
           parts.push('<circle cx="' + cx + '" cy="' + cy + '" r="' + r +
-            '" fill="' + PALETTE[i % PALETTE.length] + '"/>');
-          parts.push('<text x="' + cx + '" y="' + (cy + 4) +
+            '" fill="' + esc(palette[i % palette.length]) + '"/>');
+          if (showLabels) parts.push('<text x="' + cx + '" y="' + (cy + 4) +
             '" text-anchor="middle" font-family="system-ui" font-size="10" fill="#fff">' +
             esc(cats[i]) + '</text>');
           angle += Math.PI * 2;
@@ -153,9 +173,9 @@
         var large = frac > 0.5 ? 1 : 0;
         parts.push('<path d="M ' + cx + ' ' + cy + ' L ' + x1.toFixed(1) + ' ' + y1.toFixed(1) +
           ' A ' + r + ' ' + r + ' 0 ' + large + ' 1 ' + x2.toFixed(1) + ' ' + y2.toFixed(1) + ' Z" fill="' +
-          PALETTE[i % PALETTE.length] + '"/>');
+          esc(palette[i % palette.length]) + '"/>');
         var mid = angle + (a2 - angle) / 2;
-        parts.push('<text x="' + (cx + r * 0.62 * Math.cos(mid)).toFixed(1) + '" y="' +
+        if (showLabels) parts.push('<text x="' + (cx + r * 0.62 * Math.cos(mid)).toFixed(1) + '" y="' +
           (cy + r * 0.62 * Math.sin(mid) + 3).toFixed(1) +
           '" text-anchor="middle" font-family="system-ui" font-size="9" fill="#fff">' +
           esc(cats[i]) + '</text>');
@@ -188,15 +208,17 @@
     cfg = cfg || {};
     rows = Array.isArray(rows) ? rows : [];
     var type = cfg.type || 'bar';
-    var w = cfg.width || 420, h = cfg.height || 300;
+    var w = Math.max(1, num(cfg.width) || 420), h = Math.max(1, num(cfg.height) || 300);
     var foreground = cfg.foreground;
     var chart = model(rows, cfg);
     if (!rows.length || !chart.val) return emptySvg(w, h, foreground);
     if (type === 'legend') return legendSvg(chart.series, w, h, foreground);
     var cats = chart.cats, vals = chart.vals;
-    if (type === 'pie') return pieSvg(cats, vals, w, h);
-    if (type === 'line') return lineSvg(cats, vals, w, h, foreground);
-    return barSvg(cats, vals, w, h, foreground);
+    var palette = chart.series.map(function (entry) { return entry.color; });
+    var showLabels = cfg.showLabels !== false;
+    if (type === 'pie') return pieSvg(cats, vals, w, h, foreground, palette, showLabels);
+    if (type === 'line') return lineSvg(cats, vals, w, h, foreground, palette, showLabels);
+    return barSvg(cats, vals, w, h, foreground, palette, showLabels);
   }
 
   global.FXCharts = {

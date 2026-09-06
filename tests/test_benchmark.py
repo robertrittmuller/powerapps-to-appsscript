@@ -1,6 +1,13 @@
 from __future__ import annotations
 
 from pathlib import Path
+import json
+import os
+import shutil
+import subprocess
+import sys
+
+import pytest
 
 from pfx2gas.benchmark import (FAIL, PASS, UNASSESSED, build_scorecard,
                                evaluate_grades, load_catalog,
@@ -100,3 +107,57 @@ def test_scorecard_reports_catalog_coverage_and_each_app_separately():
     markdown = render_scorecard_markdown(scorecard)
     assert "Catalog apps not present in this run: `missing`" in markdown
     assert "| Sample | modern-pa-yaml | crud | pass | unassessed | unassessed |" in markdown
+
+
+@pytest.mark.parametrize("journey_status,coverage,expected", [
+    (FAIL, "complete", FAIL), (PASS, "partial", UNASSESSED), (PASS, "complete", PASS),
+])
+def test_visual_evidence_requires_complete_passing_business_journeys(journey_status, coverage, expected):
+    app = _app(journey_coverage=coverage, journey_status=journey_status)
+    app["metadata"]["visualCoverage"] = "complete"
+    app["evidence"]["visual"] = {"status": PASS}
+    assert evaluate_grades(app)["highFidelity"]["status"] == expected
+
+
+def test_missing_declared_journey_cannot_promote_app():
+    app = _app(journey_coverage="complete")
+    app["metadata"]["criticalJourneys"] = [
+        {"id": "create-record"}, {"id": "reload-record", "steps": [{"action": "reload"}]},
+    ]
+    scorecard = build_scorecard([app], catalog_path="catalog", sample_dir="samples")
+    assert app["grades"]["usable"]["status"] == UNASSESSED
+    assert any("reload-record" in error for error in scorecard["gateErrors"])
+
+
+@pytest.mark.parametrize("failure", ["journey", "missing-app"])
+def test_soak_command_exits_nonzero_for_required_regressions(tmp_path, failure):
+    samples = tmp_path / "samples"
+    samples.mkdir()
+    shutil.copyfile(REPO / "tests/fixtures/fixtureA.msapp", samples / "fixture.msapp")
+    apps = {"fixture": {"criticalJourneys": [{
+        "id": "visible-screen", "required": True,
+        "steps": [{"action": "expectScreen", "screen": "wrong-screen"}]
+        if failure == "journey" else [],
+    }]}}
+    if failure == "missing-app":
+        apps["required-but-missing"] = {}
+    catalog = tmp_path / "catalog.json"
+    catalog.write_text(json.dumps({"schemaVersion": 1, "apps": apps}))
+    output = tmp_path / "scorecard"
+    result = subprocess.run([sys.executable, str(REPO / "scripts/soak_check.py")],
+        env={**os.environ, "PFX2GAS_SAMPLES_DIR": str(samples),
+             "PFX2GAS_BENCHMARK_CATALOG": str(catalog), "PFX2GAS_SOAK_OUT": str(output)},
+        capture_output=True, text=True, timeout=120)
+    assert result.returncode == 1, result.stdout + result.stderr
+    scorecard = json.loads((output / "benchmark-scorecard.json").read_text())
+    assert scorecard["apps"][0]["grades"]["bootable"]["status"] == PASS
+    assert scorecard["gateErrors"]
+    assert "GATE FAIL" in result.stdout
+
+
+def test_explicit_required_corpus_does_not_hide_optional_missing_apps():
+    scorecard = build_scorecard([_app()], catalog_path="catalog", sample_dir="samples",
+        catalog_app_ids=["sample", "optional"], required_app_ids=["sample"])
+    assert scorecard["catalogCoverage"]["missingCatalogApps"] == ["optional"]
+    assert scorecard["catalogCoverage"]["missingRequiredApps"] == []
+    assert scorecard["gateErrors"] == []

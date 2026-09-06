@@ -16,3 +16,4 @@ build/
 *.egg-info/
 .DS_Store
 samples/real/
+samples/microsoft/

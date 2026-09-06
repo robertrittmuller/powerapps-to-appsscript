@@ -158,11 +158,17 @@ APP_FORM_YAML = """App:
 
 SCREEN_FORM_YAML = """FormScreen:
   Control: Screen
-  Properties: {}
+  Properties:
+    Width: =900
+    Height: =600
   Children:
     - Form1:
         Control: Form
         Properties:
+          X: =20
+          Y: =20
+          Width: =400
+          Height: =220
           DataSource: =Contacts
           Item: =First(Contacts)
           DefaultMode: =FormMode.Edit
@@ -172,6 +178,10 @@ SCREEN_FORM_YAML = """FormScreen:
           - FirstNameCard:
               Control: DataCard
               Properties:
+                X: =0
+                Y: =0
+                Width: =360
+                Height: =80
                 DataField: ="FirstName"
                 DisplayName: ="First Name"
                 Default: =ThisItem.FirstName
@@ -182,9 +192,15 @@ SCREEN_FORM_YAML = """FormScreen:
                     Control: TextInput
                     Properties:
                       Default: =Parent.Default
+                      Width: =320
+                      Height: =40
           - LastNameCard:
               Control: DataCard
               Properties:
+                X: =0
+                Y: =100
+                Width: =360
+                Height: =80
                 DataField: ="LastName"
                 DisplayName: ="Last Name"
                 Default: =ThisItem.LastName
@@ -195,28 +211,55 @@ SCREEN_FORM_YAML = """FormScreen:
                     Control: TextInput
                     Properties:
                       Default: =Parent.Default
+                      Width: =320
+                      Height: =40
     - ButtonNew:
         Control: Button
         Properties:
           Text: ="New"
+          X: =20
+          Y: =260
+          Width: =100
+          Height: =40
           OnSelect: =NewForm(Form1)
     - ButtonResetForm:
         Control: Button
         Properties:
           Text: ="Reset"
+          X: =140
+          Y: =260
+          Width: =100
+          Height: =40
           OnSelect: =ResetForm(Form1)
     - ButtonSubmit:
         Control: Button
         Properties:
           Text: ="Save"
+          X: =260
+          Y: =260
+          Width: =100
+          Height: =40
           OnSelect: =SubmitForm(Form1)
     - ComboPeople:
         Control: ComboBox
         Properties:
           Items: =Contacts
+          X: =460
+          Y: =20
+          Width: =220
+          Height: =120
           DisplayFields: =["FirstName"]
           DefaultSelectedItems: =[First(Contacts)]
           SelectMultiple: =true
+    - ButtonDeleteLast:
+        Control: Button
+        Properties:
+          X: =460
+          Y: =160
+          Width: =180
+          Height: =40
+          Text: ="Delete last contact"
+          OnSelect: =Remove(Contacts, Last(Contacts))
 """
 
 CONTACTS_JSON = json.dumps(
@@ -228,6 +271,112 @@ CONTACTS_JSON = json.dumps(
     },
     indent=2,
 )
+
+APP_CHARTS_YAML = '''App:
+  Control: AppHost
+  Properties:
+    OnStart: '=ClearCollect(Metrics, {Category: "Gain", Amount: 5}, {Category: "Loss", Amount: -5}, {Category: "Zero", Amount: 0}); Set(showChartLabels, false); Set(chartWidth, 320)'
+'''
+
+SCREEN_CHARTS_YAML = '''Charts:
+  Control: Screen
+  Children:
+    - BusinessChart:
+        Control: ColumnChart
+        Properties:
+          X: =20
+          Y: =20
+          Width: =chartWidth
+          Height: =240
+          Items: =Metrics
+          ItemsLabels: ="Category"
+          ItemsValues: ="Amount"
+          ItemColorSet: =[RGBA(49,130,93,1),RGBA(212,96,104,1),RGBA(118,154,204,1)]
+          ShowLabels: =showChartLabels
+    - BusinessPie:
+        Control: PieChart
+        Properties:
+          X: =20
+          Y: =290
+          Width: =320
+          Height: =200
+          Items: =Metrics
+          ItemColorSet: =BusinessChart.ItemColorSet
+          ShowLabels: =If(true, false, true)
+    - BusinessLegend:
+        Control: Legend
+        Properties:
+          X: =20
+          Y: =510
+          Width: =400
+          Height: =40
+          Items: =BusinessChart.SeriesLabels
+    - ToggleChart:
+        Control: Button
+        Properties:
+          X: =650
+          Y: =20
+          Width: =160
+          Height: =40
+          Text: ="Labels / size"
+          OnSelect: =Set(showChartLabels, true); Set(chartWidth, 600)
+    - ClearChart:
+        Control: Button
+        Properties:
+          X: =650
+          Y: =80
+          Width: =160
+          Height: =40
+          Text: ="Clear"
+          OnSelect: =Clear(Metrics)
+'''
+
+
+def scope_fixture_files() -> dict[str, str]:
+    """Real formula shapes from Inspection/Employee Ideas, with local data.
+
+    This is a focused regression fixture, not a substitute acceptance app.
+    JSON is valid YAML and keeps quoted Power Fx identifiers unambiguous.
+    """
+    blue = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32'%3E%3Crect width='32' height='32' fill='blue'/%3E%3C/svg%3E"
+    red = blue.replace("blue", "red")
+    on_start = (
+        'Set(tax, 5); Set(cutoff, 3); Set(limit, 9); '
+        'ClearCollect(\'Scope Rows\', {Amount: 2}, {Amount: 5}, {Amount: 8}); '
+        f'Set(gblSelectedLocation, {{\'Primary Image\': {{Full: "{blue}"}}}}); '
+        f'Set(areaInspectionDefaultImage, "{red}"); Set(afterSave, "ready")'
+    )
+    children = []
+
+    def add(name, kind, props, nested=None):
+        control = {"Control": kind, "Properties": {key: "=" + str(value) for key, value in props.items()}}
+        if nested:
+            control["Children"] = nested
+        children.append({name: control})
+
+    add("ScopeTotal", "Label", {"X": 20, "Y": 20, "Width": 300, "Height": 40,
+        "Text": 'With({rate: 2, info: {Value: 4}}, With({rate: 3}, Text(rate + info.Value + tax)))'})
+    add("ScopeGallery", "Gallery", {"X": 20, "Y": 80, "Width": 300, "Height": 180,
+        "TemplateSize": 60, "Items": "Filter('Scope Rows', Amount > cutoff, Amount < limit)"}, [{
+            "ScopeRow": {"Control": "Label", "Properties": {"Width": "=200", "Height": "=40",
+                "Text": '=With({Value: 3}, Text(Sum(Table({Value: 2}), ThisRecord.Value + ThisItem.Amount)))'}}}])
+    add("ScopeImage", "Image", {"X": 350, "Y": 20, "Width": 64, "Height": 64,
+        "Image": "If(IsBlank(gblSelectedLocation.'Primary Image'.Full), areaInspectionDefaultImage, gblSelectedLocation.'Primary Image'.Full)"})
+    add("ClearScopeImage", "Button", {"X": 350, "Y": 100, "Width": 200, "Height": 40,
+        "Text": '"Clear image"', "OnSelect": "Set(gblSelectedLocation, Blank())"})
+    add("ScopeSave", "Button", {"X": 350, "Y": 160, "Width": 200, "Height": 40,
+        "Text": '"Save contact"', "OnSelect": 'With({fallback: "failed"}, Set(saveResult, IfError(With({saved: Patch(Contacts, First(Contacts), {FirstName: "Updated"})}, saved.FirstName), fallback))); Set(afterSave, saveResult)'})
+    add("ScopeSaveStatus", "Label", {"X": 350, "Y": 220, "Width": 200, "Height": 40, "Text": "afterSave"})
+    add("LaunchValue", "Label", {"X": 20, "Y": 290, "Width": 800, "Height": 80, "Text": 'Param("recordId")'})
+    add("LaunchCase", "Label", {"X": 20, "Y": 390, "Width": 200, "Height": 40,
+        "Text": 'If(IsBlank(Param("RecordId")), "case-sensitive", "incorrect")'})
+    add("LaunchLanguage", "Label", {"X": 350, "Y": 390, "Width": 200, "Height": 40, "Text": "Language()"})
+    return {
+        "CanvasManifest.json": json.dumps({"Name": "FixtureScopes", "ScreenOrder": ["Scopes"]}),
+        "src/App.pa.yaml": json.dumps({"App": {"Control": "AppHost", "Properties": {"OnStart": "=" + on_start}}}),
+        "src/Scopes.pa.yaml": json.dumps({"Scopes": {"Control": "Screen", "Children": children}}),
+        "DataSources/Contacts.json": CONTACTS_JSON,
+    }
 
 
 def _write_msapp(path: Path, files: dict[str, str]) -> None:
@@ -304,6 +453,15 @@ def build_fixtures() -> None:
             "DataSources/Contacts.json": CONTACTS_JSON,
         },
     )
+    _write_msapp(
+        FIXTURE_DIR / "fixtureCharts.msapp",
+        {
+            "CanvasManifest.json": json.dumps({"Name": "FixtureCharts", "ScreenOrder": ["Charts"]}),
+            "src/App.pa.yaml": APP_CHARTS_YAML,
+            "src/Charts.pa.yaml": SCREEN_CHARTS_YAML,
+        },
+    )
+    _write_msapp(FIXTURE_DIR / "fixtureScopes.msapp", scope_fixture_files())
 
 
 if __name__ == "__main__":

@@ -28,7 +28,7 @@ def test_arithmetic():
 
 
 def test_this_item():
-    assert js("ThisItem.Name") == "item.name"
+    assert js("ThisItem.Name") == "FX.field(item, 'name')"
 
 
 def test_control_property_ref():
@@ -107,13 +107,13 @@ def test_if():
 
 def test_filter_lambda():
     assert js('Filter(Tasks, Amount > 100 && Status = "Open")') == (
-        "FX.filter(state.Tasks, (item) => ((item.amount > 100) && FX.eq(item.status, 'Open')))"
+        "FX.filter(state.Tasks, (__scope1) => ((FX.scopeValue([__scope1], 'amount', () => state.Amount) > 100) && FX.eq(FX.scopeValue([__scope1], 'status', () => state.Status), 'Open')))"
     )
 
 
 def test_lookup_chain():
     assert js("LookUp(Tasks, Id = 5).Name") == (
-        "FX.field(FX.lookUp(state.Tasks, (item) => FX.eq(item.id, 5)), 'name')"
+        "FX.field(FX.lookUp(state.Tasks, (__scope1) => FX.eq(FX.scopeValue([__scope1], 'id', () => state.Id), 5)), 'name')"
     )
 
 
@@ -122,7 +122,7 @@ def test_nullable_record_field_read_uses_power_fx_blank_semantics():
 
 
 def test_sum():
-    assert js("Sum(Tasks, Amount)") == "FX.sum(state.Tasks, (item) => item.amount)"
+    assert js("Sum(Tasks, Amount)") == "FX.sum(state.Tasks, (__scope1) => FX.scopeValue([__scope1], 'amount', () => state.Amount))"
 
 
 def test_count_rows():
@@ -202,4 +202,4 @@ def test_parse_error_raises_transpile_error():
 
 
 def test_snake_case_fields():
-    assert js("ThisItem.FullName") == "item.full_name"
+    assert js("ThisItem.FullName") == "FX.field(item, 'full_name')"

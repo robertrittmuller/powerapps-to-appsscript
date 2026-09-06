@@ -1,4 +1,18 @@
 services:
+  browser:
+    image: pfx2gas-browser:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.browser
+    working_dir: /workspace
+    user: "${PFX2GAS_UID:-1000}:${PFX2GAS_GID:-1000}"
+    init: true
+    shm_size: 1gb
+    environment:
+      - PYTHONPATH=/workspace/src
+    volumes:
+      - .:/workspace
+
   # Containers run as the invoking user's uid (PFX2GAS_UID/GID, defaults to
   # 1000) so files written into /workspace stay owned by the host user.
   # On Linux hosts run: export PFX2GAS_UID=$(id -u) PFX2GAS_GID=$(id -g)
@@ -31,6 +45,8 @@ services:
     user: "${PFX2GAS_UID:-1000}:${PFX2GAS_GID:-1000}"
     volumes:
       - .:/workspace
+    environment:
+      - PYTHONPATH=/workspace/src
     entrypoint: ["/bin/bash", "-lc"]
     command: >
       "/app/.venv/bin/python -m pytest -q &&
@@ -47,6 +63,7 @@ services:
       - .:/workspace
     environment:
       - PFX2GAS_SAMPLES_DIR=/workspace/samples/real
+      - PYTHONPATH=/workspace/src
     entrypoint: ["/bin/bash", "-lc"]
     command: >
       "/app/.venv/bin/python scripts/fetch_samples.py &&

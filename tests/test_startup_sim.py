@@ -13,6 +13,7 @@ DOMContentLoaded with a faithful async google.script.run mock, then asserts:
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 import tempfile
@@ -184,6 +185,20 @@ def test_fixture_b_startup_clean():
     assert verdict["totalConsoleErrors"] == 0, verdict
 
 
+def test_generated_business_charts_startup_clean():
+    verdict = _simulate(FIXTURES / "fixtureCharts.msapp")
+    assert verdict["refErrors"] == [], verdict
+    assert verdict["visible"] == ["Charts"], verdict
+    assert verdict["totalConsoleErrors"] == 0, verdict
+
+
+def test_generated_record_scopes_startup_clean():
+    verdict = _simulate(FIXTURES / "fixtureScopes.msapp")
+    assert verdict["refErrors"] == [], verdict
+    assert verdict["visible"] == ["Scopes"], verdict
+    assert verdict["totalConsoleErrors"] == 0, verdict
+
+
 def test_shared_simulator_runs_declarative_critical_journey(tmp_path):
     """The soak runner uses the same generated-app interaction evidence."""
     from pfx2gas.analyze import analyze
@@ -274,4 +289,5 @@ def test_generated_form_create_validate_reset_and_last_submit(tmp_path):
     assert "FX.field(val('Form1').last_submit, 'last_name')" in app_js
     assert "var displayFields = ['FirstName']" in app_js
     assert "FXRuntime.applyDefaultSelection" in app_js
-    assert 'data-control="ComboPeople" multiple' in (out / "Screens.html").read_text()
+    assert re.search(r'<select data-control="ComboPeople"[^>]*\bmultiple',
+                     (out / "Screens.html").read_text())

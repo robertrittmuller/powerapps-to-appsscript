@@ -15,6 +15,17 @@
   var forms = {};        // form name -> generated DataCard submit configuration
   var screenStack = [];
   var CURRENT_SCREEN = null;
+  var launchParameters = {};
+  if (typeof document !== 'undefined') {
+    var parameterElement = document.getElementById('fx-launch-parameters');
+    if (parameterElement) launchParameters = JSON.parse(parameterElement.textContent || '{}');
+  }
+
+  function param(name) {
+    var key = String(name == null ? '' : name);
+    return Object.prototype.hasOwnProperty.call(launchParameters, key)
+      ? String(launchParameters[key]) : null;
+  }
 
   function serverRun(fn) {
     var args = Array.prototype.slice.call(arguments, 1);
@@ -471,7 +482,7 @@
     var chart = global.FXCharts.model(rows, cfg);
     controlValues[name] = Object.assign({}, controlValues[name] || {}, {
       series_labels: chart.series,
-      item_color_set: global.FXCharts.palette,
+      item_color_set: chart.series.map(function (entry) { return entry.color; }),
     });
     el.innerHTML = global.FXCharts.svg(rows, cfg);
     return chart;
@@ -788,6 +799,8 @@
   };
 
   global.FXRuntime = {
+    param: param,
+    language: function () { return global.navigator && global.navigator.language || 'en-US'; },
     state: state,
     serverRun: serverRun,
     toast: toast,

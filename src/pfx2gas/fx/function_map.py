@@ -80,6 +80,8 @@ FUNCTION_MAP: dict[str, FnSpec] = {
     "Or": FnSpec("FX.anyOf([{args}])"),
     "Not": FnSpec("!({a0})"),
     "User": FnSpec("FXUser()"),
+    "Param": FnSpec("FXRuntime.param({a0})", "case-sensitive text from the web app launch request"),
+    "Language": FnSpec("FXRuntime.language()", "browser language tag; en-US when unavailable"),
     # date/time
     "Today": FnSpec("FX.today()"),
     "Now": FnSpec("FX.now()"),

@@ -41,7 +41,7 @@ def test_synthesize_fixture_a(ir_a, tmp_path):
                  "gas-runtime.js.html", "fx-stdlib.js.html"):
         assert (out / name).exists(), f"missing {name}"
     code = (out / "Code.gs").read_text()
-    assert "function doGet()" in code
+    assert "function doGet(event)" in code
     assert "FixtureA" in code
     manifest = (out / "appsscript.json").read_text()
     assert "USER_ACCESSING" in manifest
@@ -100,6 +100,31 @@ def test_index_includes_are_resolvable(ir_a, tmp_path):
     assert "function include(name)" in code
     for name in re.findall(r"include\('([^']+)'\)", index):
         assert (out / name).exists(), f"Index.html includes missing file: {name}"
+
+
+def test_launch_request_templating_is_valid_and_script_safe(ir_a, tmp_path):
+    import json
+    from pfx2gas.synth.build import synthesize
+    from pfx2gas.validate import validate_project
+
+    out = synthesize(ir_a, tmp_path / "Launch")
+    assert validate_project(out)["ok"]
+    code_path = out / "Code.gs"
+    script = '''
+const fs = require('node:fs'), vm = require('node:vm');
+const ctx = vm.createContext({});
+vm.runInContext(fs.readFileSync(process.argv[1], 'utf8'), ctx);
+const value = '</script><script>window.bad=true</script> & + café';
+const encoded = ctx.launchParametersJSON_({parameter: {recordId: value}});
+process.stdout.write(JSON.stringify({encoded, decoded: JSON.parse(encoded), absent: ctx.launchParametersJSON_()}));
+'''
+    run = subprocess.run(["node", "-e", script, str(code_path)], capture_output=True, text=True, check=True)
+    result = json.loads(run.stdout)
+    assert "<" not in result["encoded"]
+    assert result["decoded"] == {"recordId": "</script><script>window.bad=true</script> & + café"}
+    assert result["absent"] == "{}"
+    code_path.write_text(code_path.read_text().replace("function doGet(event)", "function wrongName(event)"))
+    assert "Code.gs has no doGet()" in validate_project(out)["problems"]
 
 
 def test_screens_contain_controls(ir_a, tmp_path):

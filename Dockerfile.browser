@@ -1,0 +1,10 @@
+FROM pfx2gas:latest
+
+# Dedicated test image: the converter remains small, browser versions pinned.
+USER root
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/pfx2gas-browsers
+RUN uv pip install --python /app/.venv/bin/python playwright==1.55.0 \
+    && /app/.venv/bin/python -m playwright install --with-deps chromium
+RUN apt-get update && apt-get install -y --no-install-recommends cabextract
+ENTRYPOINT ["/app/.venv/bin/python"]
+CMD ["scripts/browser_check.py"]

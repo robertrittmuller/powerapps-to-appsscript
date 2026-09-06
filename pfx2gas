@@ -3,11 +3,11 @@
 #
 #   pfx2gas convert /abs/path/App.msapp -o /abs/path/output/App
 #   pfx2gas validate /abs/path/output/App
-#   pfx2gas test | soak
+#   pfx2gas test | soak | browser
 #   pfx2gas clasp login --no-localhost
 #   pfx2gas clasp -w /abs/path/output/App push --force
 #
-# The first argument is a compose service name (pfx2gas | test | soak | clasp);
+# The first argument is a compose service (pfx2gas | test | soak | clasp | browser);
 # anything else is passed to the converter (pfx2gas service) directly.
 # Paths under the project are translated to /workspace/...; paths elsewhere
 # are bind-mounted at their absolute location so they work unchanged.
@@ -27,10 +27,12 @@ mkdir -p "$REPO/.clasp-home"
 
 service="pfx2gas"
 case "${1:-}" in
-  pfx2gas|test|soak|clasp)
+  pfx2gas|test|soak|clasp|browser)
     service="$1"; shift ;;
   build)
     shift
+    # Build the canonical base first; the optional browser image depends on it.
+    if [ $# -eq 0 ]; then set -- pfx2gas; fi
     exec docker compose -f "$REPO/docker-compose.yml" --project-directory "$REPO" build "$@" ;;
   -h|--help|help)
     sed -n '2,13p' "${BASH_SOURCE[0]}"; exit 0 ;;

@@ -1,35 +1,93 @@
-# pfx2gas — Gap Assessment & Roadmap (updated 2026-09-05)
+# pfx2gas — Gap Assessment & Roadmap (updated 2026-09-06)
 
-The latest pass fixed the missing HelpDesk gallery text, packaged logo, chart
-families, legends, font fallback, and chart-label contrast. HelpDesk @14 was
-browser-checked, but the converter has not yet demonstrated complete usability
-or visual equivalence across the benchmark. The next round should close the
-regression-gate gaps, exercise actual browser behavior, and prove one complete
-persistent data workflow.
+The product goal is to convert common business Power Apps canvas apps into
+Google-hosted apps that work correctly and preserve as much of the original UI
+and interaction behavior as reasonably possible, with minimal manual repair.
+Success means people can complete the original business tasks using a familiar
+interface, with correct data and explicit evidence of fidelity.
 
-This update reviews code through `ef0860c`, the latest saved local scorecard,
-and the previously recorded @14 browser inspection. Test results below are
-from the completed 2026-09-05 verification run (122 Python / 55 JS); this
-documentation review did not rerun the suite or deploy new code.
+The latest pass fixes nested/quoted record reads, row-versus-global scope,
+two-argument asynchronous `IfError`, and web-app launch parameters. The new
+generated-client/server browser journey verifies source-shaped image/text
+formulas, failed-save recovery, and a successful standalone Patch that preserves
+the existing row and its untouched fields after reload. Earlier collection,
+chart and HelpDesk regressions remain passing. These changes are local and
+tested; the last recorded Google deployment is still HelpDesk @14.
+
+All six Microsoft canvas exports generate valid code; **Employee Ideas and
+Inspection now have clean startup console checks, up from zero of six**.
+Neither has a verified usable workflow: the simulator still displays their
+loading screen, and timer-driven initialization is not wired. Formula coverage
+and an error-free loading screen are not business compatibility. Complete
+Google workflows and original-app visual equivalence remain unproven.
+
+## Acceptance goal: faithful business-app conversion
+
+**Functional fidelity:** preserve source business rules, calculations,
+validation, navigation, search/filter/sort, record selection, form modes,
+create/edit/delete, persisted data, roles and error handling. Test the complete
+workflow in the Google environment, including reload and failure paths. A
+visible unsupported placeholder documents a gap; it does not satisfy a
+workflow that depends on that feature.
+
+**UI fidelity:** preserve screen structure, control placement and dimensions,
+text and wrapping, typography, colors, icons, images, charts, forms, galleries,
+component styling, visibility and interaction states. Preserve the source's
+fixed-layout, scaling or responsive behavior at its supported viewports.
+Google services provide the target runtime and data layer; visual styling
+continues to follow the source app. Generic controls and replacement glyphs
+remain approximations until their appearance and behavior are checked.
+
+**Reasonable differences:** small browser/font rendering differences may be
+accepted within documented tolerances when readability and interaction remain
+equivalent. Missing text/media, incorrect charts, clipped essential controls,
+lost edits, incorrect records or broken actions are blocking defects. Record
+each material platform limitation, affected workflow, available adaptation and
+remaining manual work. Source bugs and incomplete prototypes remain separately
+identified so they do not become invented converter behavior.
+
+**Repeatability:** implement fixes in the reusable parser, generator or runtime
+and regenerate from the export. Each fix should be exercised in an independent
+representative app or fixture as well as the app that exposed it. Measure
+complete workflow passes, original-versus-converted visual differences, and
+remaining manual interventions per app; formula counts are diagnostic evidence.
+
+Prioritize representative business patterns in the acceptance corpus:
+
+| Business pattern | Required workflow evidence | Required UI evidence |
+|---|---|---|
+| Service requests / ticket tracking | Search, select, create, assign/update, validate and reopen a persisted record | List/detail/form consistency, statuses, navigation and dashboard |
+| Inventory / asset / customer records | Filter/sort, edit the correct row, maintain lookups and save changes | Dense galleries/tables, selectors, forms and images |
+| Requests / approvals / expense forms | Submit, validate, transition status and enforce the source's role-dependent actions | Conditional fields, disabled states, validation feedback and attachments where used |
+| Operational dashboards | Accurate aggregations and filter-dependent results | Original chart type, labels, series, colors, legends and resizing |
+
+These are coverage targets, not current support claims. Select exports whose
+source workflows are complete, covering modern and legacy controls and
+representative data sources. An external flow or connector dependency remains
+a blocker until its target behavior is implemented and verified. Retain games
+and component demos for regression coverage, while business-app failures drive
+the implementation order.
 
 ## Current evidence and its limits
 
 | Evidence | Latest result | What remains unproven |
 |---|---|---|
-| Unit/runtime tests | 122 Python, 55 JS; emitter/runtime consistency passes | Browser layout and complete deployed workflows |
+| Unit/runtime tests | 147 Python, 63 JS; emitter/runtime consistency passes | Complete deployed workflows and broader control semantics |
 | Local real-app soak | 10/10 Bootable; 23,746 formulas | All 10 are still unassessed for Usable and High fidelity |
 | Formula translation | 23,724 / 23,746 (99.9%) | Translation does not establish runtime behavior |
-| Runtime wiring | 15,300 emitted (64.4%), 330 approximated, 8,116 ignored/unsupported | Impact varies by property and critical workflow |
+| Runtime wiring | 15,318 emitted (64.5%), 329 approximated, 8,099 ignored/unsupported | Impact varies by property and critical workflow |
 | HelpDesk generated-app journeys | HOME → NEW → HOME; dashboard row text, logo URI, pie and legend output pass | All-screen interactions, image decoding/layout in CI, persistence |
 | HelpDesk @14 live browser | Ticket cards, decoded 64×64 logos, pie/bar/legend SVGs, readable fonts/labels, HOME → NEW → HOME | Same-state original comparison, user name/avatar, complete workflow coverage |
-| Form/DataCard implementation | Generated synthetic app proves create/edit, required validation, reset, callbacks and LastSubmit using a simulated backend | Real Google Sheets writes surviving reload and another user/session |
-| CI configuration | Tests, consistency, soak and scorecard artifacts exist | Fetches only five public modern apps; does not reproduce the full local ten-app corpus |
+| Chromium: business form | Actual generated client + Code.gs: edit/create, required validation, write failure, delete and page reload pass against a persistent Sheets test double | Real Google authorization/Sheets writes and another user/session |
+| Chromium regression suite | 4/4 journeys pass: business form, charts, HelpDesk, and record scopes/launch parameters; all run generated client and server code | Real Google services, all screens/states/viewports and original visual comparisons |
+| Microsoft business baseline | 6/6 convert and validate; 2/6 clean startup console checks; zero reference errors across all six; 105,336 formulas across 75 screens | All six business workflows remain unverified, including those with error-free loading screens |
+| CI configuration | Existing tests plus required-app/journey gates and new Chromium artifact job | Browser job configured and locally tested, not yet verified in remote CI; local HelpDesk remains optional |
 
-Local scorecard: `.artifacts/benchmark/benchmark-scorecard.json` and its
-Markdown companion, generated at `2026-09-05T12:38:26Z`. The scorecard's
-“Gaps” column counts ignored/unsupported formulas only; conversion-report
-totals also include approximations. For HelpDesk this is **1,858 + 181 =
-2,039 gaps**, with 4,517 of 6,556 formulas emitted.
+Evidence: `.artifacts/benchmark/benchmark-scorecard.json`,
+`.artifacts/microsoft/benchmark/benchmark-scorecard.json`, and
+`.artifacts/browser/`. Scorecards now label ignored/unsupported separately from
+approximations and retain input hashes and a converter source fingerprint.
+Browser screenshots are converted-output regression evidence, not originals.
 
 Historical milestone notes conflict: `AGENTS.md` calls M1–M4 complete, while
 the previous roadmap kept M4 open. For the current acceptance bar, a second
@@ -40,6 +98,10 @@ deliverable; historical milestone labels do not substitute for that evidence.
 
 | Change | Evidence / boundary |
 |---|---|
+| Formula-created collection discovery and multi-argument Collect/ClearCollect | Source-backed HelpDesk counts and independent chart fixture pass in Chromium; declared external tables retain server routing |
+| Source chart colors/label visibility, signed bars, zero-total pie state and reactive dimensions | JS semantic tests plus generated chart startup/browser journey; full multi-series and axis semantics still open |
+| Enforced benchmark gates and pinned modern sample hashes | Deliberate failed-journey/missing-app subprocess tests fail correctly; clean-container five-export download verified |
+| Chromium with generated Code.gs and DataInit.gs | Synthetic form create/edit/validate/fail/delete/reload and charts pass; HelpDesk content/navigation passes locally; no live Google persistence claim |
 | Compatibility catalog and separate Bootable / Usable / High fidelity grades | `fa7a6d2`; higher tiers remain unassessed when evidence is missing |
 | Form/DataCard submit and reset; record-valued selectors; visible unsupported capture controls | `9e23de3`; generated-runtime form journey passes, live persistence still pending |
 | Legacy chart-family preservation, single-slice pies, chart-derived legends | `1447ed6`; HelpDesk live charts now render; full chart semantics remain approximate |
@@ -75,26 +137,101 @@ must preserve and disclose:
   refers to priority. Chart data correctness must be checked against the source
   binding and source data, not inferred from a label.
 
-The catalog currently requests a persistent `create-ticket` journey for this
-export. That is a benchmark/source mismatch requiring correction and a
-replacement CRUD acceptance app, not permission to invent a Save mutation.
+The catalog now records source-supported form/list interactions instead of a
+persistent `create-ticket` journey. Persistent CRUD remains a required acceptance
+target in the Microsoft business catalog, and HelpDesk is not promoted to Usable.
+The eight tickets and dashboard's `[5, 2, 4, 8]` values are literal source data;
+the dashboard is not a derived count of those eight records.
 Record source limitations separately from missing converter support and missing
 verification. Any functional enhancement to the original app is a distinct
 scope decision.
 
 ## Next round: five ordered work packages
 
+R1–R5 are stable work-package identifiers. Execute them in the business-outcome
+sequence below: begin the regression checks alongside a real business app,
+then fix the functional and UI defects found in its workflows. Test harness
+completion alone is not completion of this round.
+
+### Selected Microsoft acceptance targets and immediate fix order
+
+The user requested two or three Microsoft examples with broad feature coverage.
+Selected **Milestones, Employee Ideas and Inspection**, including their manager
+and review variants: six untouched legacy canvas exports, complemented by the
+five existing modern regression exports. See [sample provenance](benchmark/SOURCES.md)
+and [the business catalog](benchmark/microsoft-apps.json). Release 44 and all
+export bytes are pinned; extraction and the failing baseline are reproducible
+with `./pfx2gas browser scripts/assess_microsoft_samples.py`.
+
+| Next priority | Observed blocker and outcome required |
+|---|---|
+| 1. Correct record and formula scopes (R4/R5) | First slice implemented: nested/quoted blank-safe fields, nested `With`, row/global fallback, distinct `ThisItem`/`ThisRecord`, LookUp projection and AddColumns field pairs. Remaining: `As` aliases/disambiguation, single-column table projection/membership, broader conditional/variadic semantics and source workflow coverage. |
+| 2. Preserve initialization and data contracts (R5) — next | `Param` and browser `Language()` implemented. Next wire Timer lifecycle and expose blocking initialization failures; preserve Dataverse solution schemas/choices/lookups and define explicit Google connector adapters. Do not fake connector success or navigate past unexecuted initialization. |
+| 3. Make record editing reliable (R4/R5) | Stabilize gallery DOM and row-scoped inputs/OnChange, selection, reactive defaults and DisplayMode. Demonstrate editing the correct row with no lost focus/edits, then save/reload against the generated server and real Google Sheets. |
+| 4. Close visible UI differences (R2/R3/R4) | Use those same workflows for text/media/disabled/validation states, chart series/axes and responsive layout. Extend Chromium to source-sized and narrow viewports and compare matching original screenshots. |
+
+Milestones supplies the first project/task lifecycle target; Employee Ideas and
+Inspection verify that fixes generalize. The Microsoft baseline still exits 1
+with four startup failures; the other two are Usable/High fidelity unassessed,
+not passing business apps. None of R1–R5 is fully complete under its original
+acceptance criteria.
+
+### September 6 completed slice and the next blocking dependencies
+
+- Quoted source/global names retain their identity, including spaces and
+  escaped apostrophes; nested image fields are no longer flattened into a
+  nonexistent row variable. Local fields shadow outer fields even when Blank.
+- `With` and two-argument `IfError` propagate asynchronous saves and failures
+  before subsequent behavior. Unsupported asynchronous table predicates remain
+  explicit translation gaps, not syntax-invalid synchronous callbacks.
+- Nested mutation schema discovery includes App.OnStart and nested behaviors.
+  External mutation-backed tables get stable generated IDs when absent, and
+  embedded fields survive partial updates. Existing deployed workbooks without
+  those headers still need an explicit migration; this does not migrate @14.
+- `doGet(event)` supplies case-sensitive, decoded, text-valued `Param` data;
+  missing parameters return Blank. Embedded request JSON escapes `<` to prevent
+  a script-ending payload from executing. Parameters never establish identity
+  or permissions. `Language()` uses the browser locale, not a Microsoft profile.
+- The generated-browser scope fixture, startup test, formula value tests and
+  emitter/runtime gate prevent these bug classes recurring. Source semantics:
+  [Power Fx With](https://learn.microsoft.com/en-us/power-platform/power-fx/reference/function-with),
+  [Param](https://learn.microsoft.com/en-us/power-platform/power-fx/reference/function-param),
+  [Apps Script request events](https://developers.google.com/apps-script/guides/web).
+
+The source ledger contains **28 OnTimerEnd handlers, none wired** (3 translated
+but ignored, 25 unsupported). Completing timers requires translating their
+actual initialization/focus formulas as well as scheduling them. Immediate
+startup errors are only the first reachable failures, not the full dependency
+list:
+
+| Microsoft export | Current startup blocker | Additional source dependencies to preserve |
+|---|---|---|
+| Employee Ideas | No console errors; still on Loading Screen | Unsupported loading timer; Teams channel posting and Dataverse campaign/idea data |
+| Employee Ideas Manager | `MicrosoftTeams.GetAllTeams` | Loading/focus timers; team/channel lookup and posting |
+| Inspection | No console errors; still on Loading Screen | Ignored loading/reset timers; Planner plans/tasks/buckets and task creation; Office365 user/profile/photo; Teams posting |
+| Inspection Manager | Teams lookup, `Planner.ListMyPlansV2`, `IsMatch` | Loading/focus timers; plan/bucket/task/group-plan lookups and settings validation |
+| Milestones | `TimeValue` | Loading/focus timers; Office365 user/profile/photo and relational project/task data |
+| Review Inspections | `Planner.ListMyPlansV2` | Loading/focus timers and inspection data |
+
+Next acceptance evidence must demonstrate leaving the loading state through
+the source-defined flow, with real mapped data, then completing a business
+journey. Follow that immediately with editable-gallery focus/selection tests
+and original-versus-converted UI comparisons in the same data state.
+
 ### R1 — P0: make regression evidence enforceable and reproducible
 
-**Confirmed code gaps:** `scripts/soak_check.py` exits nonzero for no apps or
-Bootable failures only; a failed required journey can appear in the scorecard
-while the command succeeds. `scripts/fetch_samples.py` downloads five modern
-apps; the five additional local samples, including HelpDesk, are not reproduced
-by that fetch. Missing catalog apps are reported but do not fail the run.
-`benchmark.evaluate_grades` can also award High fidelity from complete visual
-evidence without requiring Usable to pass.
+**Implemented:** failed required journeys and missing required apps cause a
+nonzero exit; High fidelity requires Usable; the HelpDesk source mismatch is
+corrected; modern exports are revision/hash pinned; scorecards retain source
+fingerprints and input hashes. Container tests now explicitly import the mounted
+source tree instead of accidentally testing an older baked package.
 
-Implement:
+**Remaining:** reproduce the five additional local exports (including HelpDesk)
+or licensed equivalents in CI, promote the Microsoft corpus into regression
+gating once its startup failures are fixed, and attach complete workflow/original
+visual evidence. The full historical ten-app corpus is not yet reproducible.
+
+Checklist (retain completed items as acceptance requirements):
 
 - Fail CI for any executed required journey failure. Distinguish unassessed
   evidence from failure, and define the required app/journey set explicitly.
@@ -119,6 +256,12 @@ Primary files: `scripts/soak_check.py`, `scripts/fetch_samples.py`,
 
 ### R2 — P0: automate real-browser content and layout checks
 
+**Implemented, partial:** `./pfx2gas browser` runs Chromium in Docker against
+generated HTML/JS plus actual generated server code with a Sheets test double.
+Forms, chart semantics and local HelpDesk HOME/NEW interactions pass; screenshots,
+console errors, DOM geometry, browser version and source hashes are retained.
+CI runs the redistributable synthetic form/chart cases. HelpDesk runs when present.
+
 The simulator checks generated runtime behavior with a stub DOM. It does not
 perform browser text measurement, image decoding, hit testing, real event
 bubbling, font layout, or viewport reflow. The @14 manual review must become a
@@ -127,12 +270,15 @@ repeatable test with retained screenshots and DOM measurements.
 Implement a Docker-based browser runner for generated output with deterministic
 data and a controlled Apps Script API bridge. Cover HelpDesk HOME, NEW, LIST and
 REPORTS plus source-supported paths to VIEW/EDIT; Clean UI components; and a
-modern app. Test empty, single-record and multiple-record states. Inspect:
+modern data-backed business app selected for R5. Test empty, single-record and
+multiple-record states, plus loading, validation failure and disabled states.
+Inspect:
 
 - visible text, decoded images, chart geometry and legends;
 - bounding boxes, text clipping, overlap, scroll access and keyboard focus;
 - menu destinations, input/reset behavior, search/filter and selection;
-- source-sized and narrow viewports with reproducible fonts and data.
+- source-sized and narrow viewports with reproducible fonts and data, preserving
+  the source's fixed/scaled/responsive layout contract.
 
 Keep converted-output regression screenshots separate from original-versus-
 converted fidelity evidence. Obtain original app captures at the same viewport,
@@ -143,35 +289,38 @@ Missing originals block the High fidelity claim, but not browser regression work
 clipped primary controls fails automated browser checks; failure artifacts
 identify the control and state; at least one critical screen has an original
 comparison. Every remaining mismatch is classified and reproducible.
+Pair the checks with fixes to the source-to-output differences they expose;
+retain before/after evidence and verify another app or fixture for each fix.
 
 Primary files: new browser harness/tests and container service,
 `src/pfx2gas/startup_sim.py`, `benchmark/apps.json`, CI artifact configuration.
 
 ### R3 — P0: chart data and display semantics
 
-Chart rendering now exists, but code inspection identifies concrete remaining
-gaps in `static/fx-charts.js` and `synth/client.py`:
+**Implemented:** `ShowLabels` and `ItemColorSet` expressions, matching legend
+colors, explicit field-name normalization, signed bar geometry, zero-total pie
+empty state and reactive source Width/Height/foreground. Independent generated
+startup and browser chart fixtures verify these; HelpDesk retains its four
+literal source totals. General chart rendering remains approximate.
 
-- `ShowLabels` is serialized but never read by the renderer.
+Remaining gaps in `static/fx-charts.js` and `synth/client.py`:
+
 - Column inference chooses the first eligible fields; one category/value pair
   is supported, with no full multi-series mapping.
-- Bars clamp negative heights to a positive minimum, so negative values cannot
-  be represented correctly relative to zero.
-- Series/legend metadata and hard-coded palettes are approximations;
-  `ItemColorSet` expressions are not consumed.
-- Chart width/height and foreground config are captured statically; changing a
-  control's outer dimensions does not establish correctly resized SVG content.
-- Zero-total pies can produce empty SVG content without an explicit empty state.
+- Axis ranges/ticks/formatting, source label placement and series metadata remain
+  approximate. Negative pie values are omitted; exact source parity is unverified.
+- Source-formula size changes update SVG, but viewport-driven layout invalidation
+  and all flex/container-resize paths remain unverified.
 
-First implement explicit field/series binding where source metadata exists,
-label visibility, consistent chart/legend colors, negative/zero/empty states,
-and reactive sizing. Add multi-series support next, with explicit reporting for
+Implement multi-series binding where source metadata exists, source axis and
+label formatting, and viewport/layout resizing next, with explicit reporting for
 unsupported variants. Review source formulas before changing dashboard totals.
 
 **Done when:** generated-app and browser fixtures prove exact categories,
 values, label visibility, colors and geometry for empty/one/many rows,
 negative/zero values and multiple series. HelpDesk remains visually stable;
-a distinct multi-series fixture demonstrates broader compatibility.
+a distinct multi-series fixture demonstrates broader compatibility. Compare
+the dashboard's totals, chart appearance and filter behavior with the original.
 
 Primary files: `src/pfx2gas/legacy.py`, `src/pfx2gas/synth/client.py`,
 `static/fx-charts.js`, `static/gas-runtime.js`, chart and browser tests.
@@ -191,21 +340,27 @@ states. Test async child actions and `Select(Parent)` with a real parent
 handler for correct ordering and exactly-once execution. Revisit horizontal
 galleries, WrapCount/template width and padding with browser geometry evidence.
 Add viewport resize invalidation and test AutoHeight/dependent positions in
-nested containers; current runtime has no resize listener.
+nested containers; current runtime has no resize listener. Preserve the source
+layout mode: a fixed canvas may scale or scroll, while a responsive source must
+reflow according to its formulas.
 
 **Done when:** editing row two updates only row two; typing, focus and selection
 survive unrelated state updates; async actions refresh the correct row;
-nested/wrapped layouts reflow without clipped primary controls at supported
-viewports. A source-app action must determine navigation behavior.
+nested/wrapped layouts follow the original's scaling/reflow behavior without
+clipped primary controls at supported viewports. A source-app action must
+determine navigation behavior. Form/gallery appearance and validation states
+must also match the original within the recorded tolerances.
 
 Primary files: `static/gas-runtime.js`, `src/pfx2gas/synth/client.py`,
 gallery/form fixtures, generated-runtime and browser journeys.
 
 ### R5 — P0: prove persistent CRUD and finish visible identity/media states
 
-Use an actual data-backed app with source create/edit/delete behavior. Inspect
-Editable Grid's source for suitability; obtain another licensed modern export
-if it lacks persistent mutations. Keep the existing synthetic Form/DataCard
+Use the selected Microsoft business templates with source create/edit/delete
+behavior. Editable Grid has persistent formulas but lacks its Student Tracker
+metadata and initialization; it remains a limited regression input. The six
+Microsoft exports now establish the business acceptance targets throughout R1–R5.
+Keep the existing synthetic Form/DataCard
 journey as a regression test, but add a browser and deployed Google Sheets
 journey: create → read → edit → validate → delete → reload.
 
@@ -215,15 +370,19 @@ Start with the Sheets contract and only add adapters required by the chosen app.
 Give DataTable and searchable ComboBox behavior concrete fixtures rather than
 treating their generic/native-select renderers as complete.
 
-Address the visible blank identity state: use a deterministic no-photo/no-name
-fallback and report identity availability; add optional Workspace enrichment
-only with an explicit adapter and permission contract. Distinguish intentionally
+The current server already derives a display-name fallback from the email local
+part and the generated image fallback renders without a profile photo. Verify
+anonymous/unavailable identity states and report that these are fallbacks, not
+directory identity. Add optional Workspace enrichment only with an explicit
+adapter and permission contract. Distinguish intentionally
 absent images from failed resources. Keep unsupported attachments visible until
 a Drive storage/access contract and upload/download journey are implemented.
 
 **Done when:** a second deployed app completes its declared CRUD journey,
 changes survive reload against real Sheets, server failures produce useful
-feedback, and identity/media controls have meaningful fallback states.
+feedback, and identity/media controls have meaningful fallback states. Its
+list/detail/form screens and supported interaction states have original-app
+comparisons, with all blocking functional and visual differences resolved.
 Record the deployment version, data setup, steps and results.
 
 Primary files: `src/pfx2gas/synth/server.py`, `src/pfx2gas/synth/client.py`,
@@ -231,10 +390,27 @@ Primary files: `src/pfx2gas/synth/server.py`, `src/pfx2gas/synth/client.py`,
 
 ## Execution order and release criteria
 
-Start R1, then build R2's browser harness before broad UI changes. Use that
-harness for R3 and R4; select the R5 data app early so its source/schema informs
-the work. Original captures and a suitable CRUD export are evidence inputs,
-not reasons to delay the independent test and runtime work.
+1. With the three R5 business templates selected and baselined, record their
+   complete solution data contracts, layout modes and original reference states. Keep HelpDesk
+   as an additional dashboard/component regression target.
+2. Implement the R1 checks that prevent false passes and the R2 browser checks
+   needed to exercise those two apps. Expand the harness as actual workflows
+   require it.
+3. Fix blocking business behavior first: correct record selection/editing,
+   reactive inputs, validation, save/reload and navigation (R4/R5). In the same
+   app states, restore missing or incorrect text, media, layout and control
+   appearance (R2/R4). Verify complete workflows and their visible results.
+4. Correct dashboard data, chart presentation and responsive/scaled behavior
+   (R3/R4), ordered by impact on the selected business workflows. A chart defect
+   that misrepresents a business result is a functional blocker.
+5. Regenerate, deploy and compare both apps; retain the source/output evidence,
+   remaining differences and the regression fixtures for subsequent conversions.
+
+Rank work by blocked business tasks and incorrect data first, then missing or
+misleading UI and visual similarity, then prevalence across common business
+apps. Source captures and a complete data-backed export are required evidence
+inputs; independent regression and runtime work can proceed while they are
+being obtained.
 
 Each production defect needs a pinpoint regression plus a check for that class
 of failure in the same code change. Run `./pfx2gas test`, the required corpus
@@ -248,7 +424,14 @@ The next release should require:
 - reproducible declared corpus coverage in CI;
 - HelpDesk's verified content/navigation plus explicit source limitations;
 - chart and gallery cases passing the new browser gates;
-- one real persistent CRUD workflow with recorded Google deployment evidence.
+- a complete real business-app workflow with persistent CRUD and recorded
+  Google deployment evidence, including validation and error behavior;
+- original-versus-converted comparisons for the business app's critical
+  list/detail/form screens and the dashboard reference, with no missing
+  essential content, misleading visualization or unusable control;
+- a per-app list of remaining differences and manual repairs. An unresolved
+  critical business feature keeps that app below the acceptance goal even if
+  the limitation is accurately reported.
 
 Call an app **Bootable** after startup checks, **Usable** after all applicable
 critical workflows, and **High fidelity** only after those workflows and

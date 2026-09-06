@@ -75,6 +75,20 @@ jobs:
       - name: Test suite in container
         run: docker compose run --rm test
 
+      - name: Build Chromium test image
+        run: ./pfx2gas build browser
+
+      - name: Generated client and server browser journeys
+        run: ./pfx2gas browser
+
+      - name: Publish browser evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-app-browser-evidence
+          path: .artifacts/browser
+          if-no-files-found: error
+
       - name: CLI smoke — convert a fixture, validate it, syntax-check the .gs
         run: |
           docker compose run --rm pfx2gas convert tests/fixtures/fixtureB.msapp -o /workspace/.tmp-container-smoke

@@ -21,6 +21,24 @@ test('lookUp returns first match or null', () => {
   const rows = [{ id: 4 }, { id: 5, name: 'five' }];
   assert.deepStrictEqual(FX.lookUp(rows, (item) => FX.eq(item.id, 5)), { id: 5, name: 'five' });
   assert.strictEqual(FX.lookUp(rows, (item) => item.id === 99), null);
+  assert.strictEqual(FX.lookUp(rows, item => item.id === 5, item => item.name), 'five');
+  assert.strictEqual(FX.lookUp(rows, item => item.id === 99, () => {throw new Error('unreachable');}), null);
+});
+
+test('record scopes shadow globals only for own fields, including Blank', () => {
+  const outer = {value: 8};
+  assert.strictEqual(FX.scopeValue([{value: null}, outer], 'value', () => 9), null);
+  assert.strictEqual(FX.scopeValue([{}, outer], 'value', () => 9), 8);
+  assert.strictEqual(FX.scopeValue([Object.create({value: 1})], 'value', () => 9), 9);
+  assert.strictEqual(FX.scopeValue([2], 'value', () => 9), 2);
+});
+
+test('IfError handles synchronous throws and awaited save rejections', async () => {
+  const fail = () => {throw new Error('save failed');};
+  assert.strictEqual(FX.ifError(() => 7, fail), 7);
+  assert.strictEqual(FX.ifError(fail, e => e.message), 'save failed');
+  assert.strictEqual(await FX.ifError(async () => fail(), async e => e.message), 'save failed');
+  await assert.rejects(FX.ifError(async () => fail(), async () => {throw new Error('fallback failed');}), /fallback failed/);
 });
 
 test('concatStr handles null like Power Fx blank', () => {

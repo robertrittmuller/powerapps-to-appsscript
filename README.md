@@ -44,6 +44,8 @@ container automatically:
 ./pfx2gas convert ~/Apps/YourApp.msapp -o ~/Apps/output/YourApp  # any paths
 ./pfx2gas test                                                   # full suite
 ./pfx2gas soak                                                   # real-app benchmark + scorecard
+./pfx2gas build browser                                          # optional Chromium test image
+./pfx2gas browser                                                # generated client + server journeys
 
 # deployment (credentials persist in .clasp-home/):
 ./pfx2gas clasp login --no-localhost                             # once
@@ -133,6 +135,29 @@ output/<App>/
 Static files (`gas-runtime`, `fx-stdlib`) are shared runtime, not generated
 per-app; everything else is derived from your app.
 
+## Business-app acceptance testing
+
+The acceptance targets are Microsoft's **Milestones, Employee Ideas and
+Inspection** templates (six canvas exports including their manager/review apps).
+Their pinned source packages, feature distribution and evidence limitations are
+documented in [benchmark/SOURCES.md](benchmark/SOURCES.md).
+
+```bash
+./pfx2gas browser scripts/assess_microsoft_samples.py
+```
+
+This separate baseline currently fails startup; it is not a claim that these
+business apps are usable yet. The normal `./pfx2gas soak` enforces the existing
+required regression corpus, including failed required journeys and missing apps.
+
+`./pfx2gas browser` tests generated forms, charts, record scopes and launch
+parameters in Chromium, plus HelpDesk when its local export is present. It runs
+generated `doGet`/client/server code against a Sheets test double to check save,
+validation, failure, delete and reload behavior, including safe request templating.
+Screenshots and DOM measurements are saved under `.artifacts/browser/` and
+uploaded by CI. Real Google deployment and original-versus-converted visual
+comparison remain separate acceptance steps.
+
 ## The conversion report
 
 Translation and generated runtime wiring are reported separately. A formula
@@ -194,6 +219,15 @@ Converted apps aim to match the original visually and behaviorally:
   DataCard metadata to load and collect values, validate required fields,
   create or update a stable Sheet row, expose `Error`/`Valid`/`LastSubmit`, and
   run `OnSuccess`/`OnFailure`.
+- **Record formulas** — nested/quoted fields are blank-safe; nested `With` and
+  table predicates preserve row/global scope and the enclosing gallery's
+  `ThisItem`. LookUp projections and AddColumns field pairs are retained.
+  Two-argument `IfError` can recover from an awaited save; nested saves expose
+  fields for the generated Sheet schema and receive stable row IDs when absent.
+- **Launch context** — `Param("name")` reads case-sensitive request parameters
+  as text (missing values are Blank); the server safely embeds them without
+  interpreting markup. `Language()` uses the browser locale. Query parameters
+  are untrusted data, never user identity or authorization.
 - **Unsupported capture inputs** — camera, signature/PenInput, barcode,
   microphone, attachments, and AddMediaButton render a visible blocker and are
   called out in the report until browser/Drive adapters exist.

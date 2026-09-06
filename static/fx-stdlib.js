@@ -47,6 +47,16 @@
       if (record == null) return null;
       return record[key] === undefined ? null : record[key];
     },
+    // Inner record fields shadow outer fields, including explicit Blank values.
+    // Only an absent field falls through to the outer scope or app state.
+    scopeValue: function (scopes, key, fallback) {
+      for (var i = 0; i < scopes.length; i++) {
+        var record = scopes[i];
+        if (record != null && Object.prototype.hasOwnProperty.call(record, key)) return record[key];
+        if (key === 'value' && record != null && typeof record !== 'object') return record;
+      }
+      return fallback();
+    },
     contains: function (needle, haystack) {
       if (Array.isArray(haystack)) return haystack.indexOf(needle) >= 0;
       return String(haystack).indexOf(String(needle)) >= 0;
@@ -60,7 +70,10 @@
       return null;
     },
     ifError: function (tryFn, catchFn) {
-      try { return tryFn(); } catch (e) { return catchFn(); }
+      try {
+        var result = tryFn();
+        return result && typeof result.then === 'function' ? result.catch(catchFn) : result;
+      } catch (e) { return catchFn(e); }
     },
     withRow: function (record, fn) { return fn(Object.assign({}, record)); },
     unsupported: function (name) {
@@ -71,8 +84,10 @@
     // --- tables ------------------------------------------------------------
     filter: function (t, pred) { return rows(t).filter(pred); },
     forAll: function (t, fn) { return rows(t).map(fn); },
-    lookUp: function (t, pred) {
-      for (var i = 0; i < rows(t).length; i++) if (pred(rows(t)[i])) return rows(t)[i];
+    lookUp: function (t, pred, projection) {
+      for (var i = 0; i < rows(t).length; i++) if (pred(rows(t)[i])) {
+        return projection ? projection(rows(t)[i]) : rows(t)[i];
+      }
       return null;
     },
     countRows: function (t) { return rows(t).length; },

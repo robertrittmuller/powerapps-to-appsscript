@@ -39,7 +39,7 @@ def test_gallery_renders_row_template():
     assert 'data-control="LabelRow"' in html and 'data-control="BtnDelete"' in html
     js = render_app_js(ir)
     assert "FXRuntime.gallery(" in js
-    assert "item.name" in js          # per-row text binding
+    assert "FX.field(item, 'name')" in js  # blank-safe per-row text binding
     assert "apiRemove('Tasks', item)" in js  # per-item handler
 
 

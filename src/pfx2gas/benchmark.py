@@ -7,6 +7,7 @@ works or that the rendered app matches the source visually.
 from __future__ import annotations
 
 import json
+import hashlib
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
@@ -19,6 +20,18 @@ GRADE_STATUSES = {PASS, FAIL, UNASSESSED}
 COVERAGE_STATUSES = {"none", "partial", "complete"}
 
 
+def converter_fingerprint() -> str:
+    """Identify exact converter sources, including uncommitted local changes."""
+    root = Path(__file__).resolve().parents[2]
+    digest = hashlib.sha256()
+    for directory, suffix in ((root / "src", ".py"), (root / "static", ".js")):
+        for path in sorted(directory.rglob("*" + suffix)):
+            digest.update(str(path.relative_to(root)).encode())
+            digest.update(b"\0")
+            digest.update(path.read_bytes())
+    return digest.hexdigest()
+
+
 def load_catalog(path: str | Path) -> dict[str, Any]:
     """Load and minimally validate the versioned app/archetype catalog."""
     catalog_path = Path(path)
@@ -28,6 +41,11 @@ def load_catalog(path: str | Path) -> dict[str, Any]:
     apps = data.get("apps")
     if not isinstance(apps, dict):
         raise ValueError("benchmark catalog apps must be an object")
+    required_apps = data.get("requiredApps", list(apps))
+    if (not isinstance(required_apps, list) or not required_apps
+            or any(not isinstance(name, str) or name not in apps for name in required_apps)
+            or len(set(required_apps)) != len(required_apps)):
+        raise ValueError("benchmark requiredApps must name unique catalog apps")
     for app_id, app in apps.items():
         if not isinstance(app, dict):
             raise ValueError(f"benchmark app {app_id!r} must be an object")
@@ -63,6 +81,7 @@ def metadata_for(catalog: dict[str, Any], app_id: str) -> dict[str, Any]:
         "journeyCoverage": configured.get("journeyCoverage", "none"),
         "visualCoverage": configured.get("visualCoverage", "none"),
         "criticalJourneys": list(configured.get("criticalJourneys", [])),
+        "sourceLimitations": list(configured.get("sourceLimitations", [])),
     }
 
 
@@ -96,12 +115,17 @@ def evaluate_grades(app: dict[str, Any]) -> dict[str, dict[str, str]]:
     metadata = app.get("metadata", {})
     journey_results = app.get("evidence", {}).get("journeys", [])
     required = [item for item in journey_results if item.get("required", True)]
+    declared = [item for item in metadata.get("criticalJourneys", [])
+                if item.get("required", True)]
+    reported_ids = {item.get("id") for item in required}
+    missing_journeys = [item for item in declared if item.get("id") not in reported_ids]
     if bootable["status"] == FAIL:
         usable = {"status": FAIL, "reason": "app is not bootable"}
     elif any(item.get("status") == FAIL for item in required):
         usable = {"status": FAIL, "reason": "a required critical journey failed"}
     elif (
         metadata.get("journeyCoverage") == "complete"
+        and not missing_journeys
         and required
         and all(item.get("status") == PASS for item in required)
     ):
@@ -113,8 +137,8 @@ def evaluate_grades(app: dict[str, Any]) -> dict[str, dict[str, str]]:
         }
 
     visual = app.get("evidence", {}).get("visual", {})
-    if bootable["status"] == FAIL:
-        high_fidelity = {"status": FAIL, "reason": "app is not bootable"}
+    if usable["status"] == FAIL:
+        high_fidelity = {"status": FAIL, "reason": "a prerequisite business workflow failed"}
     elif visual.get("status") == FAIL:
         high_fidelity = {
             "status": FAIL,
@@ -123,6 +147,7 @@ def evaluate_grades(app: dict[str, Any]) -> dict[str, dict[str, str]]:
     elif (
         metadata.get("visualCoverage") == "complete"
         and visual.get("status") == PASS
+        and usable["status"] == PASS
     ):
         high_fidelity = {
             "status": PASS,
@@ -147,6 +172,7 @@ def build_scorecard(
     catalog_path: str | Path,
     sample_dir: str | Path,
     catalog_app_ids: list[str] | None = None,
+    required_app_ids: list[str] | None = None,
 ) -> dict[str, Any]:
     """Attach grades and aggregate only status counts (never one vanity score)."""
     for app in apps:
@@ -159,8 +185,10 @@ def build_scorecard(
         }
     exercised = {app["id"] for app in apps}
     catalog_ids = set(catalog_app_ids or [])
-    return {
+    scorecard = {
         "schemaVersion": 1,
+        "converterSourceSha256": converter_fingerprint(),
+        "evidenceType": "generated-runtime-simulator",
         "generatedAt": datetime.now(timezone.utc).isoformat(),
         "catalog": str(catalog_path),
         "sampleDirectory": str(sample_dir),
@@ -170,10 +198,36 @@ def build_scorecard(
             "exercisedCatalogApps": sorted(exercised & catalog_ids),
             "missingCatalogApps": sorted(catalog_ids - exercised),
             "uncatalogedApps": sorted(exercised - catalog_ids),
+            "missingRequiredApps": sorted(set(required_app_ids if required_app_ids is not None
+                                              else catalog_ids) - exercised),
         },
         "summary": {"grades": grades},
         "apps": apps,
     }
+    scorecard["gateErrors"] = gate_errors(scorecard)
+    return scorecard
+
+
+def gate_errors(scorecard: dict[str, Any]) -> list[str]:
+    """Release gate: absent evidence stays unassessed; executed failures never pass."""
+    errors = []
+    if not scorecard.get("apps"):
+        errors.append("no benchmark apps were exercised")
+    for name in scorecard.get("catalogCoverage", {}).get("missingRequiredApps", []):
+        errors.append(f"required benchmark app missing: {name}")
+    for app in scorecard.get("apps", []):
+        for grade, result in app["grades"].items():
+            if result["status"] == FAIL:
+                errors.append(f"{app['id']}: {grade}: {result['reason']}")
+        # Executable required journeys cannot quietly become unassessed if the
+        # runner omits one. Intentionally planned journeys have no steps yet.
+        results = {j["id"]: j for j in app.get("evidence", {}).get("journeys", [])}
+        for journey in app.get("metadata", {}).get("criticalJourneys", []):
+            if journey.get("required", True) and journey.get("steps"):
+                result = results.get(journey["id"], {})
+                if result.get("status") != PASS:
+                    errors.append(f"{app['id']}: required journey did not pass: {journey['id']}")
+    return errors
 
 
 def _md(value: Any) -> str:
@@ -223,7 +277,7 @@ def render_scorecard_markdown(scorecard: dict[str, Any]) -> str:
         "## Per-app scorecard",
         "",
         "| App | Format | Archetypes | Bootable | Usable | High fidelity | "
-        "Screens | Controls | Emitted | Gaps |",
+        "Screens | Controls | Emitted | Ignored/unsupported |",
         "|---|---|---|---|---|---|---:|---:|---:|---:|",
     ])
     for app in scorecard["apps"]:
@@ -260,6 +314,8 @@ def render_scorecard_markdown(scorecard: dict[str, Any]) -> str:
             grade = app["grades"][grade_name]
             lines.append(f"- {label}: **{grade['status']}** — {grade['reason']}")
         problems = app.get("problems", [])
+        for limitation in app["metadata"].get("sourceLimitations", []):
+            lines.append(f"- Source limitation: {_md(limitation)}")
         if problems:
             lines.append(f"- Problems: {_md('; '.join(problems[:5]))}")
         top_gaps = app.get("formulaFidelity", {}).get("topGaps", [])
@@ -280,6 +336,9 @@ def render_scorecard_markdown(scorecard: dict[str, Any]) -> str:
             if journey.get("error"):
                 lines.append(f"    - {_md(journey['error'])}")
         lines.append("")
+    lines.extend(["## Release gate", ""])
+    errors = scorecard.get("gateErrors", [])
+    lines.extend([f"- {error}" for error in errors] or ["Pass: no required regression checks failed."])
     return "\n".join(lines).rstrip() + "\n"
 
 

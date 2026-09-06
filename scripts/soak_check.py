@@ -7,6 +7,7 @@ reported as unassessed, never silently promoted to a pass.
 from __future__ import annotations
 
 import os
+import hashlib
 import shutil
 import sys
 import time
@@ -108,6 +109,7 @@ def _run_app(path: Path, output_dir: Path, metadata: dict[str, Any]) -> dict[str
         "id": path.stem,
         "name": metadata["displayName"],
         "file": path.name,
+        "inputSha256": hashlib.sha256(path.read_bytes()).hexdigest(),
         "metadata": metadata,
         "stages": {"convert": FAIL, "validate": FAIL, "boot": FAIL},
         "observed": {},
@@ -227,6 +229,7 @@ def main() -> int:
         catalog_path=CATALOG_PATH,
         sample_dir=SAMPLES_DIR,
         catalog_app_ids=list(catalog["apps"]),
+        required_app_ids=catalog.get("requiredApps", list(catalog["apps"])),
     )
     json_path, md_path = write_scorecard(scorecard, OUT)
     boot_counts = scorecard["summary"]["grades"]["bootable"]
@@ -244,7 +247,9 @@ def main() -> int:
         f"{fidelity['gaps']} ignored/unsupported"
     )
     print(f"scorecards: {json_path} and {md_path}")
-    return 1 if not apps or boot_counts[FAIL] else 0
+    for error in scorecard["gateErrors"]:
+        print(f"GATE FAIL: {error}")
+    return 1 if scorecard["gateErrors"] else 0
 
 
 if __name__ == "__main__":

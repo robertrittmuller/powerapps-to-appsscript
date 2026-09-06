@@ -1,0 +1,89 @@
+// Execute the actual generated Code.gs/DataInit.gs against a Sheets test double.
+// The workbook survives browser reloads; this is not a real Google deployment.
+const fs = require('node:fs');
+const path = require('node:path');
+const vm = require('node:vm');
+const readline = require('node:readline');
+const clone = value => JSON.parse(JSON.stringify(value));
+
+class Sheet {
+  constructor(name) { this.name = name; this.rows = []; }
+  clear() { this.rows = []; }
+  getLastColumn() { return Math.max(0, ...this.rows.map(row => row.length)); }
+  getDataRange() { return this.getRange(1, 1, Math.max(1, this.rows.length), Math.max(1, this.getLastColumn())); }
+  getRange(row, col, height = 1, width = 1) {
+    const sheet = this;
+    return {
+      getValues() { return Array.from({length: height}, (_, y) =>
+        Array.from({length: width}, (_, x) => sheet.rows[row + y - 1]?.[col + x - 1] ?? '')); },
+      setValues(values) {
+        if (values.length !== height || values.some(value => value.length !== width)) {
+          throw new Error('range dimensions do not match');
+        }
+        values.forEach((cells, y) => cells.forEach((value, x) => {
+          if (value !== null && typeof value === 'object') throw new Error('Sheets cell requires a scalar');
+          (sheet.rows[row + y - 1] ||= [])[col + x - 1] = value;
+        }));
+      },
+      setValue(value) { this.setValues([[value]]); },
+    };
+  }
+  appendRow(row) { this.getRange(this.rows.length + 1, 1, 1, row.length).setValues([row]); }
+  deleteRow(row) { this.rows.splice(row - 1, 1); }
+  setFrozenRows() {}
+}
+
+const sheets = new Map([['Sheet1', new Sheet('Sheet1')]]);
+const workbook = {
+  getSheetByName: name => sheets.get(name),
+  insertSheet(name) { const sheet = new Sheet(name); sheets.set(name, sheet); return sheet; },
+  getSheets: () => [...sheets.values()],
+  deleteSheet: sheet => sheets.delete(sheet.name),
+  getId: () => 'test-workbook', getUrl: () => 'https://example.test/workbook',
+};
+const properties = new Map();
+let sequence = 0, failNext = false;
+const context = vm.createContext({
+  HtmlService: {
+    createHtmlOutputFromFile(name) {
+      return {getContent: () => fs.readFileSync(path.join(process.argv[2], name), 'utf8')};
+    },
+    createTemplateFromFile(name) {
+      const template = {
+        evaluate() {
+          context.launchParametersJSON = template.launchParametersJSON;
+          const content = fs.readFileSync(path.join(process.argv[2], name + '.html'), 'utf8')
+            .replace(/<\?!=([\s\S]*?)\?>/g, (_match, expression) =>
+              vm.runInContext(expression, context, {timeout: 10000}));
+          return {getContent: () => content, setTitle() {return this;}, addMetaTag() {return this;}};
+        },
+      };
+      return template;
+    },
+  },
+  PropertiesService: { getScriptProperties: () => ({
+    getProperty: key => properties.get(key), setProperty: (key, value) => properties.set(key, value),
+  }) },
+  SpreadsheetApp: { create: () => workbook, openById: () => workbook },
+  Utilities: { getUuid: () => 'test-record-' + (++sequence) },
+  Session: { getActiveUser: () => ({ getEmail: () => 'business.tester@example.test' }) },
+});
+for (const file of ['Code.gs', 'DataInit.gs']) {
+  vm.runInContext(fs.readFileSync(path.join(process.argv[2], file), 'utf8'), context, {timeout: 10000});
+}
+vm.runInContext('setup()', context, {timeout: 10000});
+readline.createInterface({input: process.stdin}).on('line', line => {
+  try {
+    const request = JSON.parse(line);
+    if (request.fn === '__failNextMutation') { failNext = true; process.stdout.write('{"result":true}\n'); return; }
+    if (!['api', 'apiChoices', 'whoami', 'doGet'].includes(request.fn)) throw new Error('unknown test endpoint');
+    if (failNext && request.fn === 'api' && request.args[1] !== 'list') {
+      failNext = false; throw new Error('Simulated Sheets write failure');
+    }
+    context.requestJSON = JSON.stringify(request);
+    const result = vm.runInContext(
+      '(function(){var r=JSON.parse(requestJSON); return globalThis[r.fn].apply(null,r.args);})()',
+      context, {timeout: 10000});
+    process.stdout.write(JSON.stringify({result: request.fn === 'doGet' ? result.getContent() : result}) + '\n');
+  } catch (error) { process.stdout.write(JSON.stringify({error: error.message}) + '\n'); }
+});
