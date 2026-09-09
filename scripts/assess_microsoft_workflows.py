@@ -39,12 +39,16 @@ def main():
                     check('source-desktop-loading-transition', lambda: expect(
                         page.locator('[data-screen="Campaign Summary Screen"]')).to_be_visible(timeout=10000))
                     check('source-unchecked-mobile-toggle', lambda: expect(control(page, 'tglAdmin_Mobile')).not_to_be_checked())
-                    page.screenshot(path=str(OUT / name / 'desktop-loaded.png'), full_page=True)
+                    check('desktop-screenshot', lambda: page.screenshot(
+                        path=str(OUT / name / 'desktop-loaded.png'), full_page=True, timeout=10000))
                     page.set_viewport_size({'width': 390, 'height': 844})
                     page.goto('https://converted.test/?hostClientType=ios')
                 check('source-loading-transition', lambda: expect(
                     page.locator(f'[data-screen="{loaded_screen}"]')).to_be_visible(timeout=10000))
-                page.screenshot(path=str(OUT / name / 'loaded.png'), full_page=True)
+                # Retain capture failures while still exercising the remaining
+                # source actions; a diagnostic screenshot must not skip them.
+                check('loaded-screenshot', lambda: page.screenshot(
+                    path=str(OUT / name / 'loaded.png'), full_page=True, timeout=10000))
                 if app == 'milestones':
                     # Loading.Navigate passes locShowFirstRun to Projects.
                     # Preserve and exercise this onboarding instead of clicking

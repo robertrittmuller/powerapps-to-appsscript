@@ -588,7 +588,16 @@
       var drop = new Set(rows(remove).map(function (r) { return JSON.stringify(r); }));
       return rows(t).filter(function (r) { return !drop.has(JSON.stringify(r)); });
     },
-    concurrent: function (fns) { return Promise.all(fns); },
+    concurrent: async function (fns) {
+      if (!Array.isArray(fns) || fns.length < 2 || fns.some(function (fn) { return typeof fn !== 'function'; }))
+        throw new Error('Concurrent requires at least two deferred formulas');
+      // Catch synchronous throws independently and start every branch before
+      // awaiting any result. allSettled retains source argument order.
+      var results = await Promise.allSettled(fns.map(function (fn) { return Promise.resolve().then(fn); }));
+      var failed = results.find(function (result) { return result.status === 'rejected'; });
+      if (failed) throw failed.reason;
+      return true;
+    },
 
     // --- dates ---------------------------------------------------------------
     today: function () { return startOfDay(new Date()); },

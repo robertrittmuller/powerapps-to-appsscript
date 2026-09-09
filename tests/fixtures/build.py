@@ -376,6 +376,21 @@ def scope_fixture_files() -> dict[str, str]:
     add("RemoveScopeRows", "Button", {"X": 350, "Y": 490, "Width": 200, "Height": 40,
         "Text": '"Remove matching row"',
         "OnSelect": "RemoveIf('Scope Rows' As candidate, candidate.Amount in Table({Amount: 5}).Amount, 'Scope Rows'[@Amount] < [@limit])"})
+    add('ConcurrentSave', 'Button', {'X':20, 'Y':550, 'Width':220, 'Height':40,
+        'Text':'"Save independent fields"', 'OnSelect':
+        'Set(leftDone, false); Set(rightDone, false); Set(concurrentStatus, "saving"); '
+        'Set(concurrentResult, Concurrent('
+        'Patch(Contacts, First(Contacts), {FirstName: "Concurrent"}); Set(leftDone, true), '
+        'Patch(Contacts, First(Contacts), {LastName: "Finished"}); Set(rightDone, true))); '
+        'Set(concurrentStatus, If(concurrentResult And leftDone And rightDone, "complete", "incorrect"))'})
+    add('ConcurrentFailure', 'Button', {'X':350, 'Y':550, 'Width':250, 'Height':40,
+        'Text':'"Recover one branch failure"', 'OnSelect':
+        'Set(leftDone, false); Set(rightDone, false); Set(concurrentStatus, "saving"); '
+        'Set(concurrentStatus, IfError(Concurrent('
+        'Find("x", "text", 0); Set(leftDone, true), '
+        'Patch(Contacts, First(Contacts), {LastName: "Survivor"}); Set(rightDone, true)), "recovered")); '
+        'Set(afterConcurrent, rightDone And Not(leftDone))'})
+    add('ConcurrentStatus', 'Label', {'X':20, 'Y':610, 'Width':400, 'Height':40,'Text':'concurrentStatus'})
     return {
         "CanvasManifest.json": json.dumps({"Name": "FixtureScopes", "ScreenOrder": ["Scopes"]}),
         "src/App.pa.yaml": json.dumps({"App": {"Control": "AppHost", "Properties": {"OnStart": "=" + on_start}}}),

@@ -35,6 +35,7 @@ def test_js_acceptable_value_expression():
     "FX.collections.clear(state, 'Rows')", "window.localStorage.setItem('x', '1')",
     "new Date().setFullYear(2020)",
     "window['go']('Details')",
+    "FX.concurrent([() => 1, () => 2])", "FX['concurrent']([() => 1, () => 2])",
 ])
 def test_value_fallback_rejects_statement_escape_mutation_and_unknown_helpers(js):
     assert not _js_acceptable(js, behavior=False)
@@ -101,7 +102,7 @@ def test_translate_formula_accepts_good_js(tmp_path):
     # call log written
     log = (tmp_path / ".runs" / "llm-calls.jsonl").read_text()
     assert "TimeZoneOffset" in log
-    assert '"gateVersion": 3' in log
+    assert '"gateVersion": 4' in log
     assert '"formulaSha256"' in log
     assert "Formula kind: value" in client._client.chat.completions.last_kwargs["messages"][1]["content"]
 

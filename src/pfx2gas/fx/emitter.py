@@ -330,6 +330,14 @@ class Emitter:
             return self.switch_call(node)
         if name == "With":
             return self.with_call(node)
+        if name == 'Concurrent':
+            if not self.behavior or len(args) < 2:
+                raise lx.FxSyntaxError('Concurrent requires at least two arguments in a behavior formula')
+            self.res.approximations.append(
+                'Concurrent propagates errors; source error-management settings, branch dependency '
+                'validation and external side-effect ordering require review')
+            branches = ', '.join(f'async () => ({self.expr(arg)})' for arg in args)
+            return f'await FX.concurrent([{branches}])'
         if name == "IfError":
             if len(args) != 2:
                 self.res.unmapped.append("IfError:multiple-replacements")

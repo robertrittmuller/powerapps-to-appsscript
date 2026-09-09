@@ -145,6 +145,18 @@ def check_scopes(page, backend):
     page.goto("https://converted.test/?recordId=42")
     expect(control(page, "LaunchValue")).to_have_text("42")
     assert page.evaluate("FXRuntime.param('recordId') === '42' && FXRuntime.param('missing') === null")
+    control(page,'ConcurrentSave').click()
+    expect(control(page,'ConcurrentStatus')).to_have_text('complete')
+    rows = backend({'fn':'api','args':['Contacts','list',{}]})['result']
+    assert [(row['first_name'],row['last_name']) for row in rows] == [('Concurrent','Finished')], rows
+    control(page,'ConcurrentFailure').click()
+    expect(control(page,'ConcurrentStatus')).to_have_text('recovered')
+    assert page.evaluate('state.afterConcurrent === true && state.leftDone === false')
+    rows = backend({'fn':'api','args':['Contacts','list',{}]})['result']
+    assert [(row['first_name'],row['last_name']) for row in rows] == [('Concurrent','Survivor')], rows
+    page.screenshot(path=str(OUT / 'record-scopes/concurrent-recovery.png'))
+    page.reload()
+    assert backend({'fn':'api','args':['Contacts','list',{}]})['result'] == rows
 
 
 def check_gallery(page, backend):

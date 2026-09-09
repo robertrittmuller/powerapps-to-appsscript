@@ -330,6 +330,11 @@ Converted apps aim to match the original visually and behaviorally:
   `Switch` evaluates its subject once. Selected async results are awaited.
   Sort/SortByColumns preserve normalized column names, ascending/descending
   directions and multiple column/order pairs.
+  `Concurrent` starts deferred branches, waits for all of them and returns true
+  on success or propagates the first error in source argument order. A branch
+  failure does not stop its siblings. Generated browser tests verify independent
+  saves, recovery and reload. Source error-management settings, dependency
+  validation and external side-effect ordering remain ledgered review items.
 - **Local drafts** — SaveData/LoadData/ClearData use browser storage for local
   collections. LoadData appends saved rows; its optional flag suppresses only
   missing entries. Nested records/tables, dates, blanks, zero and false survive
@@ -419,6 +424,7 @@ proposal. These static checks do not prove behavioral equivalence or constitute
 a general JavaScript security sandbox; fallback formulas remain partial and
 require runtime QA. Model, formula hash, gate version and rejection reasons are
 retained in the call log.
+Gate v4 also rejects behavior-only Concurrent references in value proposals.
 
 It may refuse when translation is genuinely impossible — the formula then
 stays a documented stub. All calls are logged to `.runs/llm-calls.jsonl`

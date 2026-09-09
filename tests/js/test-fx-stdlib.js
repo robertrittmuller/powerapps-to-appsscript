@@ -3,6 +3,42 @@ const test = require('node:test');
 const assert = require('node:assert');
 const FX = require('../../static/fx-stdlib.js');
 
+test('Concurrent starts independent deferred branches and awaits every result', async () => {
+  let releaseFirst, releaseSecond, finished = false;
+  const events = [];
+  const work = FX.concurrent([
+    async () => {events.push('first:start'); await new Promise(resolve=>{releaseFirst=resolve;}); events.push('first:end');},
+    async () => {events.push('second:start'); await new Promise(resolve=>{releaseSecond=resolve;}); events.push('second:end');},
+  ]).then(result=>{finished=true; return result;});
+  await Promise.resolve();
+  assert.deepStrictEqual(events,['first:start','second:start']);
+  releaseSecond();
+  await Promise.resolve();
+  assert.strictEqual(finished,false);
+  releaseFirst();
+  assert.strictEqual(await work,true);
+  assert.deepStrictEqual(events,['first:start','second:start','second:end','first:end']);
+});
+
+test('Concurrent reports the first argument error after other branches finish', async () => {
+  let releaseFirst, finished = false, survivor = false;
+  const first = new Error('first argument'), second = new Error('second argument');
+  const work = FX.concurrent([
+    async () => {await new Promise(resolve=>{releaseFirst=resolve;}); throw first;},
+    () => {throw second;},
+    async () => {await Promise.resolve(); survivor=true;},
+  ]).then(()=>assert.fail('expected rejection'), error=>{finished=true; return error;});
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.strictEqual(survivor,true);
+  assert.strictEqual(finished,false);
+  releaseFirst();
+  assert.strictEqual(await work,first);
+  let ran = false;
+  await assert.rejects(FX.concurrent([()=>{ran=true;}, 0]),/deferred formulas/);
+  assert.strictEqual(ran,false);
+});
+
 test('current-user views require one explicit source identity mapped to the Google email', () => {
   const users = [{user:'source-one', primary_email:'User@Example.test'}, {user:'source-two', primary_email:'other@example.test'}];
   const id = FX.userId(users, 'user@example.test', 'user', 'primary_email');

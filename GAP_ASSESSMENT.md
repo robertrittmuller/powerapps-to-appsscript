@@ -108,6 +108,14 @@ template even when mounted rows contain nested templates. Conditional TextMode
 retains single-line/multiline/password behavior and edits, focus, caret and
 listeners across mode changes. Browser checks save and reload multiline answers.
 
+Concurrent now starts deferred branches and waits for all results, preserving
+each branch's action chain. Other branches finish even after one fails, and the
+first error in source argument order propagates; success returns true. Executed
+formula tests control response order, while Chromium verifies independent saves,
+failure recovery and persistence after reload. Source error-management settings,
+branch dependency validation and external side-effect ordering remain ledgered
+review items. The LLM v4 gate rejects Concurrent references in value proposals.
+
 Eleven pinned source exports are available here: five public regression apps
 and six Microsoft business apps. **All eleven generate valid code; six pass
 the short startup check. None has complete usability acceptance evidence.**
@@ -182,7 +190,7 @@ the implementation order.
 
 | Evidence | Latest result | What remains unproven |
 |---|---|---|
-| Unit/runtime tests | 273 Python pass, 3 skip; 88 JS pass; bare globals, FX, FXRuntime and FX.collections emitter/runtime consistency passes | Complete deployed workflows and broader control semantics |
+| Unit/runtime tests | 280 Python pass, 3 skip; 90 JS pass; bare globals, FX, FXRuntime and FX.collections emitter/runtime consistency passes | Complete deployed workflows and broader control semantics |
 | Current real-app soak | 5/5 Bootable; 1,145 formulas, including previously dropped App/screen properties | Usability unassessed; the other five historical local exports are absent |
 | Current regression translation/wiring | 1,140 translated; 971 emitted, 13 approximated, 161 ignored/unsupported | Translation does not establish runtime behavior |
 | Historical ten-app corpus | Previously 10/10 Bootable; 23,746 formulas | Not reproduced in this workspace; those results did not establish usability |

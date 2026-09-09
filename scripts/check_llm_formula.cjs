@@ -45,6 +45,7 @@ function check({js, behavior}) {
           throw new Error('unknown FX helper: ' + String(property));
         }
         if (!behavior && property === 'collections') throw new Error('value formula references collection mutations');
+        if (!behavior && property === 'concurrent') throw new Error('value formula references behavior-only Concurrent');
       }
       if (node.object.type === 'Identifier' && node.object.name === 'FXRuntime') {
         if (property === null || !Object.prototype.hasOwnProperty.call(FXRuntime, property)) {

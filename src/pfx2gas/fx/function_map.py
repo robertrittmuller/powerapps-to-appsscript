@@ -73,7 +73,7 @@ FUNCTION_MAP: dict[str, FnSpec] = {
     "FirstN": FnSpec("FX.firstN({a0}, {a1})"),
     "LastN": FnSpec("FX.lastN({a0}, {a1})"),
     "RemoveItems": FnSpec("FX.removeItems({a0}, {a1})"),
-    "Concurrent": FnSpec("FX.concurrent([{args}])", "sequential approximation"),
+    "Concurrent": FnSpec("await FX.concurrent([{args}])", "special-cased: deferred branches; wait for all; first error in argument order"),
     "Split": FnSpec("FX.split({a0}, {a1})"),
     "ShowColumns": FnSpec("FX.showColumns({a0}, [{a1}])"),
     "DropColumns": FnSpec("FX.dropColumns({a0}, [{a1}])"),

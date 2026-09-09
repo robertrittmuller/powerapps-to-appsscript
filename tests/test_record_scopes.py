@@ -118,6 +118,24 @@ def test_text_mode_enums_survive_literal_and_row_dependent_formulas():
     assert evaluate('If(ThisItem.Multiline, TextMode.MultiLine, TextMode.SingleLine)', item={'multiline':False}) == 'SingleLine'
 
 
+def test_concurrent_preserves_branch_chains_return_value_and_sibling_failure_recovery():
+    assert evaluate('Set(result, Concurrent(Set(a, 1); Set(b, a + 1), '
+                    'Set(x, 2); Set(y, x + 2))); Set(after, b + y)', behavior=True,
+                    tail='return state;') == {'a':1,'b':2,'x':2,'y':4,'result':True,'after':6}
+    assert evaluate('Set(recovered, IfError(Concurrent(Find("x", "text", 0); Set(unreachable, true), '
+                    'Set(survived, true)), "failed")); Set(after, survived)', behavior=True,
+                    tail='return state;') == {'survived':True,'recovered':'failed','after':True}
+
+
+@pytest.mark.parametrize('formula,behavior', [
+    ('Concurrent()', True), ('Concurrent(Set(a, 1))', True), ('Concurrent(1, 2)', False),
+])
+def test_concurrent_rejects_invalid_arity_and_value_context(formula, behavior):
+    from pfx2gas.fx.lexer import FxSyntaxError
+    with pytest.raises(FxSyntaxError, match='Concurrent'):
+        transpile(formula, behavior=behavior)
+
+
 def test_async_iferror_and_with_await_failure_before_following_behavior():
     assert evaluate('With({fallback: "failed"}, Set(result, IfError(Patch(Tasks, Defaults(Tasks), {Name: "x"}), fallback))); Set(after, result)',
                     behavior=True, tail="return state;") == {"result": "failed", "after": "failed"}

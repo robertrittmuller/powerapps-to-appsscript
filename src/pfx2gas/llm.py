@@ -202,6 +202,6 @@ class LlmClient:
     def _log(self, fx: str, data: dict, t0: float) -> None:
         entry = {"ts": time.time(), "elapsed_s": round(time.time() - t0, 2), "fx": fx,
                  "model": self.model, "formulaSha256": hashlib.sha256(fx.encode()).hexdigest(),
-                 "gateVersion": 3, **data}
+                 "gateVersion": 4, **data}
         with (self.log_dir / "llm-calls.jsonl").open("a") as f:
             f.write(json.dumps(entry, default=str) + "\n")
