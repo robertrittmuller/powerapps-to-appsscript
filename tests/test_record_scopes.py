@@ -90,6 +90,33 @@ def test_forall_awaits_async_results_and_retains_each_record_scope():
                     'IfError(Patch(Tasks, Defaults(Tasks), {Name: ThisRecord.Name}), ThisRecord.Name))') == ["a", "b"]
 
 
+def test_word_operators_and_function_forms_preserve_boolean_precedence():
+    assert evaluate("true Or false And false") is True
+    assert evaluate("And(true, Not(false)) And (false Or true)") is True
+    assert evaluate("Not true Or false") is False
+
+
+def test_sort_by_columns_normalizes_fields_orders_and_keeps_tiebreakers():
+    rows = [{"first_name": "Grace", "rank": 1}, {"first_name": "Ada", "rank": 1},
+            {"first_name": "Alan", "rank": 2}]
+    assert evaluate('SortByColumns(Rows, "Rank", Descending, "FirstName", SortOrder.Ascending)',
+                    {"Rows": rows}) == [rows[2], rows[1], rows[0]]
+    assert evaluate('SortByColumns(Rows, "FirstName", If(reverse, SortOrder.Descending, Ascending))',
+                    {"Rows": rows, "reverse": True}) == [rows[0], rows[2], rows[1]]
+    assert evaluate('Sort(Rows, FirstName, Descending)', {"Rows": rows}) == [rows[0], rows[2], rows[1]]
+
+
+def test_nested_behavior_chains_only_run_the_chosen_branch_and_await_saves():
+    formula = '''/* same initialization grammar as Microsoft templates */
+        If(true And Not(false),
+            Set(result, IfError(Patch(Tasks, Defaults(Tasks), {Name: "x"}), "failed"));
+            Set(after, result),
+            Set(result, "wrong"); Set(after, "wrong"));
+        Concurrent(Set(one, 1); Set(two, one + 1), Set(three, 3))'''
+    assert evaluate(formula, behavior=True, tail="return state;") == {
+        "result": "failed", "after": "failed", "one": 1, "two": 2, "three": 3}
+
+
 def test_async_table_predicates_are_explicitly_unsupported_not_invalid_js():
     from pfx2gas.analyze import analyze
     from pfx2gas.ir import AppIR, FxExpr

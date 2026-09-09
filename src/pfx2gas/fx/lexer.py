@@ -87,6 +87,8 @@ def tokenize(src: str) -> list[Tok]:
                         k += 1
                     word += src[j:k]
                     j = k
+            if word.lower() in {"true", "false", "in", "and", "or", "not"}:
+                word = word.lower()
             toks.append(Tok("keyword" if word in KEYWORDS else "ident", word, i))
             i = j
             continue
@@ -108,6 +110,12 @@ def tokenize(src: str) -> list[Tok]:
         if src.startswith("//", i):  # Power Fx line comment
             while i < n and src[i] != "\n":
                 i += 1
+            continue
+        if src.startswith("/*", i):
+            end = src.find("*/", i + 2)
+            if end < 0:
+                raise FxSyntaxError(f"unterminated block comment at {i}")
+            i = end + 2
             continue
         if c in "\"'":
             quote = c
@@ -221,6 +229,15 @@ class Parser:
             right = self.parse_expr(BINARY_PRECEDENCE[op] + 1)
             left = Node("binary", op, [left, right])
 
+    def parse_chain(self) -> Node:
+        expressions = [self.parse_expr(0)]
+        while self.peek().kind == "punct" and self.peek().value == ";":
+            self.next()
+            if self.peek().kind == "eof" or self.peek().value in {",", ")"}:
+                break
+            expressions.append(self.parse_expr(0))
+        return expressions[0] if len(expressions) == 1 else Node("chain", children=expressions)
+
     def parse_unary(self) -> Node:
         t = self.peek()
         if t.kind == "op" and t.value in {"-", "!", "not"}:
@@ -245,10 +262,10 @@ class Parser:
                 self.next()
                 args: list[Node] = []
                 if not (self.peek().kind == "punct" and self.peek().value == ")"):
-                    args.append(self.parse_expr(0))
+                    args.append(self.parse_chain())
                     while self.peek().kind == "punct" and self.peek().value == ",":
                         self.next()
-                        args.append(self.parse_expr(0))
+                        args.append(self.parse_chain())
                 self.expect("punct", ")")
                 node = Node("call", node.value, args)
             else:
@@ -267,6 +284,10 @@ class Parser:
         if t.kind == "keyword" and t.value in {"true", "false"}:
             self.next()
             return Node("bool", t.value == "true")
+        if t.kind == "keyword" and t.value in {"and", "or", "not"} \
+                and self.toks[self.i + 1].value == "(":
+            self.next()
+            return Node("ident", t.value.title())
         if t.kind == "keyword" and t.value == "not":
             self.next()
             return Node("unary", "not", [self.parse_unary()])
@@ -275,7 +296,7 @@ class Parser:
             return Node("ident", t.value)
         if t.kind == "punct" and t.value == "(":
             self.next()
-            inner = self.parse_expr(0)
+            inner = self.parse_chain()
             self.expect("punct", ")")
             return inner
         if t.kind == "punct" and t.value == "[":

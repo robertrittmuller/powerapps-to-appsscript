@@ -1,0 +1,9 @@
+{
+  "name": "pfx2gas-formula-checks",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Build-time JavaScript parsing for the guarded single-formula LLM seam",
+  "dependencies": {
+    "acorn": "8.15.0"
+  }
+}

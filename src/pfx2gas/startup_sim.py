@@ -26,7 +26,18 @@ function makeEl(tag, attrs) {
     addEventListener(ev, fn) { (this.listeners[ev] = this.listeners[ev] || []).push(fn); },
     click() { (this.listeners.click || []).forEach(fn => fn()); },
     change() { (this.listeners.change || []).forEach(fn => fn()); },
-    appendChild(c) { this.children.push(c); },
+    appendChild(c) { this.insertBefore(c, null); },
+    insertBefore(c, before) {
+      if (c.parentNode) c.remove();
+      const index = before ? this.children.indexOf(before) : this.children.length;
+      this.children.splice(index, 0, c); c.parentNode = this;
+    },
+    remove() {
+      if (this.parentNode) {
+        const children = this.parentNode.children;
+        children.splice(children.indexOf(this), 1); this.parentNode = null;
+      }
+    },
     querySelector() { return null; },
     querySelectorAll(sel) {
       if (sel === '[data-screen]') return Object.values(elements).filter(e => e.attrs['data-screen']);
@@ -54,7 +65,17 @@ global.document = {
     if (sel === '[data-screen]') return Object.values(elements).filter(e => e.attrs['data-screen']);
     return [];
   },
-  createElement: (t) => makeEl(t, {}),
+  createElement(t) {
+    const el = makeEl(t, {});
+    Object.defineProperty(el, 'innerHTML', {
+      get() { return this.__html || ''; },
+      set(value) {
+        this.__html = String(value || '');
+        this.firstElementChild = this.__html.includes('class="fx-row"') ? makeRow(this.__html) : null;
+      },
+    });
+    return el;
+  },
   body: makeEl('body', {}),
   getElementById: () => null,
 };
@@ -155,6 +176,28 @@ while ((cm = ctrlRe.exec(screensSrc)) !== null) {
   }
 }
 
+function makeRow(markup) {
+  const row = makeEl('div', { class: 'fx-row' });
+  row.__controls = {};
+  const matcher = /<([a-z]+)([^>]*data-control="([^"]+)"[^>]*)>/g;
+  let match;
+  while ((match = matcher.exec(markup)) !== null) {
+    const child = hydrateInlineStyle(makeEl(match[1], parseAttrs(match[2])));
+    child.type = child.attrs.type || '';
+    row.__controls[match[3]] = child;
+  }
+  row.querySelector = function (selector) {
+    const match = selector.match(/^\[data-control="([^"]+)"\]/);
+    return match ? this.__controls[match[1]] || null : null;
+  };
+  row.querySelectorAll = function (selector) {
+    if (selector === 'input, textarea, select') return Object.values(this.__controls)
+      .filter(el => ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName));
+    return [];
+  };
+  return row;
+}
+
 // Give gallery controls enough DOM behavior to execute their generated row
 // templates. This catches the production class where an app boots cleanly but
 // every data card is visually empty.
@@ -171,33 +214,6 @@ while ((gm = galleryRe.exec(screensSrc)) !== null) {
   const rowMarkup = screensSrc.slice(templateStart + '<template>'.length, templateEnd).trim();
   const template = { innerHTML: rowMarkup };
   const rowsEl = makeEl('div', { class: 'fx-rows' });
-  Object.defineProperty(rowsEl, 'innerHTML', {
-    get() { return this.__html || ''; },
-    set(value) {
-      this.__html = String(value || '');
-      this.children = [];
-      if (!rowMarkup) return;
-      let cursor = 0;
-      while ((cursor = this.__html.indexOf(rowMarkup, cursor)) >= 0) {
-        const row = makeEl('div', { class: 'fx-row' });
-        row.__controls = {};
-        const rowControlRe = /<([a-z]+)([^>]*data-control="([^"]+)"[^>]*)>/g;
-        let rowMatch;
-        while ((rowMatch = rowControlRe.exec(rowMarkup)) !== null) {
-          row.__controls[rowMatch[3]] = hydrateInlineStyle(
-            makeEl(rowMatch[1], parseAttrs(rowMatch[2]))
-          );
-        }
-        row.querySelector = function (selector) {
-          if (!selector.startsWith('[data-control=')) return null;
-          const hit = selector.match(/"([^"]+)"/);
-          return hit ? this.__controls[hit[1]] || null : null;
-        };
-        this.children.push(row);
-        cursor += rowMarkup.length;
-      }
-    },
-  });
   host.querySelector = (selector) => selector === 'template' ? template
     : selector === '.fx-rows' ? rowsEl : null;
   host.attrs = Object.assign(host.attrs, parseAttrs(gm[2]));
@@ -225,20 +241,28 @@ async function runJourneys(journeys) {
     const errorsBefore = consoleErrors.length;
     try {
       for (const step of journey.steps || []) {
-        if (step.action === 'click' || step.action === 'change') {
-          const el = elements['ctrl:' + step.control];
+        const target = step.gallery
+          ? ((galleryRows[step.gallery] || {}).children || [])[Number(step.row || 0)]?.__controls[step.control]
+          : elements['ctrl:' + step.control];
+        if (step.action === 'wait') {
+          const milliseconds = Number(step.milliseconds);
+          if (!Number.isFinite(milliseconds) || milliseconds < 0 || milliseconds > 10000)
+            throw new Error('journey wait must be between 0 and 10000 ms');
+          await pause(milliseconds);
+        } else if (step.action === 'click' || step.action === 'change') {
+          const el = target;
           if (!el) throw new Error('control not found: ' + step.control);
           el[step.action]();
           await pause(50);
         } else if (step.action === 'setValue') {
-          const el = elements['ctrl:' + step.control];
+          const el = target;
           if (!el) throw new Error('control not found: ' + step.control);
           if (typeof step.value === 'boolean') el.checked = step.value;
           else el.value = step.value == null ? '' : String(step.value);
           el.change();
           await pause(10);
         } else if (step.action === 'expectValue') {
-          const el = elements['ctrl:' + step.control];
+          const el = target;
           const actual = el ? (typeof step.equals === 'boolean' ? !!el.checked : String(el.value)) : null;
           const expected = typeof step.equals === 'boolean' ? step.equals : String(step.equals);
           if (actual !== expected) {
@@ -251,7 +275,7 @@ async function runJourneys(journeys) {
             throw new Error('expected screen ' + step.screen + ', got ' + JSON.stringify(actual));
           }
         } else if (step.action === 'expectText') {
-          const el = elements['ctrl:' + step.control];
+          const el = target;
           const actual = el ? String(el.textContent) : null;
           if (actual !== String(step.equals)) {
             throw new Error('expected ' + step.control + ' text ' + JSON.stringify(step.equals)

@@ -30,7 +30,9 @@ jobs:
           node-version: "20"
 
       - name: Install dependencies
-        run: uv sync --frozen
+        run: |
+          uv sync --frozen
+          npm ci --ignore-scripts --no-audit --no-fund
 
       - name: Python suite
         run: uv run pytest -q

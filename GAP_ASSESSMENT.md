@@ -1,4 +1,4 @@
-# pfx2gas — Gap Assessment & Roadmap (updated 2026-09-06)
+# pfx2gas — Gap Assessment & Roadmap (updated 2026-09-09)
 
 The product goal is to convert common business Power Apps canvas apps into
 Google-hosted apps that work correctly and preserve as much of the original UI
@@ -6,20 +6,22 @@ and interaction behavior as reasonably possible, with minimal manual repair.
 Success means people can complete the original business tasks using a familiar
 interface, with correct data and explicit evidence of fidelity.
 
-The latest pass fixes nested/quoted record reads, row-versus-global scope,
-two-argument asynchronous `IfError`, and web-app launch parameters. The new
-generated-client/server browser journey verifies source-shaped image/text
-formulas, failed-save recovery, and a successful standalone Patch that preserves
-the existing row and its untouched fields after reload. Earlier collection,
-chart and HelpDesk regressions remain passing. These changes are local and
-tested; the last recorded Google deployment is still HelpDesk @14.
+The September 9 pass adds stable editable gallery rows with per-row control
+references, focus/selection retention through sorting, persisted row saves,
+queued parent selection, and timer lifecycle/focus support. It also fixes block
+comments, word-form logical operators, nested behavior chains and sorting.
+Untranslatable behavior now fails visibly instead of disappearing. The LLM
+single-formula seam has structural parsing, helper-name and response-schema
+checks, while remaining explicitly partial until behavior is tested.
 
-All six Microsoft canvas exports generate valid code; **Employee Ideas and
-Inspection now have clean startup console checks, up from zero of six**.
-Neither has a verified usable workflow: the simulator still displays their
-loading screen, and timer-driven initialization is not wired. Formula coverage
-and an error-free loading screen are not business compatibility. Complete
-Google workflows and original-app visual equivalence remain unproven.
+Eleven pinned source exports are available here: five public regression apps
+and six Microsoft business apps. **All eleven generate valid code; only the five
+regression apps currently pass startup. None has complete ten-app usability
+acceptance evidence.** The previous two clean Microsoft startup results hid
+initialization formulas that were never emitted; restoring those formulas now
+exposes GroupBy, LoadData and connector dependencies. Five generated-fixture
+Chromium journeys pass. These fixtures are regression evidence, not additional
+real acceptance apps. The last recorded Google deployment remains HelpDesk @14.
 
 ## Acceptance goal: faithful business-app conversion
 
@@ -72,15 +74,15 @@ the implementation order.
 
 | Evidence | Latest result | What remains unproven |
 |---|---|---|
-| Unit/runtime tests | 147 Python, 63 JS; emitter/runtime consistency passes | Complete deployed workflows and broader control semantics |
-| Local real-app soak | 10/10 Bootable; 23,746 formulas | All 10 are still unassessed for Usable and High fidelity |
-| Formula translation | 23,724 / 23,746 (99.9%) | Translation does not establish runtime behavior |
-| Runtime wiring | 15,318 emitted (64.5%), 329 approximated, 8,099 ignored/unsupported | Impact varies by property and critical workflow |
+| Unit/runtime tests | 177 Python pass, 3 skip; 63 JS pass; bare and namespaced emitter/runtime consistency passes | Complete deployed workflows and broader control semantics |
+| Current real-app soak | 5/5 Bootable; 1,120 formulas | Usability unassessed; the other five historical local exports are absent |
+| Current regression translation/wiring | 1,114 translated; 964 emitted, 13 approximated, 143 ignored/unsupported | Translation does not establish runtime behavior |
+| Historical ten-app corpus | Previously 10/10 Bootable; 23,746 formulas | Not reproduced in this workspace; those results did not establish usability |
 | HelpDesk generated-app journeys | HOME → NEW → HOME; dashboard row text, logo URI, pie and legend output pass | All-screen interactions, image decoding/layout in CI, persistence |
 | HelpDesk @14 live browser | Ticket cards, decoded 64×64 logos, pie/bar/legend SVGs, readable fonts/labels, HOME → NEW → HOME | Same-state original comparison, user name/avatar, complete workflow coverage |
 | Chromium: business form | Actual generated client + Code.gs: edit/create, required validation, write failure, delete and page reload pass against a persistent Sheets test double | Real Google authorization/Sheets writes and another user/session |
-| Chromium regression suite | 4/4 journeys pass: business form, charts, HelpDesk, and record scopes/launch parameters; all run generated client and server code | Real Google services, all screens/states/viewports and original visual comparisons |
-| Microsoft business baseline | 6/6 convert and validate; 2/6 clean startup console checks; zero reference errors across all six; 105,336 formulas across 75 screens | All six business workflows remain unverified, including those with error-free loading screens |
+| Chromium regression suite | 5/5 fixtures pass: form, charts, record scopes/launch parameters, editable gallery, timer lifecycle; generated client and server code | Real Google services, real-app critical workflows and original visual comparisons; HelpDesk is absent here |
+| Microsoft business baseline | 6/6 convert and validate; 0/6 pass startup; 105,155/105,336 formulas translate | Restored initialization exposes dependencies instead of passing an inert loading screen; all business workflows remain unverified |
 | CI configuration | Existing tests plus required-app/journey gates and new Chromium artifact job | Browser job configured and locally tested, not yet verified in remote CI; local HelpDesk remains optional |
 
 Evidence: `.artifacts/benchmark/benchmark-scorecard.json`,
@@ -166,7 +168,7 @@ with `./pfx2gas browser scripts/assess_microsoft_samples.py`.
 | Next priority | Observed blocker and outcome required |
 |---|---|
 | 1. Correct record and formula scopes (R4/R5) | First slice implemented: nested/quoted blank-safe fields, nested `With`, row/global fallback, distinct `ThisItem`/`ThisRecord`, LookUp projection and AddColumns field pairs. Remaining: `As` aliases/disambiguation, single-column table projection/membership, broader conditional/variadic semantics and source workflow coverage. |
-| 2. Preserve initialization and data contracts (R5) — next | `Param` and browser `Language()` implemented. Next wire Timer lifecycle and expose blocking initialization failures; preserve Dataverse solution schemas/choices/lookups and define explicit Google connector adapters. Do not fake connector success or navigate past unexecuted initialization. |
+| 2. Preserve initialization and data contracts (R5) — next | `Param`, browser `Language()`, Timer lifecycle and explicit initialization failures are implemented. Next preserve Dataverse solution schemas/choices/lookups and define explicit Google connector adapters. Do not fake connector success or navigate past unexecuted initialization. |
 | 3. Make record editing reliable (R4/R5) | Stabilize gallery DOM and row-scoped inputs/OnChange, selection, reactive defaults and DisplayMode. Demonstrate editing the correct row with no lost focus/edits, then save/reload against the generated server and real Google Sheets. |
 | 4. Close visible UI differences (R2/R3/R4) | Use those same workflows for text/media/disabled/validation states, chart series/axes and responsive layout. Extend Chromium to source-sized and narrow viewports and compare matching original screenshots. |
 
@@ -198,17 +200,18 @@ acceptance criteria.
   [Param](https://learn.microsoft.com/en-us/power-platform/power-fx/reference/function-param),
   [Apps Script request events](https://developers.google.com/apps-script/guides/web).
 
-The source ledger contains **28 OnTimerEnd handlers, none wired** (3 translated
-but ignored, 25 unsupported). Completing timers requires translating their
-actual initialization/focus formulas as well as scheduling them. Immediate
-startup errors are only the first reachable failures, not the full dependency
-list:
+Timer lifecycle events now have deterministic runtime wiring. Their source
+initialization also needs complete data, connector and remaining formula
+support. Block comments, nested action chains and capitalized logical operators
+previously prevented entire startup formulas from being emitted; those cases
+now translate. Immediate errors are only the first reachable failures, not the
+full dependency list:
 
 | Microsoft export | Current startup blocker | Additional source dependencies to preserve |
 |---|---|---|
-| Employee Ideas | No console errors; still on Loading Screen | Unsupported loading timer; Teams channel posting and Dataverse campaign/idea data |
+| Employee Ideas | `GroupBy`; still on Loading Screen | Teams channel posting and Dataverse campaign/idea data |
 | Employee Ideas Manager | `MicrosoftTeams.GetAllTeams` | Loading/focus timers; team/channel lookup and posting |
-| Inspection | No console errors; still on Loading Screen | Ignored loading/reset timers; Planner plans/tasks/buckets and task creation; Office365 user/profile/photo; Teams posting |
+| Inspection | `LoadData`; still on Landing Screen | Browser persistence contract; Planner plans/tasks/buckets and task creation; Office365 user/profile/photo; Teams posting |
 | Inspection Manager | Teams lookup, `Planner.ListMyPlansV2`, `IsMatch` | Loading/focus timers; plan/bucket/task/group-plan lookups and settings validation |
 | Milestones | `TimeValue` | Loading/focus timers; Office365 user/profile/photo and relational project/task data |
 | Review Inspections | `Planner.ListMyPlansV2` | Loading/focus timers and inspection data |
@@ -327,17 +330,16 @@ Primary files: `src/pfx2gas/legacy.py`, `src/pfx2gas/synth/client.py`,
 
 ### R4 — P0: gallery input, row context and responsive behavior
 
-The current gallery path rebuilds all row DOM on each binding update, uses
-global `val(name)` lookup for row control references, and emits child OnSelect
-handlers but not row OnChange/input bindings. Row properties cover text and a
-limited style set; images, selectors, input defaults and disabled states need
-equivalent row support. These are confirmed implementation limits; wrong-row
-reads, focus loss and lost edits are risks to reproduce with multi-row tests.
+**Implemented, partial:** rows with stable IDs retain DOM identity, edits,
+focus and selection through unrelated updates and sorting. Row references and
+OnChange/OnSelect handlers use lexical row context across awaited saves.
+Defaults, selectors, images, disabled states and Reset are wired per row.
+Select(Parent) invokes the source handler once after the child action. Generated
+runtime and Chromium fixtures verify editing only the second persisted record,
+reset, sort, selection and reload. ID-less replacement records, nested galleries,
+full reactive row styling and broad responsive layout remain unverified.
 
-Implement stable row identity and row-scoped control lookup, child input/change
-events, selected-record behavior, and bindings for row media/defaults/disabled
-states. Test async child actions and `Select(Parent)` with a real parent
-handler for correct ordering and exactly-once execution. Revisit horizontal
+Extend this evidence to real business apps and concurrent row actions. Revisit horizontal
 galleries, WrapCount/template width and padding with browser geometry evidence.
 Add viewport resize invalidation and test AutoHeight/dependent positions in
 nested containers; current runtime has no resize listener. Preserve the source
@@ -448,9 +450,9 @@ Unassessed remains an explicit outcome.
   them. Report connector-specific losses.
 - Add filtering/pagination, concurrency/version checks, batching and retry UX;
   whole-tab reads and collections are not delegation or persistence guarantees.
-- Run LLM equivalence review and gap triage at corpus scale. Strengthen opt-in
-  single-formula fallback with symbol allowlists, typed context, isolated
-  execution tests, caching and provenance.
+- Run LLM equivalence review and gap triage at corpus scale. Extend the new
+  single-expression/handler boundary, helper checks and logged provenance with
+  full symbol/type analysis, isolated behavioral tests and caching.
 - Extend active/large media, themes, transitions and less common controls by
   measured need. Power Automate migration requires a separately designed target
   and remains an explicit unsupported dependency.
@@ -459,9 +461,10 @@ Unassessed remains an explicit outcome.
 
 ## Architecture decision: expand LLM use, but not whole-app code generation
 
-The LLM should do more work, but it should not become the generator. Formula
-translation is already 23,724 / 23,746 (99.9%); the larger gap is that only
-15,300 formulas (64.4%) are wired into a runtime behavior or visual property.
+The LLM should do more work, but it should not become the generator. In the
+historical ten-app assessment, formula translation reached 23,724 / 23,746
+(99.9%), while only 15,300 formulas (64.4%) were wired into runtime behavior or
+visual properties.
 Asking a model to translate the remaining 22 formulas cannot solve missing
 forms, controls, connector semantics, media, responsive layout, or component
 behavior. Whole-app model-generated JavaScript would also make conversions
@@ -471,7 +474,7 @@ Use a deterministic-core / LLM-assurance design:
 
 | LLM role | May affect generated app? | Required gate |
 |---|---:|---|
-| Translate one otherwise unsupported formula | Yes, opt-in and ledgered `partial` | syntax check today; add symbol allowlist, context/type checks, isolated runtime test, and generated-app boot |
+| Translate one otherwise unsupported formula | Yes, opt-in and ledgered `partial` | Node syntax + AST boundary/helper checks and strict response schema; full symbol/type checks, isolated runtime tests and generated-app boot remain needed |
 | Review original Power Fx vs emitted JavaScript | No; report only | structured verdict with evidence and a concrete test suggestion |
 | Classify unsupported controls/properties and cluster corpus gaps | No; engineering artifact only | aggregate against the machine-readable fidelity ledger |
 | Compare original and converted screenshots/interactions | No; QA report only | deterministic screenshots, DOM/style facts, and reproducible steps accompany every finding |

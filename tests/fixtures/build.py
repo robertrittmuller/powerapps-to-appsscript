@@ -379,6 +379,61 @@ def scope_fixture_files() -> dict[str, str]:
     }
 
 
+def gallery_fixture_files() -> dict[str, str]:
+    """Two persisted contacts with editable row controls and source actions."""
+    def control(name, kind, props, children=None):
+        node = {"Control": kind, "Properties": {k: "=" + str(v) for k, v in props.items()}}
+        if children:
+            node["Children"] = children
+        return {name: node}
+
+    row_children = [
+        control("RowFirst", "TextInput", {"X": 8, "Y": 8, "Width": 180, "Height": 36,
+            "Default": "ThisItem.FirstName", "AccessibleLabel": '"First name"',
+            "OnSelect": "Set(focusedId, ThisItem.ID)",
+            "OnChange": 'Patch(Contacts, ThisItem, {FirstName: Self.Text}); Set(savedRow, RowFirst.Text)'}),
+        control("RowLast", "TextInput", {"X": 200, "Y": 8, "Width": 180, "Height": 36,
+            "Default": "ThisItem.LastName", "AccessibleLabel": '"Last name"',
+            "OnSelect": "Set(focusedId, ThisItem.ID)",
+            "DisplayMode": 'If(lockRows, DisplayMode.Disabled, DisplayMode.Edit)'}),
+        control("RowPreview", "Label", {"X": 8, "Y": 52, "Width": 220, "Height": 32,
+            "Text": 'RowFirst.Text & " " & RowLast.Text'}),
+        control("RowSave", "Button", {"X": 390, "Y": 8, "Width": 100, "Height": 36,
+            "Text": '"Save row"', "OnSelect": 'Patch(Contacts, ThisItem, {FirstName: RowFirst.Text, LastName: RowLast.Text}); Set(savedRow, RowFirst.Text); Select(Parent); Set(childFinished, true)'}),
+        control("RowReset", "Button", {"X": 390, "Y": 52, "Width": 100, "Height": 32,
+            "Text": '"Reset row"', "OnSelect": 'Reset(RowLast)'}),
+        control("RowChoice", "ComboBox", {"X": 8, "Y": 94, "Width": 180, "Height": 34,
+            "Items": "Contacts", "DisplayFields": '["FirstName"]',
+            "DefaultSelectedItems": "[ThisItem]", "OnSelect": "Set(focusedId, ThisItem.ID)",
+            "OnChange": 'Set(chosenName, RowChoice.Selected.FirstName)'}),
+        control("RowImage", "Image", {"X": 240, "Y": 90, "Width": 32, "Height": 32,
+            "Image": '"data:image/svg+xml," & EncodeUrl("<svg xmlns=\'http://www.w3.org/2000/svg\' width=\'32\' height=\'32\'><rect width=\'32\' height=\'32\' fill=\'" & If(ThisItem.ID = "one", "blue", "red") & "\'/></svg>")'}),
+    ]
+    children = [
+        control("ContactRows", "Gallery", {"X": 20, "Y": 20, "Width": 520, "Height": 360,
+            "TemplateSize": 150, "TemplatePadding": 0,
+            "Items": 'SortByColumns(Contacts, "ID", If(reverseRows, Descending, Ascending))',
+            "OnSelect": 'Set(parentCalls, parentCalls + 1); Set(parentSawFinished, childFinished); Set(selectedName, ThisItem.FirstName)'},
+            [control("RowTemplate", "GalleryTemplate", {}, row_children)]),
+        control("UnrelatedUpdate", "Button", {"X": 570, "Y": 20, "Width": 180, "Height": 40,
+            "Text": '"Update counter"', "OnSelect": "Set(counter, counter + 1)"}),
+        control("LockRows", "Button", {"X": 570, "Y": 80, "Width": 180, "Height": 40,
+            "Text": '"Lock rows"', "OnSelect": "Set(lockRows, !lockRows)"}),
+        control("SortRows", "Button", {"X": 570, "Y": 140, "Width": 180, "Height": 40,
+            "Text": '"Reverse order"', "OnSelect": "Set(reverseRows, !reverseRows)"}),
+    ]
+    return {
+        "CanvasManifest.json": json.dumps({"Name": "FixtureGallery", "ScreenOrder": ["GalleryScreen"]}),
+        "src/App.pa.yaml": json.dumps({"App": {"Control": "AppHost", "Properties": {
+            "OnStart": "=Set(counter, 0); Set(lockRows, false); Set(parentCalls, 0); Set(childFinished, false); Set(reverseRows, false)"}}}),
+        "src/GalleryScreen.pa.yaml": json.dumps({"GalleryScreen": {"Control": "Screen", "Children": children}}),
+        "DataSources/Contacts.json": json.dumps({"Name": "Contacts", "Type": "StaticDataSourceInfo",
+            "Fields": [], "SampleData": [
+                {"ID": "one", "FirstName": "Ada", "LastName": "Lovelace"},
+                {"ID": "two", "FirstName": "Grace", "LastName": "Hopper"}]}),
+    }
+
+
 def _write_msapp(path: Path, files: dict[str, str]) -> None:
     with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as zf:
         for arcname, content in files.items():
@@ -389,6 +444,42 @@ def _write_msapp(path: Path, files: dict[str, str]) -> None:
             info.create_system = 3
             info.external_attr = 0o600 << 16
             zf.writestr(info, content)
+
+
+def timer_fixture_files() -> dict[str, str]:
+    def control(name, kind, props):
+        return {name: {"Control": kind, "Properties": {k: "=" + str(v) for k, v in props.items()}}}
+    loading = [control("LoadingMessage", "Label", {"Text": '"Loading contacts"', "Width": 240, "Height": 40}),
+        control("LoadingTimer", "Timer", {"Duration": 250, "Start": "locStartTimer", "Visible": "false",
+            "OnTimerStart": "Set(timerStarted, true)",
+            "OnTimerEnd": 'ClearCollect(TimerRows, {Name: "Ready"}); Set(timerEnded, true); Navigate(ReadyScreen)'})]
+    ready = [
+        control("ReadyMessage", "Label", {"X": 20, "Y": 20, "Width": 300, "Height": 40, "Text": "First(TimerRows).Name"}),
+        control("FocusInput", "TextInput", {"X": 20, "Y": 80, "Width": 300, "Height": 40, "Default": '""'}),
+        control("FocusTimer", "Timer", {"Duration": 50, "AutoStart": "true", "Visible": "false", "OnTimerEnd": "SetFocus(FocusInput)"}),
+        control("RepeatTimer", "Timer", {"X": 20, "Y": 140, "Width": 300, "Height": 40,
+            "Duration": 100, "Start": "runTimer", "AutoPause": "true", "Repeat": "cycles < 3",
+            "Text": 'Text(Self.Value, "0")', "OnTimerEnd": "Set(cycles, cycles + 1)"}),
+        control("StartRepeat", "Button", {"X": 20, "Y": 200, "Width": 140, "Height": 40,
+            "Text": '"Start"', "OnSelect": "Set(runTimer, true)"}),
+        control("ResetRepeat", "Button", {"X": 180, "Y": 200, "Width": 140, "Height": 40,
+            "Text": '"Reset"', "OnSelect": "Set(runTimer, false); Reset(RepeatTimer); Set(cycles, 0)"}),
+        control("GoOther", "Button", {"X": 20, "Y": 260, "Width": 300, "Height": 40,
+            "Text": '"Other screen"', "OnSelect": "Navigate(OtherScreen)"}),
+    ]
+    other = [control("ReturnReady", "Button", {"X": 20, "Y": 20, "Width": 300, "Height": 40,
+        "Text": '"Return"', "OnSelect": "Back()"})]
+    files = {
+        "CanvasManifest.json": json.dumps({"Name": "FixtureTimer", "ScreenOrder": ["LoadingScreen", "ReadyScreen", "OtherScreen"]}),
+        "src/App.pa.yaml": json.dumps({"App": {"Control": "AppHost", "Properties": {
+            "OnStart": "=/* source initialization */ Concurrent(Set(cycles, 0); Set(runTimer, false), Set(timerStarted, false))"}}}),
+    }
+    for name, children in [("LoadingScreen", loading), ("ReadyScreen", ready), ("OtherScreen", other)]:
+        node = {"Control": "Screen", "Children": children}
+        if name == "LoadingScreen":
+            node["Properties"] = {"OnVisible": "=If(Not(false) And true, UpdateContext({locStartTimer: true}); Set(enteredLoading, true))"}
+        files[f"src/{name}.pa.yaml"] = json.dumps({name: node})
+    return files
 
 
 def build_fixtures() -> None:
@@ -462,6 +553,8 @@ def build_fixtures() -> None:
         },
     )
     _write_msapp(FIXTURE_DIR / "fixtureScopes.msapp", scope_fixture_files())
+    _write_msapp(FIXTURE_DIR / "fixtureGallery.msapp", gallery_fixture_files())
+    _write_msapp(FIXTURE_DIR / "fixtureTimer.msapp", timer_fixture_files())
 
 
 if __name__ == "__main__":

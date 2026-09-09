@@ -150,8 +150,9 @@ This separate baseline currently fails startup; it is not a claim that these
 business apps are usable yet. The normal `./pfx2gas soak` enforces the existing
 required regression corpus, including failed required journeys and missing apps.
 
-`./pfx2gas browser` tests generated forms, charts, record scopes and launch
-parameters in Chromium, plus HelpDesk when its local export is present. It runs
+`./pfx2gas browser` tests generated forms, charts, record scopes, editable
+galleries, timer lifecycles and launch parameters in Chromium, plus HelpDesk
+when its local export is present. It runs
 generated `doGet`/client/server code against a Sheets test double to check save,
 validation, failure, delete and reload behavior, including safe request templating.
 Screenshots and DOM measurements are saved under `.artifacts/browser/` and
@@ -204,7 +205,12 @@ Converted apps aim to match the original visually and behaviorally:
 - **Galleries** — the row template renders per item with `ThisItem` bound to
   the row; template size/padding and absolute child geometry are retained;
   child handlers receive the item, preserving per-row actions. Row clicks
-  expose record-valued `Selected`, `SelectedItems`, and `AllItems`.
+  expose record-valued `Selected`, `SelectedItems`, and `AllItems`. Stable IDs
+  retain row inputs, focus and text selection across state updates and sorting;
+  row references, defaults, selectors, images, disabled states, Reset and
+  OnChange use that row's controls. Child `Select(Parent)` actions are queued
+  after the child handler, avoiding duplicate parent actions from DOM bubbling.
+  ID-less records use object identity; replaced ID-less records may lose edits.
 - **Selectors** — Dropdown, ComboBox, and ListBox options preserve their source
   records for `Selected`/`SelectedItems`; `DisplayFields`, default selections,
   and multi-select are wired into native selects.
@@ -224,6 +230,15 @@ Converted apps aim to match the original visually and behaviorally:
   `ThisItem`. LookUp projections and AddColumns field pairs are retained.
   Two-argument `IfError` can recover from an awaited save; nested saves expose
   fields for the generated Sheet schema and receive stable row IDs when absent.
+- **Behavior syntax** — block/line comments, `And`/`Or`/`Not`, and nested
+  semicolon-separated actions retain branch-local execution order.
+  Sort/SortByColumns preserve normalized column names, ascending/descending
+  directions and multiple column/order pairs.
+- **Timers** — Duration, Start, AutoStart, AutoPause, Repeat, Reset,
+  OnTimerStart and OnTimerEnd are wired to browser scheduling, with elapsed
+  Value and SetFocus support. Browser timer precision is approximate; timers
+  inside gallery templates are still unsupported. Untranslatable startup,
+  screen and control actions surface explicit runtime errors.
 - **Launch context** — `Param("name")` reads case-sensitive request parameters
   as text (missing values are Blank); the server safely embeds them without
   interpreting markup. `Language()` uses the browser locale. Query parameters
@@ -278,6 +293,16 @@ truth with the transpiler) plus the generated app's real globals (`state`,
 data-layer `api*` calls, `val()`, navigation, `toast`), returns one JSON object
 per formula, and its JS is accepted only if it passes `node --check` (value
 formulas must be single expressions; behavior formulas may be statements).
+The response schema is checked without coercion and confidence must be finite
+and between zero and one. A pinned JavaScript parser also verifies the
+single-expression/event-handler boundary, rejects explicit mutations in value
+formulas, and checks FX/FXRuntime helper names. It rejects dynamic evaluation,
+imports and selected direct-network/prototype operations without executing the
+proposal. These static checks do not prove behavioral equivalence or constitute
+a general JavaScript security sandbox; fallback formulas remain partial and
+require runtime QA. Model, formula hash, gate version and rejection reasons are
+retained in the call log.
+
 It may refuse when translation is genuinely impossible — the formula then
 stays a documented stub. All calls are logged to `.runs/llm-calls.jsonl`
 with confidence and notes; LLM-touched formulas appear in the report as

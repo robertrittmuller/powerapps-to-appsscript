@@ -35,6 +35,7 @@ ALLOWED = {
     "if", "for", "while", "switch", "catch", "return", "function", "typeof",
     "new", "async", "await", "Promise", "Object", "Array", "String", "Number", "Boolean",
     "Date", "JSON", "parseInt", "parseFloat", "isNaN", "Error", "Set", "Map",
+    "encodeURIComponent", "decodeURIComponent",
     "console",
     # namespaced calls
     "FX", "FXRuntime", "FXCollections",
@@ -57,7 +58,7 @@ def fx_exports() -> set[str]:
     return {"FX"} | names
 
 
-def generated_fixture_bare_calls() -> tuple[list[str], Path]:
+def generated_fixture_bare_calls() -> tuple[list[str], Path, set[str]]:
     """Convert navigation and form fixtures and collect generated bare calls."""
     import importlib.util
 
@@ -74,7 +75,8 @@ def generated_fixture_bare_calls() -> tuple[list[str], Path]:
     tmp = Path(tempfile.mkdtemp())
     apps = []
     out = tmp / "FixtureA"
-    for fixture_name in ("fixtureA.msapp", "fixtureForm.msapp", "fixtureCharts.msapp", "fixtureScopes.msapp"):
+    fixture_build.build_fixtures()
+    for fixture_name in ("fixtureA.msapp", "fixtureForm.msapp", "fixtureCharts.msapp", "fixtureScopes.msapp", "fixtureGallery.msapp", "fixtureTimer.msapp"):
         ir = analyze(parse(unpack(fixture_build.FIXTURE_DIR / fixture_name)))
         out = synthesize(ir, tmp / fixture_name.removesuffix(".msapp"))
         apps.append((out / "App.js.html").read_text())
@@ -83,7 +85,8 @@ def generated_fixture_bare_calls() -> tuple[list[str], Path]:
     app = re.sub(r"//[^\n]*", "", app)
     app = re.sub(r"/\*.*?\*/", "", app, flags=re.S)
     calls = set(re.findall(r"(?<![\w.$])([a-zA-Z_]\w*)\s*\(", app))
-    return sorted(calls), out
+    runtime_calls = set(re.findall(r"\bFXRuntime\.(\w+)\s*\(", app))
+    return sorted(calls), out, runtime_calls
 
 
 def main() -> int:
@@ -106,7 +109,7 @@ def main() -> int:
             problems.append(f"{name}: takes {len(got)} args, emitter needs >= {min_args}")
 
     # 2. emitter <-> runtime export surface (real fixture conversion)
-    calls, _out = generated_fixture_bare_calls()
+    calls, _out, runtime_calls = generated_fixture_bare_calls()
     fx = fx_exports()
     for call in calls:
         if call in KEYWORDS or call in fx:
@@ -115,6 +118,16 @@ def main() -> int:
             problems.append(
                 f"emitter generates {call}(...) but gas-runtime.js never exports "
                 f"global.{call} — ReferenceError at app startup")
+
+    # Namespaced helpers are just as critical as bare globals. Check their
+    # actual callable surface in Node, including row-scoped handler helpers.
+    run = subprocess.run(["node", "-e", "global.document={getElementById:()=>null,addEventListener:()=>{}};"
+        "require('./static/gas-runtime.js');"
+        "process.stdout.write(JSON.stringify(Object.keys(FXRuntime).filter(k=>typeof FXRuntime[k]==='function')));"],
+        cwd=REPO, text=True, capture_output=True, check=True)
+    available = set(json.loads(run.stdout))
+    for call in sorted(runtime_calls - available):
+        problems.append(f"emitter generates FXRuntime.{call}(...) but runtime has no callable helper")
 
     if problems:
         print("RUNTIME-EMITTER DRIFT DETECTED:")

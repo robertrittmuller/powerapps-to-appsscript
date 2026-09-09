@@ -63,6 +63,7 @@ FUNCTION_MAP: dict[str, FnSpec] = {
     "EncodeUrl": FnSpec("encodeURIComponent({a0})"),
     "PlainText": FnSpec("FX.plainText({a0})"),
     "Select": FnSpec("selectControl({a0})"),
+    "SetFocus": FnSpec("FXRuntime.focusControl({a0})", "focus a visible, enabled generated control"),
     "Launch": FnSpec("window.open({a0}, '_blank')"),
     "Sequence": FnSpec("FX.sequence({args})"),
     "RandBetween": FnSpec("FX.randBetween({a0}, {a1})"),

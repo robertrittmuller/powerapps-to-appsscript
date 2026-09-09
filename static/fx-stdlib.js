@@ -102,7 +102,7 @@
         var ka = keyFn(a), kb = keyFn(b);
         return ka < kb ? -1 : ka > kb ? 1 : 0;
       });
-      if (String(order).toLowerCase() === 'sortorder.descending') s.reverse();
+      if (/^(?:SortOrder\.)?Descending$/i.test(String(order))) s.reverse();
       return s;
     },
     sortByColumns: function (t, cols, orders) {
@@ -110,8 +110,9 @@
       return rows(t).slice().sort(function (a, b) {
         for (var i = 0; i < c.length; i++) {
           var k = c[i], av = a[k], bv = b[k];
-          if (av < bv) return o[i] === 'SortOrder.Descending' ? 1 : -1;
-          if (av > bv) return o[i] === 'SortOrder.Descending' ? -1 : 1;
+          var descending = /^(?:SortOrder\.)?Descending$/i.test(String(o[i]));
+          if (av < bv) return descending ? 1 : -1;
+          if (av > bv) return descending ? -1 : 1;
         }
         return 0;
       });

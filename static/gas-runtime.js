@@ -13,6 +13,7 @@
   var handlers = {};     // controlName -> { event: fn }
   var controlValues = {}; // control name -> evaluated properties used by dependents
   var forms = {};        // form name -> generated DataCard submit configuration
+  var timers = {};       // timer name -> resettable scheduling state
   var screenStack = [];
   var CURRENT_SCREEN = null;
   var launchParameters = {};
@@ -163,11 +164,11 @@
     return selected;
   }
 
-  function val(name) {
+  function val(name, element) {
     if (name === 'App') {
       return { active_screen: CURRENT_SCREEN };
     }
-    var el = document.querySelector('[data-control="' + name + '"]')
+    var el = element || document.querySelector('[data-control="' + name + '"]')
       || document.querySelector('[data-screen="' + name + '"]');
     if (!el) return Object.assign(
       { text: '', value: '', selected: null, checked: false,
@@ -202,7 +203,7 @@
       visible: !el.style || el.style.display !== 'none',
       el: el,
     };
-    return Object.assign(standard, controlValues[name] || {});
+    return Object.assign(standard, element ? (element.__fxValues || {}) : (controlValues[name] || {}));
   }
 
   function optionRecord(row, displayFields) {
@@ -369,20 +370,58 @@
     evaluator.apply();
   }
 
+  function rowValue(row, name) {
+    var el = row && row.querySelector('[data-control="' + name + '"]');
+    return val(name, el);
+  }
+
   function rowControl(row, name, parentName, propertyFns) {
     if (!row || typeof row.querySelector !== 'function') return;
     var el = row.querySelector('[data-control="' + name + '"]');
     if (!el) return;
-    var previousSelf = global.selfRef;
-    var previousParent = global.parentRef;
-    global.selfRef = val(name);
-    global.parentRef = val(parentName);
+    var read = function (control) { return rowValue(row, control); };
     var px = { left: true, top: true, width: true, height: true };
     try {
       Object.keys(propertyFns || {}).forEach(function (key) {
-        var value = propertyFns[key]();
+        var value = propertyFns[key](read, read(name), read(parentName));
         if (key === 'text') {
           el.textContent = value == null ? '' : String(value);
+        } else if (key === 'default') {
+          var signature = JSON.stringify(value == null ? '' : value);
+          if (el.__fxDefaultSignature !== signature) {
+            el.__fxDefaultSignature = signature;
+            el.setAttribute('data-fx-default', value == null ? '' : String(value));
+            if (el.type === 'checkbox') el.checked = !!value;
+            else if (el.tagName === 'SELECT') applyDefaultSelection(el, value);
+            else el.value = value == null ? '' : String(value);
+          }
+        } else if (key === 'items') {
+          var rows = Array.isArray(value) ? value : [];
+          var selected = selectedRecords(el);
+          el.__fxRecords = rows;
+          var options = rows.map(function (record, index) {
+            var option = optionRecord(record, el.__fxDisplayFields);
+            return '<option data-fx-index="' + index + '" value="' + global.esc(option.value)
+              + '">' + global.esc(option.label) + '</option>';
+          }).join('');
+          if (el.__fxOpts !== options) {
+            el.__fxOpts = options; el.innerHTML = options;
+            if (selected.length) applyDefaultSelection(el, selected);
+            else delete el.__fxDefaultSignature;
+          }
+        } else if (key === 'displayFields') {
+          el.__fxDisplayFields = value;
+        } else if (key === 'src') {
+          var source = value == null ? '' : String(value).trim();
+          if (/^(?:javascript|vbscript):/i.test(source)) source = '';
+          if (!source) el.removeAttribute('src');
+          else if (el.getAttribute('src') !== source) el.setAttribute('src', source);
+        } else if (key === 'disabled') {
+          el.disabled = /^(disabled|view)$/i.test(String(value));
+        } else if (key === 'reset') {
+          var rising = value && !el.__fxReset;
+          el.__fxReset = !!value;
+          if (rising) resetControl(name, el);
         } else if (key === 'display') {
           el.style.display = value ? '' : 'none';
         } else if (key === 'fontSize') {
@@ -394,15 +433,58 @@
         }
       });
     } catch (err) { console.error('gallery row property error', name, err); }
-    finally { global.selfRef = previousSelf; global.parentRef = previousParent; }
   }
 
   /**
    * Gallery rendering: itemsFn returns the row array, rowFn fills a cloned
-   * row template, handlers maps child control name -> async fn(item).
-   * Re-renders on every state change (registered as an evaluator).
+   * row template, handlers maps control names to event descriptors. Reconcile
+   * stable record identities so state updates retain live inputs and focus.
    */
   function gallery(name, itemsFn, rowFn, handlers) {
+    var mounted = new Map();
+    var identities = new WeakMap(), nextIdentity = 0;
+    function identity(item) {
+      if (item && typeof item === 'object') {
+        for (var key of ['id', 'ID', 'key']) {
+          if (item[key] != null) return key + ':' + String(item[key]);
+        }
+        if (!identities.has(item)) identities.set(item, ++nextIdentity);
+        return 'object:' + identities.get(item);
+      }
+      return typeof item + ':' + String(item);
+    }
+    function choose(row) {
+      controlValues[name] = Object.assign({}, controlValues[name] || {}, {
+        selected: row.__fxItem, selected_items: [row.__fxItem],
+      });
+    }
+    function invoke(row, control, event) {
+      var descriptor = (handlers || {})[control];
+      var fn = descriptor && (typeof descriptor === 'function' ? descriptor : descriptor[event]);
+      if (!fn) return Promise.resolve();
+      var queued = [];
+      return Promise.resolve().then(function () {
+        return fn(row.__fxItem, row, function (target) {
+          queued.push(target === 'Parent' ? descriptor.parent : target === 'Self' ? control : target);
+        });
+      }).then(function () {
+        updateBindings();
+        return queued.reduce(function (previous, target) {
+          return previous.then(function () {
+            if (target === name || (handlers || {})[target]) {
+              choose(row);
+              return invoke(row, target, 'OnSelect');
+            }
+            var targetElement = row.querySelector('[data-control="' + target + '"]');
+            if (targetElement) targetElement.click();
+            else global.selectControl(target);
+          });
+        }, Promise.resolve());
+      }).catch(function (err) {
+        console.error(err);
+        toast('Error: ' + (err && err.message ? err.message : err), true);
+      });
+    }
     evaluators.push({
       apply: function () {
         var host = document.querySelector('[data-control="' + name + '"]');
@@ -411,7 +493,7 @@
         var rowsEl = host.querySelector('.fx-rows');
         if (!tpl || !rowsEl) return;
         var items;
-        try { items = itemsFn() || []; } catch (e) { items = []; }
+        try { items = itemsFn() || []; } catch (e) { console.error('gallery Items error', name, e); items = []; }
         if (!Array.isArray(items)) items = [];
         var current = controlValues[name] && controlValues[name].selected;
         var selected = items.find(function (item) { return sameRecord(item, current); }) || null;
@@ -421,8 +503,53 @@
           selected_items: selected ? [selected] : [],
         });
         var rowMarkup = String(tpl.innerHTML || '').trim();
-        rowsEl.innerHTML = items.map(function () { return rowMarkup; }).join('');
-        var renderedRows = Array.prototype.slice.call(rowsEl.children || []);
+        var focused = document.activeElement;
+        var restoreFocus = focused && typeof rowsEl.contains === 'function' && rowsEl.contains(focused);
+        var selectionStart = restoreFocus ? focused.selectionStart : null;
+        var selectionEnd = restoreFocus ? focused.selectionEnd : null;
+        var used = new Map(), next = new Map();
+        var renderedRows = items.map(function (item, index) {
+          var base = identity(item), occurrence = used.get(base) || 0;
+          used.set(base, occurrence + 1);
+          var key = base + ':' + occurrence;
+          var row = mounted.get(key);
+          if (!row) {
+            var holder = document.createElement('div');
+            holder.innerHTML = rowMarkup;
+            row = holder.firstElementChild;
+            if (!row) return null;
+            row.addEventListener('click', function (event) {
+              if (event) event.stopPropagation();
+              choose(row);
+              invoke(row, name, 'OnSelect').then(updateBindings);
+            });
+            Object.keys(handlers || {}).forEach(function (control) {
+              if (control === name) return;
+              var el = row.querySelector('[data-control="' + control + '"]');
+              if (!el) return;
+              ['OnSelect', 'OnChange'].forEach(function (event) {
+                var descriptor = handlers[control];
+                if (!(typeof descriptor === 'function' && event === 'OnSelect') && !descriptor[event]) return;
+                el.addEventListener(event === 'OnSelect' ? 'click' : 'change', function (domEvent) {
+                  if (domEvent) domEvent.stopPropagation();
+                  choose(row);
+                  invoke(row, control, event);
+                });
+              });
+            });
+            row.querySelectorAll('input, textarea, select').forEach(function (el) {
+              el.addEventListener('input', updateBindings);
+            });
+          }
+          row.__fxItem = item;
+          next.set(key, row);
+          // Avoid moving an already correctly placed node: moving a focused
+          // input's ancestor blurs it in Chromium even if the node is reused.
+          if (rowsEl.children[index] !== row) rowsEl.insertBefore(row, rowsEl.children[index] || null);
+          return row;
+        });
+        mounted.forEach(function (row, key) { if (!next.has(key)) row.remove(); });
+        mounted = next;
         var templateSize = parseFloat(host.getAttribute('data-template-size'));
         var templatePadding = parseFloat(host.getAttribute('data-template-padding'));
         var wrapCount = parseInt(host.getAttribute('data-wrap-count'), 10);
@@ -447,29 +574,16 @@
           if (Number.isFinite(templatePadding) && templatePadding >= 0) {
             row.style.padding = templatePadding + 'px';
           }
-          row.addEventListener('click', function () {
-            controlValues[name] = Object.assign({}, controlValues[name] || {}, {
-              selected: item,
-              selected_items: [item],
-            });
-            updateBindings();
-          });
           if (rowFn) {
             try { rowFn(item, row); } catch (e) { console.error('gallery row error', e); }
           }
-          Object.keys(handlers || {}).forEach(function (ctrl) {
-            var el = row.querySelector('[data-control="' + ctrl + '"]');
-            if (el) {
-              el.addEventListener('click', function () {
-                Promise.resolve().then(function () { return handlers[ctrl](item); })
-                  .catch(function (err) {
-                    console.error(err);
-                    toast('Error: ' + (err && err.message ? err.message : err), true);
-                  });
-              });
-            }
-          });
         });
+        if (restoreFocus && rowsEl.contains(focused) && document.activeElement !== focused) {
+          focused.focus({preventScroll: true});
+          if (typeof focused.setSelectionRange === 'function' && selectionStart !== null) {
+            focused.setSelectionRange(selectionStart, selectionEnd);
+          }
+        }
       },
     });
   }
@@ -661,8 +775,104 @@
     }
   }
 
-  function resetControl(name) {
+  function registerTimer(name, screen, config) {
+    var elapsed = 0, epoch = null, pending = null, busy = false;
+    var completed = false, started = false, wasActive = false, auto = false;
+    var resetHigh = false, generation = 0, manual = null, previousStart = false, previousAuto = false;
+    function read(key, fallback) { return config[key] ? config[key]() : fallback; }
+    function publish() {
+      controlValues[name] = Object.assign({}, controlValues[name] || {}, {
+        value: elapsed, duration: duration(), running: epoch !== null,
+      });
+    }
+    function duration() {
+      var value = Number(read('Duration', 60000));
+      return Number.isFinite(value) ? Math.max(1, Math.min(86400000, value)) : 60000;
+    }
+    function pause() {
+      if (epoch !== null) elapsed = Math.min(duration(), elapsed + Date.now() - epoch);
+      epoch = null;
+      if (pending !== null) clearTimeout(pending);
+      pending = null;
+    }
+    function reset() {
+      pause(); elapsed = 0; completed = false; started = false; generation++;
+      publish();
+    }
+    function run(event) {
+      busy = true;
+      var version = generation, failed = false;
+      Promise.resolve().then(function () { if (config[event]) return config[event](); })
+        .catch(function (err) {
+          failed = true;
+          console.error('timer event error', name + '.' + event, err);
+          toast('Timer error: ' + (err && err.message ? err.message : err), true);
+          completed = true;
+        }).then(function () {
+          busy = false;
+          if (!failed && event === 'OnTimerEnd' && generation === version && read('Repeat', false)) reset();
+          updateBindings();
+        }).catch(function (err) { console.error('timer scheduling error', name, err); });
+    }
+    function apply() {
+      var active = CURRENT_SCREEN === screen;
+      var start = !!read('Start', false), autoStart = !!read('AutoStart', false);
+      if (completed && ((start && !previousStart) || (active && autoStart && !previousAuto))) reset();
+      if (start !== previousStart) manual = null;
+      previousStart = start;
+      previousAuto = autoStart;
+      if (active && !wasActive && autoStart) {
+        auto = true; manual = null;
+        if (completed) reset();
+      }
+      if (!autoStart) auto = false;
+      // AutoStart can itself be reactive (the Microsoft focus timers use it).
+      if (active && autoStart) auto = true;
+      wasActive = active;
+      var requestedReset = !!read('Reset', false);
+      if (requestedReset && !resetHigh) reset();
+      resetHigh = requestedReset;
+      var wantsRun = manual === null ? start || auto : manual;
+      if (requestedReset || busy || completed || !wantsRun || (read('AutoPause', true) && !active)) {
+        pause(); publish(); return;
+      }
+      if (!started) {
+        started = true;
+        run('OnTimerStart');
+        publish(); return;
+      }
+      if (epoch === null) epoch = Date.now();
+      if (pending === null) {
+        pending = setTimeout(function () {
+          pending = null;
+          var now = Date.now();
+          elapsed = Math.min(duration(), elapsed + now - epoch);
+          epoch = now;
+          if (elapsed >= duration()) {
+            pause(); completed = true; publish(); run('OnTimerEnd');
+          }
+          updateBindings();
+        }, Math.max(1, Math.min(50, duration() - elapsed)));
+      }
+      publish();
+    }
+    timers[name] = { reset: reset };
     var el = document.querySelector('[data-control="' + name + '"]');
+    if (el) el.addEventListener('click', function () {
+      var wasRunning = epoch !== null || busy;
+      if (completed) reset();
+      manual = !wasRunning;
+      updateBindings();
+    });
+    evaluators.push({apply: apply});
+    publish();
+  }
+
+  function resetControl(name, element) {
+    if (timers[name]) {
+      timers[name].reset(); updateBindings(); return 0;
+    }
+    var el = element || document.querySelector('[data-control="' + name + '"]');
     if (!el) throw new Error('control not found for Reset: ' + name);
     var value = el.getAttribute('data-fx-default');
     if (el.type === 'checkbox') el.checked = value === 'true';
@@ -820,12 +1030,22 @@
     htmlControl: htmlControl,
     sanitizeHtml: sanitizeHtml,
     rowControl: rowControl,
+    rowValue: rowValue,
+    resetRowControl: function (row, name) {
+      return resetControl(name, row.querySelector('[data-control="' + name + '"]'));
+    },
     optionRecord: optionRecord,
     applyDefaultSelection: applyDefaultSelection,
     gallery: gallery,
     renderChart: renderChart,
     setFormMode: setFormMode,
     resetForm: resetForm,
+    resetControl: resetControl,
+    registerTimer: registerTimer,
+    focusControl: function (name) {
+      var el = document.querySelector('[data-control="' + name + '"]');
+      if (el && !el.disabled && typeof el.focus === 'function') el.focus();
+    },
     exitApp: exitApp,
     fxUser: fxUser,
     addEvaluator: function (apply) {

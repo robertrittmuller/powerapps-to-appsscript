@@ -1,5 +1,6 @@
 """Tests for the LLM seam: prompt building, JS acceptance gate, mocked client."""
 import json
+import pytest
 
 from pfx2gas.llm import LlmClient, _js_acceptable, build_system_prompt
 
@@ -14,6 +15,24 @@ def test_build_system_prompt_has_no_format_collisions():
 def test_js_acceptable_value_expression():
     assert _js_acceptable("new Date().getTimezoneOffset()", behavior=False)
     assert _js_acceptable("state.x = 1; state.y = 2;", behavior=True)
+    assert _js_acceptable("await apiPatch('Tasks', item, {status: 'Done'});", behavior=True)
+    assert _js_acceptable("({value: 1, name: 'Ready'})", behavior=False)
+    assert _js_acceptable("FXRuntime.language()", behavior=False)
+
+
+@pytest.mark.parametrize("js", [
+    "let x = 1;", "state.x = 1; state.y = 2;", "1); state.x = 2; (1",
+    "(() => {state.x++; return state.x;})()", "state.x = 1", "state.x++",
+    "FX.imaginaryHelper(state.x)", "FXRuntime.imaginaryHelper()",
+    "fetch('https://example.test/')", "Function('return 1')()",
+    "({}).constructor.constructor('return 1')()",
+])
+def test_value_fallback_rejects_statement_escape_mutation_and_unknown_helpers(js):
+    assert not _js_acceptable(js, behavior=False)
+
+
+def test_behavior_fallback_cannot_escape_its_handler():
+    assert not _js_acceptable("}\nstate.x = 1;\nasync function another() {", behavior=True)
 
 
 def test_js_acceptable_rejects_broken_js():
@@ -73,6 +92,17 @@ def test_translate_formula_accepts_good_js(tmp_path):
     # call log written
     log = (tmp_path / ".runs" / "llm-calls.jsonl").read_text()
     assert "TimeZoneOffset" in log
+    assert '"gateVersion": 2' in log
+    assert '"formulaSha256"' in log
+    assert "Formula kind: value" in client._client.chat.completions.last_kwargs["messages"][1]["content"]
+
+
+@pytest.mark.parametrize("data", [[], "text", {"js": 42}, {"js": []},
+    {"js": "1", "confidence": 2}, {"js": "1", "confidence": -0.1},
+    {"js": "1", "confidence": "0.9"}, {"js": "1", "confidence": float('nan')},
+    {"js": "1", "notes": []}, {"js": "1", "confidence": True}])
+def test_formula_response_schema_is_checked_without_coercion(data, tmp_path):
+    assert _client_with(json.dumps(data), tmp_path).translate_formula("Unknown()", "Test") is None
 
 
 def test_translate_formula_rejects_broken_js(tmp_path):

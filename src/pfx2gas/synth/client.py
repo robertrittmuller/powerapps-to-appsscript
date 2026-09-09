@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import ast
 import html
+import json
 import re
 
 from ..fidelity import mark_emission
@@ -24,6 +25,11 @@ from ..controls import EXPLICITLY_UNSUPPORTED_INPUTS
 from ..fx.naming import snake as _snake
 from ..icons import icon_glyph, is_icon_name
 from ..ir import AppIR, ControlNode
+
+
+def _behavior_js(expr, subject: str) -> str:
+    """A failed behavior translation must remain an observable failure."""
+    return expr.js or f"FX.unsupported({json.dumps(subject + ': formula could not be translated')});"
 
 ELEMENT_MAP = {
     "Button": "button",
@@ -44,7 +50,7 @@ ELEMENT_MAP = {
     "Screen": "section",
     "GroupContainer": "div",
     "Header": "header",
-    "Timer": "div",
+    "Timer": "button",
     "Slider": "input",
     "Rectangle": "div",
     "Chart": "div",
@@ -759,7 +765,7 @@ def _control_parents(ir: AppIR) -> dict[str, str]:
     def visit(ctrl: ControlNode, parent_name: str) -> None:
         parents[ctrl.name] = parent_name
         for child in ctrl.children:
-            visit(child, ctrl.name)
+            visit(child, parent_name if ctrl.type == "GalleryTemplate" else ctrl.name)
 
     for screen in ir.screens:
         for ctrl in screen.controls:
@@ -899,9 +905,9 @@ def _emit_form_registration(lines: list[str], form: ControlNode) -> bool:
     lines.append("    ],")
     for prop_name, config_name in (("OnSuccess", "onSuccess"), ("OnFailure", "onFailure")):
         expr = form.properties.get(prop_name)
-        if expr and expr.js:
+        if expr and expr.raw:
             lines.append(f"    {config_name}: async function () {{")
-            for stmt in expr.js.splitlines():
+            for stmt in _behavior_js(expr, f"{form.name}.{prop_name}").splitlines():
                 lines.append(f"      {stmt}")
             lines.append("    },")
             mark_emission(expr)
@@ -927,9 +933,9 @@ def render_app_js(ir: AppIR) -> str:
         calls = ", ".join(f"refreshData({name!r})" for name in external_sources)
         lines.append("  // Load external data before formulas/evaluators consume it.")
         lines.append(f"  await Promise.all([{calls}]);")
-    if ir.on_start and ir.on_start.js:
+    if ir.on_start and ir.on_start.raw:
         lines.append("  // OnStart (transpiled from Power Fx)")
-        for stmt in ir.on_start.js.splitlines():
+        for stmt in _behavior_js(ir.on_start, "App.OnStart").splitlines():
             lines.append(f"  {stmt}")
         mark_emission(ir.on_start)
     lines.append("  var __INITIAL_STATE_ONLY = null;")
@@ -942,9 +948,9 @@ def render_app_js(ir: AppIR) -> str:
                 registered_forms.add(ctrl.name)
 
     for screen in ir.screens:
-        if screen.on_visible and screen.on_visible.js:
+        if screen.on_visible and screen.on_visible.raw:
             lines.append(f"  FXRuntime.registerScreenHandler({screen.name!r}, async function () {{")
-            for stmt in screen.on_visible.js.splitlines():
+            for stmt in _behavior_js(screen.on_visible, f"{screen.name}.OnVisible").splitlines():
                 lines.append(f"    {stmt}")
             lines.append("  });")
             mark_emission(screen.on_visible)
@@ -991,11 +997,13 @@ def render_app_js(ir: AppIR) -> str:
                             mark_emission(expr, "emitted", "exposed to dependent control formulas")
                     lines.append("  });")
             for event in ("OnSelect", "OnChange"):
+                if ctrl.type == "Gallery":
+                    continue  # Invoked with the selected row, never by DOM bubbling.
                 expr = ctrl.properties.get(event)
-                if expr and expr.js:
+                if expr and expr.raw:
                     lines.append(f"  // {ctrl.name}.{event}")
                     lines.append(f"  bind({ctrl.name!r}, {event!r}, async function () {{")
-                    for stmt in expr.js.splitlines():
+                    for stmt in _behavior_js(expr, f"{ctrl.name}.{event}").splitlines():
                         lines.append(f"    {stmt}")
                     lines.append(f"  }}, {parent_names.get(ctrl.name)!r});")
                     form_refs = re.findall(
@@ -1012,12 +1020,38 @@ def render_app_js(ir: AppIR) -> str:
                     else:
                         mark_emission(expr)
 
+            if ctrl.type == "Timer":
+                lines.append(f"  FXRuntime.registerTimer({ctrl.name!r}, {screen.name!r}, {{")
+                for prop_name in ("Duration", "Start", "AutoStart", "AutoPause", "Repeat", "Reset"):
+                    expr = ctrl.properties.get(prop_name)
+                    if expr and expr.js and "await " not in expr.js:
+                        lines.append(f"    {prop_name!r}: function () {{")
+                        lines.append(f"      var selfRef = val({ctrl.name!r}), parentRef = val({parent_names.get(ctrl.name)!r});")
+                        lines.append(f"      return {expr.js};")
+                        lines.append("    },")
+                        mark_emission(expr)
+                for event in ("OnTimerStart", "OnTimerEnd"):
+                    expr = ctrl.properties.get(event)
+                    if expr and expr.raw:
+                        lines.append(f"    {event!r}: async function () {{")
+                        lines.append(f"      var selfRef = val({ctrl.name!r}), parentRef = val({parent_names.get(ctrl.name)!r});")
+                        lines.append(f"      var resetControl = function (target) {{ return FXRuntime.resetControl(target === 'Self' ? {ctrl.name!r} : target); }};")
+                        for stmt in _behavior_js(expr, f"{ctrl.name}.{event}").splitlines():
+                            lines.append(f"      {stmt}")
+                        lines.append("    },")
+                        mark_emission(expr)
+                lines.append("  });")
+
             if ctrl.type == "Gallery":
                 items = ctrl.properties.get("Items")
                 if items and items.js:
                     mark_emission(items)
                     row_fns = []
                     handlers = {}
+                    gallery_select = ctrl.properties.get("OnSelect")
+                    if gallery_select and gallery_select.raw:
+                        handlers[ctrl.name] = (parent_names.get(ctrl.name), {"OnSelect": _behavior_js(gallery_select, f"{ctrl.name}.OnSelect")})
+                        mark_emission(gallery_select)
                     row_controls = [descendant for child in _gallery_row_controls(ctrl)
                                     for descendant in child.walk()]
                     for child in row_controls:
@@ -1025,6 +1059,24 @@ def render_app_js(ir: AppIR) -> str:
                         row_properties: list[tuple[str, object]] = []
                         if texpr and texpr.js and _static_raw(texpr) is None:
                             row_properties.append(("text", texpr))
+                        row_inputs = []
+                        if child.type in {"Dropdown", "ComboBox", "ListBox"}:
+                            row_inputs.extend([("DisplayFields", "displayFields"), ("Items", "items"),
+                                               ("DefaultSelectedItems", "default")])
+                        if child.type in {"TextInput", "TextArea", "Dropdown", "ComboBox", "ListBox",
+                                          "CheckBox", "DatePicker", "Slider"}:
+                            if "DefaultSelectedItems" not in child.properties:
+                                row_inputs.append(("DefaultDate" if child.type == "DatePicker" else "Default", "default"))
+                            row_inputs.extend([("DisplayMode", "disabled"), ("Reset", "reset")])
+                        if child.type == "Image":
+                            row_inputs.append(("Image", "src"))
+                        for prop_name, runtime_key in row_inputs:
+                            prop_expr = child.properties.get(prop_name)
+                            if prop_expr and prop_expr.js and "await " not in prop_expr.js:
+                                # Static image assets/icons are resolved by the HTML renderer.
+                                if runtime_key == "src" and _static_raw(prop_expr) is not None:
+                                    continue
+                                row_properties.append((runtime_key, prop_expr))
                         row_reactive = [
                             ("X", "left"), ("Y", "top"),
                             ("Width", "width"), ("Height", "height"),
@@ -1047,48 +1099,46 @@ def render_app_js(ir: AppIR) -> str:
                             row_properties.append((runtime_key, prop_expr))
                         if row_properties:
                             row_fns.append(
-                                f"        FXRuntime.rowControl(row, {child.name!r}, {ctrl.name!r}, {{"
+                                f"        FXRuntime.rowControl(row, {child.name!r}, {parent_names.get(child.name)!r}, {{"
                             )
                             for runtime_key, prop_expr in row_properties:
                                 row_fns.append(
-                                    f"          {runtime_key!r}: function () {{ return {prop_expr.js}; }},"
+                                    f"          {runtime_key!r}: function (val, selfRef, parentRef) {{ return {prop_expr.js}; }},"
                                 )
                                 mark_emission(
                                     prop_expr,
-                                    "approximated" if runtime_key == "display" else "emitted",
+                                    "approximated" if runtime_key in {"display", "src"} else "emitted",
                                     "gallery-row formula is evaluated in ThisItem/Self/Parent context",
                                 )
                             row_fns.append("        });")
-                        onsel = child.properties.get("OnSelect")
-                        if onsel and onsel.js:
-                            handler_js = re.sub(
-                                r"\bselectControl\((['\"])Parent\1\);?",
-                                "",
-                                onsel.js,
-                            ).strip()
-                            if handler_js:
-                                handlers[child.name] = handler_js
-                                mark_emission(onsel)
-                            else:
-                                mark_emission(
-                                    onsel,
-                                    "approximated",
-                                    "Select(Parent) is satisfied by gallery row selection and event bubbling",
-                                )
+                        events = {}
+                        for event in ("OnSelect", "OnChange"):
+                            expr = child.properties.get(event)
+                            if expr and expr.raw:
+                                events[event] = _behavior_js(expr, f"{child.name}.{event}")
+                                mark_emission(expr)
+                        if events:
+                            handlers[child.name] = (parent_names.get(child.name), events)
                     lines.append(f"  // {ctrl.name}.Items (gallery)")
                     lines.append("  FXRuntime.gallery(")
                     lines.append(f"    {ctrl.name!r},")
-                    lines.append(f"    function () {{ return {items.js}; }},")
+                    lines.append(f"    function () {{ var selfRef = val({ctrl.name!r}), parentRef = val({parent_names.get(ctrl.name)!r}); return {items.js}; }},")
                     lines.append("    function (item, row) {")
                     for rf in row_fns:
                         lines.append(rf)
                     lines.append("    },")
                     if handlers:
                         lines.append("    {")
-                        for cname, js in handlers.items():
-                            lines.append(f"      {cname}: async function (item) {{")
-                            for stmt in js.splitlines():
-                                lines.append(f"        {stmt}")
+                        for cname, (parent, events) in handlers.items():
+                            lines.append(f"      {cname!r}: {{ parent: {parent!r},")
+                            for event, js in events.items():
+                                lines.append(f"        {event!r}: async function (item, row, selectControl) {{")
+                                lines.append("          var val = function (name) { return FXRuntime.rowValue(row, name); };")
+                                lines.append(f"          var selfRef = val({cname!r}), parentRef = val({parent!r});")
+                                lines.append(f"          var resetControl = function (name) {{ return FXRuntime.resetRowControl(row, name === 'Self' ? {cname!r} : name === 'Parent' ? {parent!r} : name); }};")
+                                for stmt in js.splitlines():
+                                    lines.append(f"          {stmt}")
+                                lines.append("        },")
                             lines.append("      },")
                         lines.append("    }")
                     else:

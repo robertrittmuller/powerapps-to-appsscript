@@ -123,11 +123,17 @@ class Emitter:
             return self.record(node)
         if k == "call":
             return self.call(node)
+        if k == "chain":
+            # A comma expression preserves branch-local order and the final
+            # result, including awaits in the surrounding async handler.
+            return "(" + ", ".join(self.expr(child) for child in node.children) + ")"
         raise RuntimeError(f"unhandled node kind {k!r}")
 
     def ident(self, name: str) -> str:
         base, *members = lx.reference_parts(name)
         control = False
+        if not members and base in {"Ascending", "Descending"}:
+            return _q(base)
         if base in ENUM_TYPES and members:
             return _q(".".join(members))
         if base == "ThisItem":
@@ -242,10 +248,10 @@ class Emitter:
             target = args[0]
             ctrl = str(target.value) if target.kind == "ident" else self.expr(target)
             return f"resetForm({_q(ctrl)})"
-        if name in {"Reset", "Select"}:
+        if name in {"Reset", "Select", "SetFocus"}:
             target = args[0]
             ctrl = str(target.value) if target.kind == "ident" else self.expr(target)
-            fn = "selectControl" if name == "Select" else "resetControl"
+            fn = {"Select": "selectControl", "Reset": "resetControl", "SetFocus": "FXRuntime.focusControl"}[name]
             return f"{fn}({_q(ctrl)})"
         if name == "Search":
             # Search(t, needle, col1, col2, ...) -> rows where any col contains needle
@@ -254,6 +260,18 @@ class Emitter:
             needle = js_args[1] if len(js_args) > 1 else "''"
             cols = ", ".join(self._col_literal(a) for a in args[2:])
             return f"FX.search({table}, {needle}, [{cols}])"
+        if name == "SortByColumns":
+            columns, orders = [], []
+            i = 1
+            while i < len(args):
+                columns.append(self._col_literal(args[i]))
+                i += 1
+                if i < len(args) and (args[i].kind != "str" or str(args[i].value).lower().endswith(("ascending", "descending"))):
+                    orders.append(self.expr(args[i]))
+                    i += 1
+                else:
+                    orders.append("'Ascending'")
+            return f"FX.sortByColumns({self.expr(args[0])}, [{', '.join(columns)}], [{', '.join(orders)}])"
         if name in {"ShowColumns", "DropColumns", "RenameColumns"}:
             fn = {"ShowColumns": "showColumns", "DropColumns": "dropColumns", "RenameColumns": "renameColumns"}[name]
             return f"FX.{fn}({self.expr(args[0])}, [{', '.join(self._col_literal(a) for a in args[1:])}])"

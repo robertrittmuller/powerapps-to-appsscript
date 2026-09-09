@@ -142,7 +142,86 @@ def check_scopes(page, backend):
     assert page.evaluate("FXRuntime.param('recordId') === '42' && FXRuntime.param('missing') === null")
 
 
-def run_case(browser, name, source, journey):
+def check_gallery(page, backend):
+    rows = control(page, "ContactRows").locator('.fx-row')
+    expect(rows).to_have_count(2)
+    first = rows.nth(0).locator('[data-control="RowFirst"]')
+    second = rows.nth(1).locator('[data-control="RowFirst"]')
+    last = rows.nth(1).locator('[data-control="RowLast"]')
+    expect(first).to_have_value("Ada")
+    expect(second).to_have_value("Grace")
+    expect(last).to_have_value("Hopper")
+    expect(rows.nth(1).locator('[data-control="RowPreview"]')).to_have_text("Grace Hopper")
+    page.wait_for_function("Array.from(document.querySelectorAll('[data-control=RowImage]')).every(el => el.naturalWidth === 32)")
+    # Keep a live reference to the input; replacing or moving it during typing
+    # used to erase the edit and focus on every binding update.
+    last.focus()
+    last.press("End")
+    last.press_sequentially(" edited")
+    last.evaluate("el => { window.__editedInput = el; el.setSelectionRange(2, 5); }")
+    page.evaluate("FXRuntime.setState({counter: 10})")
+    assert last.evaluate("el => el === window.__editedInput && document.activeElement === el && el.selectionStart === 2 && el.selectionEnd === 5")
+    expect(last).to_have_value("Hopper edited")
+    expect(rows.nth(1).locator('[data-control="RowPreview"]')).to_have_text("Grace Hopper edited")
+    page.evaluate("FXRuntime.setState({reverseRows: true})")
+    expect(rows.nth(0).locator('[data-control="RowFirst"]')).to_have_value("Grace")
+    assert page.evaluate("document.activeElement === window.__editedInput && window.__editedInput.selectionStart === 2 && window.__editedInput.selectionEnd === 5")
+    page.evaluate("FXRuntime.setState({reverseRows: false})")
+    expect(last).to_have_value("Hopper edited")
+    rows.nth(1).locator('[data-control="RowReset"]').click()
+    expect(last).to_have_value("Hopper")
+    second.fill("Amazing Grace")
+    second.press("Tab")
+    page.wait_for_function("state.savedRow === 'Amazing Grace'")
+    expect(first).to_have_value("Ada")
+    last.fill("Admiral")
+    rows.nth(1).locator('[data-control="RowSave"]').click()
+    page.wait_for_function("state.parentCalls === 1 && state.parentSawFinished === true")
+    assert page.evaluate("state.selectedName") == "Amazing Grace"
+    saved = backend({"fn": "api", "args": ["Contacts", "list", {}]})["result"]
+    assert [(r["first_name"], r["last_name"]) for r in saved] == [("Ada", "Lovelace"), ("Amazing Grace", "Admiral")], saved
+    # A row's selector retains records and reacts through its own OnChange.
+    rows.nth(1).locator('[data-control="RowChoice"]').select_option(index=0)
+    page.wait_for_function("state.chosenName === 'Ada'")
+    control(page, "LockRows").click()
+    expect(last).to_be_disabled()
+    control(page, "LockRows").click()
+    expect(last).to_be_enabled()
+    page.screenshot(path=str(OUT / "editable-gallery/two-row-edit.png"))
+    page.reload()
+    expect(first).to_have_value("Ada")
+    expect(second).to_have_value("Amazing Grace")
+    expect(last).to_have_value("Admiral")
+
+
+def check_timers(page, _backend):
+    expect(page.locator('[data-screen="LoadingScreen"]')).to_be_visible()
+    page.wait_for_function("state.timerStarted === true")
+    page.clock.run_for(260)
+    expect(page.locator('[data-screen="ReadyScreen"]')).to_be_visible()
+    expect(control(page, "ReadyMessage")).to_have_text("Ready")
+    page.clock.run_for(60)
+    expect(control(page, "FocusInput")).to_be_focused()
+    control(page, "StartRepeat").click()
+    page.clock.run_for(50)
+    assert page.evaluate("val('RepeatTimer').value") == 50
+    control(page, "GoOther").click()
+    page.clock.run_for(500)
+    assert page.evaluate("state.cycles") == 0
+    control(page, "ReturnReady").click()
+    page.clock.run_for(260)
+    assert page.evaluate("state.cycles") == 3
+    page.clock.run_for(500)
+    assert page.evaluate("state.cycles") == 3
+    control(page, "ResetRepeat").click()
+    assert page.evaluate("val('RepeatTimer').value") == 0
+    control(page, "StartRepeat").click()
+    page.clock.run_for(310)
+    assert page.evaluate("state.cycles") == 3
+    page.screenshot(path=str(OUT / "timer-lifecycle/ready.png"))
+
+
+def run_case(browser, name, source, journey, clock=False):
     project = synthesize(analyze(parse(unpack(source))), OUT / name / "project")
     validation = validate_project(project)
     assert validation["ok"], validation["problems"]
@@ -170,6 +249,9 @@ def run_case(browser, name, source, journey):
         route.fulfill(content_type="text/html", body=response["result"])
     context.route("**/*", route_app)
     page = context.new_page()
+    if clock:
+        page.clock.install(time=0)
+        page.clock.pause_at(1)
     errors = []
     page.on("pageerror", lambda error: errors.append(str(error)))
     page.on("console", lambda msg: errors.append(msg.text) if msg.type == "error" else None)
@@ -203,6 +285,8 @@ def main():
     cases = [("business-form", REPO / "tests/fixtures/fixtureForm.msapp", check_form),
              ("business-charts", REPO / "tests/fixtures/fixtureCharts.msapp", check_charts),
              ("record-scopes", REPO / "tests/fixtures/fixtureScopes.msapp", check_scopes)]
+    cases.append(("editable-gallery", REPO / "tests/fixtures/fixtureGallery.msapp", check_gallery))
+    cases.append(("timer-lifecycle", REPO / "tests/fixtures/fixtureTimer.msapp", check_timers, True))
     helpdesk = REPO / "samples/real/helpdesk.msapp"
     if helpdesk.exists():
         cases.append(("helpdesk", helpdesk, check_helpdesk))

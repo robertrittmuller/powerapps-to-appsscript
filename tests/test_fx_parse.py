@@ -52,3 +52,18 @@ def test_parse_member_chain():
 def test_syntax_error_raises():
     with pytest.raises(lx.FxSyntaxError):
         lx.parse_formula("Filter(Tasks, Amount > )")
+
+
+def test_comments_do_not_strip_string_contents_or_following_code():
+    nodes = lx.parse_formula('/* intro ; () */ Set(url, "https://a/*literal*/"); // comment\nSet(done, true)')
+    assert len(nodes) == 2
+    assert nodes[0].children[1].value == 'https://a/*literal*/'
+    with pytest.raises(lx.FxSyntaxError, match="unterminated block comment"):
+        lx.parse_formula("Set(x, 1); /* unfinished")
+
+
+def test_nested_behavior_chain_is_one_argument():
+    node = lx.parse_formula("If(true, Set(x, 1); Set(y, 2), Set(x, 3))")[0]
+    assert len(node.children) == 3
+    assert node.children[1].kind == "chain"
+    assert len(node.children[1].children) == 2

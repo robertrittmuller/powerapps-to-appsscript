@@ -199,6 +199,93 @@ def test_generated_record_scopes_startup_clean():
     assert verdict["totalConsoleErrors"] == 0, verdict
 
 
+def test_generated_gallery_edits_second_row_and_queues_parent_once(tmp_path):
+    from pfx2gas.analyze import analyze
+    from pfx2gas.parse import parse
+    from pfx2gas.startup_sim import simulate_project
+    from pfx2gas.synth.build import synthesize
+    from pfx2gas.unpack import unpack
+
+    ir = analyze(parse(unpack(FIXTURES / "fixtureGallery.msapp")))
+    project = synthesize(ir, tmp_path / "Gallery")
+    row = {"gallery": "ContactRows", "row": 1}
+    verdict = simulate_project(project, [{"id": "edit-second-row", "steps": [
+        {"action": "expectValue", "control": "RowFirst", "equals": "Grace", **row},
+        {"action": "setValue", "control": "RowFirst", "value": "Amazing Grace", **row},
+        {"action": "expectDataRow", "source": "Contacts", "where": {"id": "two", "first_name": "Amazing Grace"}},
+        {"action": "expectDataRow", "source": "Contacts", "where": {"id": "one", "first_name": "Ada"}},
+        {"action": "setValue", "control": "RowLast", "value": "Admiral", **row},
+        {"action": "click", "control": "UnrelatedUpdate"},
+        {"action": "expectValue", "control": "RowLast", "equals": "Admiral", **row},
+        {"action": "click", "control": "RowSave", **row},
+        {"action": "expectState", "key": "parentCalls", "equals": 1},
+        {"action": "expectState", "key": "parentSawFinished", "equals": True},
+        {"action": "expectState", "key": "selectedName", "equals": "Amazing Grace"},
+        {"action": "expectDataRow", "source": "Contacts", "where": {"id": "two", "last_name": "Admiral"}},
+    ]}])
+    assert verdict["consoleErrors"] == [], verdict
+    assert verdict["journeyResults"][0]["status"] == "pass", verdict
+    controls = {c.name: c for s in ir.screens for c in s.walk_controls()}
+    for name, property_name in [("RowFirst", "Default"), ("RowFirst", "OnChange"),
+                                ("RowSave", "OnSelect"), ("RowLast", "DisplayMode")]:
+        assert controls[name].properties[property_name].emission_status == "emitted"
+
+
+def test_generated_timers_initialize_data_and_leave_loading_screen(tmp_path):
+    from pfx2gas.analyze import analyze
+    from pfx2gas.parse import parse
+    from pfx2gas.startup_sim import simulate_project
+    from pfx2gas.synth.build import synthesize
+    from pfx2gas.unpack import unpack
+
+    ir = analyze(parse(unpack(FIXTURES / "fixtureTimer.msapp")))
+    assert {"timerStarted", "timerEnded"}.issubset(ir.global_vars)
+    assert next(ds for ds in ir.data_sources if ds.name == "TimerRows").origin == "collection"
+    verdict = simulate_project(synthesize(ir, tmp_path / "Timer"), [{"id": "loading-flow", "steps": [
+        {"action": "expectScreen", "screen": "LoadingScreen"},
+        {"action": "expectState", "key": "timerStarted", "equals": True},
+        {"action": "wait", "milliseconds": 350},
+        {"action": "expectScreen", "screen": "ReadyScreen"},
+        {"action": "expectText", "control": "ReadyMessage", "equals": "Ready"},
+        {"action": "expectState", "key": "timerEnded", "equals": True},
+        {"action": "click", "control": "StartRepeat"},
+        {"action": "wait", "milliseconds": 400},
+        {"action": "expectState", "key": "cycles", "equals": 3},
+        {"action": "click", "control": "ResetRepeat"},
+        {"action": "expectState", "key": "cycles", "equals": 0},
+    ]}])
+    assert verdict["consoleErrors"] == [], verdict
+    assert verdict["journeyResults"][0]["status"] == "pass", verdict
+
+
+@pytest.mark.parametrize("target", ["startup", "screen", "button", "timer"])
+def test_untranslatable_behavior_cannot_silently_pass_runtime_checks(tmp_path, target):
+    from pfx2gas.analyze import analyze
+    from pfx2gas.ir import AppIR, ControlNode, ScreenNode, FxExpr
+    from pfx2gas.startup_sim import simulate_project
+    from pfx2gas.synth.build import synthesize
+
+    broken = FxExpr(raw="Set(x, @broken)", kind="behavior")
+    screen = ScreenNode(name="Main")
+    ir = AppIR(name="BrokenBehavior", screens=[screen], start_screen="Main")
+    steps = []
+    if target == "startup":
+        ir.on_start = broken
+    elif target == "screen":
+        screen.on_visible = broken
+    elif target == "button":
+        screen.controls = [ControlNode(name="BrokenButton", type="Button", properties={"OnSelect": broken})]
+        steps = [{"action": "click", "control": "BrokenButton"}]
+    else:
+        screen.controls = [ControlNode(name="BrokenTimer", type="Timer", properties={
+            "OnTimerEnd": broken, "Duration": FxExpr(raw="150"), "AutoStart": FxExpr(raw="true")})]
+        steps = [{"action": "wait", "milliseconds": 250}]
+    verdict = simulate_project(synthesize(analyze(ir), tmp_path / "Broken"), [{"id": "observe-failure", "steps": steps}])
+    assert any("formula could not be translated" in error for error in verdict["allConsoleErrors"]), verdict
+    if target in {"button", "timer"}:
+        assert verdict["journeyResults"][0]["status"] == "fail", verdict
+
+
 def test_shared_simulator_runs_declarative_critical_journey(tmp_path):
     """The soak runner uses the same generated-app interaction evidence."""
     from pfx2gas.analyze import analyze

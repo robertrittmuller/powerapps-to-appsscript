@@ -9,7 +9,7 @@ from .fx.emitter import LAMBDA_FNS
 from .fx.naming import snake as _snake
 from .ir import AppIR, ControlNode, DataSource, FieldDef, FxExpr, SupportEntry
 
-BEHAVIOR = {"OnSelect", "OnChange", "OnVisible", "OnHidden", "OnStart", "OnSuccess", "OnFailure"}
+from .parse import BEHAVIOR_PROPS as BEHAVIOR
 NON_LOGIC_PROPS = {"X", "Y", "Width", "Height", "ZIndex", "Text", "Default", "Items",
                    "Visible", "Fill", "Color", "FontSize", "FontWeight", "Align",
                    "AccessibleLabel", "Tooltip", "Placeholder", "ItemsOrder"}

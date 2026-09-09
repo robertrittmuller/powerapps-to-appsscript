@@ -187,6 +187,7 @@ test('Dropdown Selected and ComboBox SelectedItems preserve source records', () 
 
 test('gallery row selection exposes Selected and AllItems records', () => {
   const original = global.document.querySelector;
+  const originalCreate = global.document.createElement;
   const rows = [];
   function rowElement() {
     const child = { tagName: 'SPAN', style: { width: '60px', height: '20px' },
@@ -195,18 +196,18 @@ test('gallery row selection exposes Selected and AllItems records', () => {
       style: {}, listeners: {}, child,
       addEventListener(ev, fn) { this.listeners[ev] = fn; },
       querySelector(selector) { return selector.includes('Name') ? child : null; },
+      querySelectorAll() { return []; },
       click() { this.listeners.click(); },
     };
   }
-  const rowsEl = { style: {}, children: [] };
-  Object.defineProperty(rowsEl, 'innerHTML', {
-    set(markup) {
-      const count = (String(markup).match(/class="fx-row"/g) || []).length;
-      rows.length = 0;
-      for (let i = 0; i < count; i += 1) rows.push(rowElement());
-      this.children = rows;
+  const rowsEl = { style: {}, children: rows,
+    insertBefore(row, before) {
+      const existing = rows.indexOf(row);
+      if (existing >= 0) rows.splice(existing, 1);
+      rows.splice(before ? rows.indexOf(before) : rows.length, 0, row);
     },
-  });
+  };
+  global.document.createElement = () => ({firstElementChild: rowElement()});
   const template = { innerHTML: '<div class="fx-row"><span data-control="Name"></span></div>' };
   const attrs = { 'data-template-size': '87', 'data-template-padding': '3' };
   const host = {
@@ -220,7 +221,7 @@ test('gallery row selection exposes Selected and AllItems records', () => {
   RT.gallery('PeopleGallery', () => items, (item, row) => {
     RT.rowControl(row, 'Name', 'PeopleGallery', {
       text: () => item.name,
-      left: () => global.parentRef.template_width - 5,
+      left: (_read, _self, parent) => parent.template_width - 5,
     });
   }, null);
   RT.updateBindings();
@@ -230,10 +231,16 @@ test('gallery row selection exposes Selected and AllItems records', () => {
   assert.strictEqual(rows[0].child.textContent, 'Ada');
   assert.strictEqual(rows[1].child.textContent, 'Grace');
   assert.strictEqual(rows[0].child.style.left, '205px');
+  const retained = rows.slice();
+  RT.setState({unrelatedUpdate: 1});
+  assert.strictEqual(rows[0], retained[0]);
+  assert.strictEqual(rows[1], retained[1]);
+  assert.strictEqual(RT.rowValue(rows[1], 'Name').text, 'Grace');
   rows[1].click();
   assert.deepStrictEqual(global.val('PeopleGallery').selected, items[1]);
   assert.deepStrictEqual(global.val('PeopleGallery').all_items, items);
   global.document.querySelector = original;
+  global.document.createElement = originalCreate;
 });
 
 test('renderChart exposes SeriesLabels for a separate Legend control', () => {
