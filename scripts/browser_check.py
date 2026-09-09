@@ -283,11 +283,15 @@ def run_case(browser, name, source, journey, clock=False, launch_parameters=None
             result['dataSetup'] = setup_backend(backend)
         page.goto("https://converted.test/?" + urlencode(launch_parameters or {}))
         journey(page, backend)
-        assert not errors, errors
     except Exception as error:
         result.update(status="fail", error=str(error) or type(error).__name__)
     finally:
-        result["consoleErrors"] = errors
+        try:
+            page.wait_for_function('async () => await window.__waitForGasIdle()', timeout=10000)
+            result['serverCallDrain'] = {'status':'pass'}
+        except Exception as error:
+            result['status'] = 'fail'
+            result['serverCallDrain'] = {'status':'fail','error':str(error)}
         try:
             page.screenshot(path=str(OUT / name / "result.png"), full_page=True, timeout=10000)
             result['screenshot'] = {'status':'pass'}
@@ -302,6 +306,12 @@ def run_case(browser, name, source, journey, clock=False, launch_parameters=None
         except Exception as error:
             result['status'] = 'fail'
             result['measurementError'] = str(error)
+        # RPC callbacks and captures can surface errors after the journey
+        # returns. Finalize the verdict only after those observations finish.
+        result['consoleErrors'] = list(errors)
+        if errors:
+            result['status'] = 'fail'
+            result.setdefault('error','runtime errors: ' + '; '.join(errors))
         (OUT / name / "result.json").write_text(json.dumps(result, indent=2) + "\n")
         context.close()
         server.terminate()
@@ -424,6 +434,38 @@ def check_dataverse(page, backend):
     page.reload()
     expect(name).to_have_value("Second project edited")
     expect(count).to_have_text("2")
+
+    before = backend({'fn':'api','args':['Projects','list',{}]})['result']
+    name.fill('Updated through the source key')
+    backend({'fn':'__failNextMutation','args':[]})
+    control(page,'ContractKeySave').click()
+    expect(status).to_have_text('key save failed')
+    assert backend({'fn':'api','args':['Projects','list',{}]})['result'] == before
+    control(page,'ContractKeySave').click()
+    expect(status).to_have_text('key saved')
+    expect(count).to_have_text('2')
+    saved = backend({'fn':'api','args':['Projects','list',{}]})['result']
+    assert saved[0] == before[0] and saved[1]['project'] == 'project-two'
+    assert saved[1]['name'] == 'Updated through the source key' and saved[1]['budget'] == 0 and saved[1]['active'] is False
+    name.fill('Created using a fixed key')
+    control(page,'ContractKeyUpsert').click()
+    expect(status).to_have_text('key upserted')
+    expect(count).to_have_text('3')
+    name.fill('Retry updates the same row')
+    control(page,'ContractKeyUpsert').click()
+    page.wait_for_function("state.selectedProject.name === 'Retry updates the same row'")
+    expect(count).to_have_text('3')
+    saved = backend({'fn':'api','args':['Projects','list',{}]})['result']
+    assert saved[-1]['project'] == 'fixed-new-key' and saved[-1]['name'] == 'Retry updates the same row'
+    control(page,'ContractKeyInvalid').click()
+    expect(status).to_have_text('key required')
+    assert backend({'fn':'api','args':['Projects','list',{}]})['result'] == saved
+    page.reload()
+    expect(name).to_have_value('Retry updates the same row')
+    expect(count).to_have_text('3')
+    page.screenshot(path=str(OUT / 'dataverse-contract/keyed-patch-reloaded.png'))
+    control(page,'ContractDelete').click()
+    expect(count).to_have_text('2')
 
 
 def check_source_formulas(page, _backend):
@@ -690,6 +732,19 @@ def main():
         assert failed['status'] == 'fail' and failed['error'] == 'deliberate journey failure'
         assert failed['screenshot'] == {'status':'fail','error':'deliberate screenshot failure'}
         assert (OUT / 'evidence-failure-gate/result.json').exists()
+        def late_console_error(page, _backend):
+            screenshot = page.screenshot
+            def capture(**kwargs):
+                page.evaluate("console.error('deliberate late capture error')")
+                return screenshot(**kwargs)
+            page.screenshot = capture
+        late = run_case(browser,'late-runtime-error-gate',REPO / 'tests/fixtures/fixtureA.msapp',late_console_error)
+        assert late['status'] == 'fail' and 'deliberate late capture error' in late['consoleErrors']
+        def pending_callback_error(page, _backend):
+            page.evaluate("google.script.run.withSuccessHandler(() => console.error('deliberate pending callback error')).whoami(); void 0")
+        pending = run_case(browser,'pending-runtime-error-gate',REPO / 'tests/fixtures/fixtureA.msapp',pending_callback_error)
+        assert pending['status'] == 'fail' and 'deliberate pending callback error' in pending['consoleErrors']
+        assert pending['serverCallDrain']['status'] == 'pass'
         browser.close()
     (OUT / "results.json").write_text(json.dumps(results, indent=2) + "\n")
     return int(any(result["status"] != "pass" for result in results))

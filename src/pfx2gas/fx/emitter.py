@@ -626,6 +626,9 @@ class Emitter:
             return "FX.unsupported('UpdateIf against an external data source')"
 
         if name == "Patch":
+            if len(args) == 2:
+                self.res.approximations.append('Two-argument Patch requires an explicit exported primary key; keyless records, composite keys and table arguments require adapters')
+                return f"await apiPatchRecord({_q(ds)}, {ex(1)})"
             base = ex(1) if len(args) >= 3 else "null"
             rec = ex(2) if len(args) >= 3 else (ex(1) if len(args) == 2 else "{}")
             return f"await apiPatch({_q(ds)}, {base}, {rec})"
@@ -660,6 +663,9 @@ class Emitter:
                 pairs.append(f'{{condition: ({row_scope}) => ({condition}), changes: ({row_scope}) => ({changes})}}')
             return f"FX.collections.updateIf(state, {ds!r}, [{', '.join(pairs)}])"
         if name == "Patch":
+            if len(args) == 2:
+                self.res.unmapped.append('two-argument Patch on a collection without source primary-key semantics')
+                return "FX.unsupported('two-argument Patch on a collection without source primary-key semantics')"
             base = ex(1) if len(args) >= 3 else "null"
             rec = ex(2) if len(args) >= 3 else (ex(1) if len(args) == 2 else "{}")
             return f"FX.collections.patchCollection(state, {ds!r}, {base}, {rec})"

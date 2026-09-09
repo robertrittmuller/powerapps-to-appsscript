@@ -136,6 +136,15 @@ def test_concurrent_rejects_invalid_arity_and_value_context(formula, behavior):
         transpile(formula, behavior=behavior)
 
 
+def test_two_argument_patch_selects_the_keyed_adapter_and_never_appends_to_unkeyed_collections():
+    keyed = transpile('Patch(Projects, {Project: "key", Budget: 0, Active: false})', behavior=True)
+    assert not keyed.unmapped
+    assert keyed.js == "await apiPatchRecord('Projects', {project: 'key', budget: 0, active: false});"
+    assert any('explicit exported primary key' in note for note in keyed.approximations)
+    unkeyed = transpile('Patch(Drafts, {ID: 1, Name: "Do not append"})', behavior=True, collections={'Drafts'})
+    assert any('without source primary-key semantics' in reason for reason in unkeyed.unmapped)
+
+
 def test_async_iferror_and_with_await_failure_before_following_behavior():
     assert evaluate('With({fallback: "failed"}, Set(result, IfError(Patch(Tasks, Defaults(Tasks), {Name: "x"}), fallback))); Set(after, result)',
                     behavior=True, tail="return state;") == {"result": "failed", "after": "failed"}

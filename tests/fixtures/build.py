@@ -593,6 +593,15 @@ def dataverse_fixture_files() -> dict[str, str]:
             "OnSelect": 'Set(selectedProject, Patch(Projects, Defaults(Projects), {Name: "New project", Status: \'Project Status\'.Open, Active: \'Project Active\'.Yes, Budget: 0, msft_start: Date(2026, 9, 9), Owner: {UserId: "user-1", FullName: "Grace"}, Tags: [0, 1]})); Set(projectResult, "created")'}),
         control("ContractDelete", "button", {"Text": '"Delete selected project"', "X": 290, "Y": 200, "Width": 250, "Height": 44,
             "OnSelect": 'Remove(Projects, selectedProject); Set(selectedProject, Last(Projects)); Set(projectResult, "deleted")'}),
+        control('ContractKeySave','button',{'Text':'"Save by source key"','X':20,'Y':260,'Width':250,'Height':44,
+            'OnSelect':'IfError(Set(selectedProject, Patch(Projects, {msft_projectid: selectedProject.Project, '
+            'msft_name: ContractName.Text, msft_budget: 0, msft_active: false})); Set(projectResult, "key saved"), '
+            'Set(projectResult, "key save failed"))'}),
+        control('ContractKeyUpsert','button',{'Text':'"Upsert a fixed source key"','X':290,'Y':260,'Width':250,'Height':44,
+            'OnSelect':'Set(selectedProject, Patch(Projects, {Project: "fixed-new-key", Name: ContractName.Text, Status: 0})); '
+            'Set(projectResult, "key upserted")'}),
+        control('ContractKeyInvalid','button',{'Text':'"Try a missing source key"','X':20,'Y':320,'Width':250,'Height':44,
+            'OnSelect':'IfError(Patch(Projects, {Name: "Do not create"}); Set(projectResult, "unexpected"), Set(projectResult, "key required"))'}),
     ]
     return {"Properties.json": json.dumps({"Name": "FixtureDataverse"}),
         "Controls\\1.json": json.dumps({"TopParent": control("App", "appinfo", {

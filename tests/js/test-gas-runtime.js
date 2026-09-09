@@ -109,6 +109,20 @@ test('serverRun rejects when the failure handler fires', async () => {
   await assert.rejects(RT.serverRun('api', 'Tasks', 'list', {}), /boom/);
 });
 
+test('apiPatchRecord sends the keyed overload and does not refresh state on failure', async () => {
+  assert.strictEqual(global.apiPatchRecord.length,2);
+  installGoogleMock('ok');
+  const record = {project:'source-key',budget:0,active:false};
+  const saved = await global.apiPatchRecord('Keyed',record);
+  assert.strictEqual(saved.called,'api');
+  assert.deepStrictEqual(saved.args,['Keyed','patchRecord',{record}]);
+  assert.deepStrictEqual(global.state.Keyed.args,['Keyed','list',{}]);
+  const before = global.state.Keyed;
+  installGoogleMock('fail');
+  await assert.rejects(global.apiPatchRecord('Keyed',record),/boom/);
+  assert.strictEqual(global.state.Keyed,before);
+});
+
 test('serverRun encodes nested dates without changing client records or hiding invalid values', async () => {
   installGoogleMock('ok');
   const record = {when: new Date('2026-09-09T12:34:56Z'), nested: [{done: false, count: 0, blank: null}]};

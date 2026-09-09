@@ -151,8 +151,11 @@ def main(voting=False):
             try:
                 check('cast-vote', lambda: vote.click())
                 check('optimistic-vote-count-displayed', lambda: expect(vote).to_have_text('1 vote'))
+                check('vote-server-callbacks-settle', lambda: page.wait_for_function(
+                    'async () => await window.__waitForGasIdle()', timeout=10000))
                 def persisted_vote():
                     records = backend({'fn':'api','args':['Employee Ideas','list',{}]})['result']
+                    assert len(records) == 1, records
                     assert records[0]['vote__count'] == 1, records[0]['vote__count']
                 check('vote-persisted-in-generated-server', persisted_vote)
             finally:

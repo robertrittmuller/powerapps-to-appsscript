@@ -114,7 +114,25 @@ first error in source argument order propagates; success returns true. Executed
 formula tests control response order, while Chromium verifies independent saves,
 failure recovery and persistence after reload. Source error-management settings,
 branch dependency validation and external side-effect ordering remain ledgered
-review items. The LLM v4 gate rejects Concurrent references in value proposals.
+review items. The LLM v5 gate rejects Concurrent and keyed-write helper references
+in value proposals.
+
+Two-argument Patch now updates by an explicit exported source primary key and
+creates only when no stored row has that key. Validation or service failures never
+fall through to creation; missing metadata/keys and ambiguous duplicate keys
+fail explicitly. The generated native UI verifies save failure/retry, correct-row
+updates, creation, repeated-key updates and reload. Keyless, inferred/composite
+keys and table arguments remain unsupported. All generated API mutations now
+hold a script lock across their reads and writes, flush before releasing, and
+release after failures. The server test double enforces those invariants and
+exercises lock timeouts, write failures and uncertain flush failures. This is
+per-request serialization; client calculations and whole workflows are not
+atomic, and live Google contention still needs verification.
+
+The browser gate now drains dispatched server calls and includes console errors
+observed during capture. A voting run exposed the old gate returning pass with
+a nonempty error list. Deliberate pending-callback and late-capture errors now
+fail their regression probes, alongside the existing screenshot-failure gate.
 
 Eleven pinned source exports are available here: five public regression apps
 and six Microsoft business apps. **All eleven generate valid code; six pass
@@ -128,8 +146,8 @@ required-title validation, single/multiline responses, submission, persistence,
 reload and reopening. One unrelated campaign question is correctly excluded.
 The source's failed Teams-post warning executes without aborting the save.
 Its title remains deliberately truncated under source Wrap=false/Overflow.Hidden.
-The optional voting probe fails: a local count of one masks a persisted count
-of zero after unsupported Relate. Its exported Concurrent also contains an
+The optional voting probe now persists a count of one, but still fails on
+unsupported Relate. Its exported Concurrent also contains an
 unconditional Unrelate branch, a source race risk requiring original-app review;
 the converter does not rewrite it. Ratings, attachments, manager workflows and
 complete usability remain unassessed.
@@ -190,9 +208,9 @@ the implementation order.
 
 | Evidence | Latest result | What remains unproven |
 |---|---|---|
-| Unit/runtime tests | 280 Python pass, 3 skip; 90 JS pass; bare globals, FX, FXRuntime and FX.collections emitter/runtime consistency passes | Complete deployed workflows and broader control semantics |
+| Unit/runtime tests | 289 Python pass, 3 skip; 91 JS pass; bare globals, FX, FXRuntime and FX.collections emitter/runtime consistency passes | Complete deployed workflows and broader control semantics |
 | Current real-app soak | 5/5 Bootable; 1,145 formulas, including previously dropped App/screen properties | Usability unassessed; the other five historical local exports are absent |
-| Current regression translation/wiring | 1,140 translated; 971 emitted, 13 approximated, 161 ignored/unsupported | Translation does not establish runtime behavior |
+| Current regression translation/wiring | 1,140 translated; 970 emitted, 14 approximated, 161 ignored/unsupported | Translation does not establish runtime behavior |
 | Historical ten-app corpus | Previously 10/10 Bootable; 23,746 formulas | Not reproduced in this workspace; those results did not establish usability |
 | HelpDesk generated-app journeys | HOME → NEW → HOME; dashboard row text, logo URI, pie and legend output pass | All-screen interactions, image decoding/layout in CI, persistence |
 | HelpDesk @14 live browser | Ticket cards, decoded 64×64 logos, pie/bar/legend SVGs, readable fonts/labels, HOME → NEW → HOME | Same-state original comparison, user name/avatar, complete workflow coverage |
@@ -200,7 +218,7 @@ the implementation order.
 | Chromium regression suite | 14/14 fixtures pass, including native card reflow/overflow and typed draft aliases/UpdateIf; the intentional screenshot-failure gate also retains its original journey failure | Real Google services, real-app critical workflows and original visual comparisons; HelpDesk is absent here |
 | Microsoft generated-server initialization | Six exports: setup and reads across 124 tables and 302 choice fields pass in the Sheets test double | Tenant data migration, real Google writes, source defaults, calculations, relationships and permissions |
 | Microsoft business baseline | 6/6 convert and validate; 1/6 passes short startup (Employee Ideas) | Saved-view relative dates, migrated identities and Teams/Planner dependencies fail prerequisites |
-| Microsoft first actions | All three default probes fail with source views now enforced. Populated Employee Ideas passes 27 checks through mobile validation, custom text questions, submission, persistence, reload and reopening, plus the source posting-warning path. Optional voting fails its persisted-record assertion | Relationships, ratings, attachments, complete workflows, real Google persistence, target identities and UI parity; partial success never promotes an app to Usable |
+| Microsoft first actions | All three default probes fail with source views now enforced. Populated Employee Ideas passes 27 checks through mobile validation, custom text questions, submission, persistence, reload and reopening, plus the source posting-warning path. Optional voting persists its count but fails on a relationship error | Relationships, ratings, attachments, complete workflows, real Google persistence, target identities and UI parity; partial success never promotes an app to Usable |
 | CI configuration | Existing tests plus required-app/journey gates and new Chromium artifact job | Browser job configured and locally tested, not yet verified in remote CI; local HelpDesk remains optional |
 
 Evidence: `.artifacts/benchmark/benchmark-scorecard.json`,

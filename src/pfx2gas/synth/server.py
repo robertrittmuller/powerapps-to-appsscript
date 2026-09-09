@@ -48,13 +48,28 @@ function doGet(event) {{
 function api(ds, op, payload) {{
   payload = payload || {{}};
   assertDataSource(ds);
-  switch (op) {{
-    case 'list': return listRows(ds);
-    case 'patch': assertRecord(payload.record, 'patch record'); return patchRow(ds, payload.base, payload.record);
-    case 'create': assertRecord(payload.record, 'create record'); return createRow(ds, payload.record);
-    case 'remove': assertRecord(payload.record, 'remove record'); return removeRow(ds, payload.record);
-    case 'removeIf': return removeRowsByIds(ds, payload.ids);
-    default: throw new Error('unknown api op: ' + op);
+  if (op === 'list') return listRows(ds);
+  return withDataWriteLock_(function () {{
+    switch (op) {{
+      case 'patch': assertRecord(payload.record, 'patch record'); return patchRow(ds, payload.base, payload.record);
+      case 'patchRecord': assertRecord(payload.record, 'patch record'); return patchSingleRecord(ds, payload.record);
+      case 'create': assertRecord(payload.record, 'create record'); return createRow(ds, payload.record);
+      case 'remove': assertRecord(payload.record, 'remove record'); return removeRow(ds, payload.record);
+      case 'removeIf': return removeRowsByIds(ds, payload.ids);
+      default: throw new Error('unknown api op: ' + op);
+    }}
+  }});
+}}
+
+function withDataWriteLock_(action) {{
+  // Read/modify/write and key lookup/append must share one critical section
+  // across all requests to this script, including different Google users.
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {{ return action(); }}
+  finally {{
+    try {{ SpreadsheetApp.flush(); }}
+    finally {{ lock.releaseLock(); }}
   }}
 }}
 
@@ -307,6 +322,22 @@ function patchRow(ds, base, record) {{
   return recordFromCells(ds, headers, cells);
 }}
 
+function patchSingleRecord(ds, record) {{
+  var contract = DATA_CONTRACTS[ds];
+  if (!contract.sourcePrimaryKey) throw new Error('two-argument Patch requires exported source primary-key metadata: ' + ds);
+  record = normalizeRecord(ds, record);
+  var identity = recordIdentity(ds, record);
+  if (identity === null) throw new Error('two-argument Patch requires an explicit source primary key: ' + ds);
+  var values = sheetFor(ds).getDataRange().getValues();
+  var column = (values[0] || []).indexOf(contract.primaryKey);
+  if (column < 0) throw new Error('source primary-key column is missing: ' + ds);
+  var matches = values.slice(1).filter(function (row) {{ return String(row[column]) === String(identity); }});
+  if (matches.length > 1) throw new Error('ambiguous source primary key in ' + ds);
+  // Never turn a validation or service error into a create. Only an absent
+  // key takes the append path, while the caller holds the script write lock.
+  return matches.length ? patchRow(ds, record, record) : createRow(ds, record);
+}}
+
 function removeRow(ds, record) {{
   var sh = sheetFor(ds);
   var values = sh.getDataRange().getValues();
@@ -436,7 +467,8 @@ def data_contracts(ir: AppIR) -> dict:
                 if alias in used and used[alias] != name:
                     raise ValueError(f"Ambiguous field alias in {ds.name}: {alias}")
                 used[alias] = name
-        contracts[ds.name] = {"primaryKey": primary, "fields": fields, "dataverse": ds.origin == "dataverse"}
+        contracts[ds.name] = {"primaryKey": primary, "sourcePrimaryKey": bool(ds.primary_key),
+                              "fields": fields, "dataverse": ds.origin == "dataverse"}
     return contracts
 
 

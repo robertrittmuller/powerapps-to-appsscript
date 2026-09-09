@@ -172,6 +172,100 @@ def test_invalid_save_is_atomic_and_cannot_duplicate_or_reidentify_a_record(back
     assert backend("api", "Projects", "list", {})["result"] == before
 
 
+def test_single_record_patch_updates_by_source_key_and_only_creates_when_absent(backend):
+    call = backend
+    before = call('api','Projects','list',{})['result']
+    saved = call('api','Projects','patchRecord',{'record':{
+        'msft_projectid':'project-two','msft_name':'Updated by key','msft_active':False,'msft_budget':0}})['result']
+    rows = call('api','Projects','list',{})['result']
+    assert rows[0] == before[0] and len(rows) == 2
+    assert saved == rows[1]
+    assert saved['project'] == saved['id'] == saved['msft_projectid'] == 'project-two'
+    assert saved['name'] == 'Updated by key' and saved['budget'] == 0 and saved['active'] is False
+    assert saved['status'] == before[1]['status']
+    first = call('api','Projects','patchRecord',{'record':{'Project':'new-source-key','Name':'Created by key','Status':0}})['result']
+    second = call('api','Projects','patchRecord',{'record':{'msft_projectid':'new-source-key','msft_name':'Retry updates'}})['result']
+    assert first['project'] == second['project'] == 'new-source-key'
+    assert len(call('api','Projects','list',{})['result']) == 3
+    assert second['name'] == 'Retry updates' and second['status'] == 0
+
+
+def test_single_record_patch_never_creates_after_validation_or_write_failure(backend):
+    call = backend
+    before = call('api','Projects','list',{})['result']
+    for record in [None, [], {'Name':'Missing key'}, {'Project':None},
+                   {'Project':'one','msft_projectid':'two'},
+                   {'Project':'project-two','Name':'Invalid','Status':999},
+                   {'Project':'absent','Status':999}, {'Project':'project-two','Unknown':'field'}]:
+        assert 'error' in call('api','Projects','patchRecord',{'record':record})
+        assert call('api','Projects','list',{})['result'] == before
+    call('__failNextMutation')
+    assert 'write failure' in call('api','Projects','patchRecord',{'record':{
+        'Project':'project-two','Name':'Must not save'}})['error']
+    assert call('api','Projects','list',{})['result'] == before
+    assert call('__lockState')['result']['held'] is False
+    assert call('api','Projects','patchRecord',{'record':{'Project':'project-two','Name':'Retry'}})['result']['name'] == 'Retry'
+
+
+def test_write_lock_timeout_and_flush_failure_release_correctly_without_implicit_retries(backend):
+    call = backend
+    before = call('api','Projects','list',{})['result']
+    call('__failNextLock')
+    assert 'lock timeout' in call('api','Projects','patchRecord',{'record':{
+        'Project':'new-key','Name':'Not written'}})['error']
+    assert call('api','Projects','list',{})['result'] == before
+    assert call('__lockState')['result'] == {'held':False,'events':['wait:30000']}
+    call('__failNextFlush')
+    assert 'flush failure' in call('api','Projects','patchRecord',{'record':{
+        'Project':'new-key','Name':'Uncertain result'}})['error']
+    # Flush failures can follow a write. Preserve that uncertainty, release the
+    # lock and let an explicit retry address the same key without duplication.
+    assert call('__lockState')['result']['held'] is False
+    retry = call('api','Projects','patchRecord',{'record':{'Project':'new-key','Name':'Retry'}})
+    assert retry['result']['name'] == 'Retry'
+    assert len(call('api','Projects','list',{})['result']) == 3
+    assert call('__lockState')['result']['events'][1:] == ['wait:30000','acquired','flush','released'] * 2
+
+
+def test_single_record_patch_rejects_ambiguous_keys_without_changing_any_rows(backend):
+    backend('__duplicateSourceRow','Projects',1)
+    before = backend('api','Projects','list',{})['result']
+    assert 'ambiguous source primary key' in backend('api','Projects','patchRecord',{'record':{
+        'Project':'project-one','Name':'Must not change either duplicate'}})['error']
+    assert backend('api','Projects','list',{})['result'] == before
+
+
+def test_single_record_patch_does_not_invent_source_keys(native_ir, tmp_path):
+    from contextlib import contextmanager
+    from pfx2gas.ir import DataSource, FieldDef
+    native_ir.data_sources.append(DataSource(name='Unkeyed', fields=[FieldDef(name='id'), FieldDef(name='Name')],
+        sample_data=[{'id':'generated-row-id','Name':'Original'}]))
+    with contextmanager(run_backend)(native_ir,tmp_path) as call:
+        before = call('api','Unkeyed','list',{})['result']
+        assert 'exported source primary-key metadata' in call('api','Unkeyed','patchRecord',{
+            'record':{'id':'generated-row-id','Name':'Do not guess'}})['error']
+        assert call('api','Unkeyed','list',{})['result'] == before
+
+
+def test_generated_keyed_patch_journey_updates_creates_and_surfaces_missing_identity(native_ir, tmp_path):
+    from pfx2gas.startup_sim import simulate_project
+    result = simulate_project(synthesize(native_ir, tmp_path / 'Keyed'), [{'id':'keyed-patch','steps':[
+        {'action':'click','control':'ContractKeySave'},
+        {'action':'expectText','control':'ContractResult','equals':'key saved'},
+        {'action':'expectText','control':'ContractCount','equals':'2'},
+        {'action':'expectDataRow','source':'Projects','where':{'project':'project-two','budget':0,'active':False}},
+        {'action':'click','control':'ContractKeyUpsert'},
+        {'action':'expectText','control':'ContractCount','equals':'3'},
+        {'action':'click','control':'ContractKeyUpsert'},
+        {'action':'expectText','control':'ContractCount','equals':'3'},
+        {'action':'click','control':'ContractKeyInvalid'},
+        {'action':'expectText','control':'ContractResult','equals':'key required'},
+        {'action':'expectText','control':'ContractCount','equals':'3'},
+    ]}])
+    assert result['consoleErrors'] == []
+    assert result['journeyResults'][0]['status'] == 'pass', result
+
+
 def test_invalid_exported_metadata_does_not_silently_become_an_empty_table():
     from pfx2gas.data_contract import apply_source_contract
     from pfx2gas.ir import DataSource

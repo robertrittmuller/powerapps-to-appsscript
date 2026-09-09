@@ -109,6 +109,10 @@ global.console.warn = () => {};
 // same Rand/RandBetween code path, but select the first eligible sample row.
 Math.random = () => 0;
 const serverData = __SERVER_DATA__;
+// Reuse the generated field/identity validators for the keyed Patch shim.
+// Sheets locking and writes are exercised by the separate generated-server gate.
+const serverModel = require('node:vm').createContext({Date,console});
+require('node:vm').runInContext(__SERVER_CODE__, serverModel);
 let handlers = {};
 const runner = new Proxy({}, {
   get(_t, prop) {
@@ -116,8 +120,10 @@ const runner = new Proxy({}, {
     if (prop === 'withFailureHandler') return (cb) => { handlers.err = cb; return runner; };
     return (...args) => {
       const ok = handlers.ok;
+      const fail = handlers.err;
       handlers = {};
       setTimeout(() => {
+        try {
         if (String(prop) === 'whoami') {
           if (ok) ok({ email: '', fullName: '', pictureUrl: '' });
           return;
@@ -126,6 +132,24 @@ const runner = new Proxy({}, {
           const ds = args[0], op = args[1], payload = args[2] || {};
           const rows = serverData[ds] || (serverData[ds] = []);
           if (op === 'list') { if (ok) ok(JSON.parse(JSON.stringify(rows))); return; }
+          if (op === 'patchRecord') {
+            serverModel.assertDataSource(ds);
+            serverModel.assertRecord(payload.record, 'patch record');
+            const contract = serverModel.DATA_CONTRACTS[ds];
+            if (!contract.sourcePrimaryKey) throw new Error('two-argument Patch requires exported source primary-key metadata: ' + ds);
+            const record = serverModel.normalizeRecord(ds,payload.record);
+            const identity = serverModel.recordIdentity(ds,record);
+            if (identity === null) throw new Error('two-argument Patch requires an explicit source primary key: ' + ds);
+            const matches = rows.filter(row=>String(serverModel.recordIdentity(ds,row)) === String(identity));
+            if (matches.length > 1) throw new Error('ambiguous source primary key in ' + ds);
+            const headers = Object.keys(contract.fields);
+            const values = Object.assign({},matches[0] || {},record);
+            const saved = serverModel.recordFromCells(ds,headers,
+              headers.map(key=>serverModel.encodeCell(ds,key,values[key])));
+            if (matches.length) rows[rows.indexOf(matches[0])] = saved;
+            else rows.push(saved);
+            if (ok) ok(JSON.parse(JSON.stringify(saved))); return;
+          }
           if (op === 'create') {
             const saved = Object.assign({}, payload.record || {});
             if (rows.some(row => Object.prototype.hasOwnProperty.call(row, 'id'))
@@ -154,8 +178,10 @@ const runner = new Proxy({}, {
             }
             if (ok) ok({ok: true}); return;
           }
+          throw new Error('unknown simulated api operation: ' + op);
         }
         if (ok) ok([]);
+        } catch (error) { if (fail) fail(error); else console.error('simulated server error',error); }
       }, 0);
     };
   },
@@ -474,6 +500,7 @@ def simulate_project(
            .replace("__RT__", json.dumps(_script_body(out / "gas-runtime.js.html")))
            .replace("__APP__", json.dumps(_script_body(out / "App.js.html")))
            .replace("__SERVER_DATA__", json.dumps(_seeded_server_data(out)))
+           .replace("__SERVER_CODE__", json.dumps((out / 'Code.gs').read_text()))
            .replace("__JOURNEYS__", json.dumps(journeys or [])))
     sim_path = Path(tempfile.mkdtemp()) / "startup-sim.js"
     sim_path.write_text(sim)

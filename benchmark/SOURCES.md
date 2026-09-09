@@ -57,8 +57,8 @@ one authored user, four campaigns and three questions through generated Code.gs:
 fields and labels, required-title validation, single/multiline custom responses,
 submission, persistence, reload and reopening. The unrelated campaign question
 is excluded. The source warning path handles the unsupported Teams post.
-The optional `--voting` probe fails: its local count becomes one while the server
-retains zero after unsupported Relate. The source Concurrent contains an
+The optional `--voting` probe now persists a count of one through the original
+keyed Patch, but still fails on unsupported Relate. The source Concurrent contains an
 unconditional Unrelate branch, retained for source review rather than silently
 changed. Ratings, attachments, manager workflows and complete usability remain
 unassessed. Source app and solution bytes stay unchanged.

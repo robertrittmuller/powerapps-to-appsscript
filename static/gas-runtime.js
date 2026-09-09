@@ -1339,6 +1339,11 @@
       return refreshData(ds).then(function () { return r; });
     });
   };
+  global.apiPatchRecord = function (ds, record) {
+    return serverRun('api', ds, 'patchRecord', {record: record}).then(function (saved) {
+      return refreshData(ds).then(function () { return saved; });
+    });
+  };
   global.apiRemove = function (ds, record) {
     return serverRun('api', ds, 'remove', { record: record }).then(function () { return refreshData(ds); });
   };

@@ -157,8 +157,10 @@ campaign/user/question records through generated Code.gs before startup. Its 27 
 pass: campaign filtering/order/search/selection, mobile field layout and labels,
 required-title validation, single/multiline custom responses, submission,
 persistence, reload and reopening. The unsupported Teams post follows the source
-warning/recovery path. Adding `--voting` reproduces a failure: the UI displays
-one vote, but the generated server retains zero after unsupported Relate.
+warning/recovery path. Adding `--voting` now persists a count of one through
+the source's keyed Patch, but the probe still fails on unsupported Relate.
+The browser gate waits for dispatched server calls and includes errors that
+arrive during capture before assigning a verdict.
 Ratings, attachments, manager workflows and complete app usability remain unassessed.
 The normal `./pfx2gas soak` enforces the existing
 required regression corpus, including failed required journeys and missing apps.
@@ -335,6 +337,16 @@ Converted apps aim to match the original visually and behaviorally:
   failure does not stop its siblings. Generated browser tests verify independent
   saves, recovery and reload. Source error-management settings, dependency
   validation and external side-effect ordering remain ledgered review items.
+- **Keyed Patch and write locking** — `Patch(Source, Record)` updates by the
+  explicit exported source primary key, or creates when no stored row has that key.
+  Logical/display aliases, unchanged fields and typed zero/false values survive.
+  Validation and service failures never trigger an automatic create. Keyless
+  records, inferred or composite keys and table arguments remain unsupported;
+  unkeyed collections cannot use this overload. Generated API mutations wait up
+  to 30 seconds for a script lock, flush Sheets and release it even on failure.
+  This protects each server read/modify/write operation, not an entire business
+  workflow or calculations performed earlier in the client. Live multi-user
+  Google contention is still unverified.
 - **Local drafts** — SaveData/LoadData/ClearData use browser storage for local
   collections. LoadData appends saved rows; its optional flag suppresses only
   missing entries. Nested records/tables, dates, blanks, zero and false survive
@@ -424,7 +436,7 @@ proposal. These static checks do not prove behavioral equivalence or constitute
 a general JavaScript security sandbox; fallback formulas remain partial and
 require runtime QA. Model, formula hash, gate version and rejection reasons are
 retained in the call log.
-Gate v4 also rejects behavior-only Concurrent references in value proposals.
+Gate v5 rejects behavior-only Concurrent and keyed-write helper references in value proposals.
 
 It may refuse when translation is genuinely impossible — the formula then
 stays a documented stub. All calls are logged to `.runs/llm-calls.jsonl`

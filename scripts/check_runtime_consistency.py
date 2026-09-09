@@ -23,6 +23,7 @@ STATIC = REPO / "static"
 
 # (name, expected first params in the runtime definition, min arg count)
 EXPECTED = {
+    "apiPatchRecord": (["ds", "record"], 2),
     "go": (["name", "contextPatch"], 2),
     "updateContext": (["screen", "patch"], 2),
     "powerapps_collect": (["st", "ds"], 2),
