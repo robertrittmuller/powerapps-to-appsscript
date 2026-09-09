@@ -39,7 +39,7 @@ ENUM_TYPES = {"Color", "Icon", "Font", "FontWeight", "Align", "Image",
               "LayoutDirection", "LayoutAlignItems", "LayoutJustifyContent",
               "LayoutWrap", "VerticalAlign", "FillPortions", "Overflow",
               "ImagePosition", "ImageRotation", "TextPosition", "FontWeight2",
-              "BorderStyle", "TextRole", "Live", "DateTimeFormat", "Layout"}
+              "BorderStyle", "TextRole", "TextMode", "Live", "DateTimeFormat", "Layout"}
 
 MATCH_PATTERNS = {"Any": ".", "Comma": ",", "Digit": r"\d", "Hyphen": r"\-",
                   "LeftParen": r"\(", "RightParen": r"\)", "Period": r"\.", "Tab": r"\t",

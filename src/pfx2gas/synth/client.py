@@ -647,13 +647,16 @@ def _render_control(
     media_resources: dict[str, str],
 ) -> str:
     tag = ELEMENT_MAP.get(ctrl.type, "div")
+    input_mode = _static_raw(ctrl.properties.get('Mode')) if ctrl.type in {'TextInput', 'TextArea'} else None
+    if input_mode in {'SingleLine', 'MultiLine', 'Password'}:
+        tag = 'textarea' if input_mode == 'MultiLine' else 'input'
     indent = "  " * (depth + 1)
     style = _static_style(ctrl, in_flex, rules)
     style_attr = f' style="{style}"' if style else ""
     flex = _is_flex_container(ctrl)
     extra = ""
     if ctrl.type in {"TextInput", "TextArea"}:
-        extra = ' type="text"'
+        extra = ' type="password"' if input_mode == 'Password' else ' type="text"' if tag == 'input' else ''
     elif ctrl.type == "CheckBox":
         extra = ' type="checkbox"'
     elif ctrl.type == "DatePicker":
@@ -1022,6 +1025,8 @@ def render_app_js(ir: AppIR) -> str:
                 # gallery rows, including defaults populated by LoadData.
                 if ctrl.name not in form_children and ctrl.type != "Button":
                     inputs.insert(0, ("DefaultDate" if ctrl.type == "DatePicker" else "Default", "default"))
+                if ctrl.type in {'TextInput', 'TextArea'}:
+                    inputs.insert(0, ('Mode', 'mode'))
                 properties = [(key, ctrl.properties[prop]) for prop, key in inputs
                               if prop in ctrl.properties and ctrl.properties[prop].js
                               and "await " not in ctrl.properties[prop].js]
@@ -1142,6 +1147,8 @@ def render_app_js(ir: AppIR) -> str:
                             row_inputs.extend([("DisplayMode", "disabled"), ("Reset", "reset")])
                         if child.type == "Image":
                             row_inputs.append(("Image", "src"))
+                        if child.type in {'TextInput', 'TextArea'}:
+                            row_inputs.insert(0, ('Mode', 'mode'))
                         for prop_name, runtime_key in row_inputs:
                             prop_expr = child.properties.get(prop_name)
                             if prop_expr and prop_expr.js and "await " not in prop_expr.js:

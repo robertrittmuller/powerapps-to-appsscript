@@ -147,6 +147,58 @@ function recordIdentity(ds, record) {{
   return present.length ? record[present[0]] : null;
 }}
 
+function lookupTarget(spec, value) {{
+  var sources = spec.lookupSources || [];
+  if (!sources.length) return null; // Missing target metadata cannot be invented.
+  if (sources.length === 1 && spec.lookupTargetCount === 1) return sources[0];
+  if (!value || typeof value !== 'object' || Array.isArray(value))
+    throw new Error('polymorphic lookup requires an unambiguous target record');
+  var matches = sources.filter(function (ds) {{
+    var contract = DATA_CONTRACTS[ds], primary = contract.primaryKey;
+    return [primary].concat(contract.fields[primary].aliases).some(function (key) {{
+      return key !== 'id' && value[key] !== undefined && value[key] !== null && value[key] !== '';
+    }});
+  }});
+  if (matches.length !== 1) throw new Error('polymorphic lookup requires an unambiguous target record');
+  return matches[0];
+}}
+
+function lookupValue(spec, value, exposeAliases, depth) {{
+  if (value === undefined || value === null || value === '') return value;
+  if ((typeof value !== 'object' || Array.isArray(value)) && typeof value !== 'string')
+    throw new Error('lookup requires a record or key');
+  if ((depth || 0) > 20) throw new Error('lookup snapshot nesting exceeds 20 levels');
+  var target = lookupTarget(spec, value);
+  if (!target) return value;
+  var contract = DATA_CONTRACTS[target];
+  if (typeof value === 'string') {{
+    var reference = {{}}; reference[contract.primaryKey] = value; value = reference;
+  }}
+  if (recordIdentity(target, value) === null) throw new Error('lookup snapshot requires a primary key for ' + target);
+  var normalized = {{}};
+  Object.keys(value).forEach(function (name) {{
+    var field = contractColumn(target, name), key = field || name, item = value[name];
+    if (field) {{
+      var nested = contract.fields[field];
+      if (nested.type === 'lookup') item = lookupValue(nested, item, exposeAliases, (depth || 0) + 1);
+      else {{
+        var encoded = encodeCell(target, field, item);
+        if (nested.type === 'date' && encoded !== '') item = encoded;
+      }}
+    }}
+    if (Object.prototype.hasOwnProperty.call(normalized, key) && JSON.stringify(normalized[key]) !== JSON.stringify(item))
+      throw new Error('conflicting lookup field aliases in ' + target + ': ' + key);
+    Object.defineProperty(normalized, key, {{value:item, enumerable:true, configurable:true}});
+  }});
+  if (exposeAliases) Object.keys(normalized).forEach(function (key) {{
+    if (!Object.prototype.hasOwnProperty.call(contract.fields, key)) return;
+    contract.fields[key].aliases.forEach(function (alias) {{
+      Object.defineProperty(normalized, alias, {{value:normalized[key], enumerable:true, configurable:true}});
+    }});
+  }});
+  return normalized;
+}}
+
 function encodeCell(ds, field, value) {{
   if (value === undefined || value === null || value === '') return '';
   var spec = DATA_CONTRACTS[ds].fields[field];
@@ -157,6 +209,7 @@ function encodeCell(ds, field, value) {{
     if (spec.type === 'choices' && (!Array.isArray(value) || value.some(function (v) {{
       return !spec.choices.some(function (choice) {{ return choice.value === (v && typeof v === 'object' ? v.value : v); }});
     }}))) throw new Error('invalid multi-select choice: ' + field);
+    if (spec.type === 'lookup') value = lookupValue(spec, value, false, 0);
     return 'pfx2gas:cell:v1:' + JSON.stringify({{type: spec.type, value: value}});
   }}
   if (spec.type === 'unsupported') throw new Error('unsupported Dataverse field type: ' + field);
@@ -184,7 +237,7 @@ function decodeCell(ds, field, value) {{
     var envelope = JSON.parse(value.slice('pfx2gas:cell:v1:'.length));
     if (envelope.type !== spec.type) throw new Error('wrong structured cell type: ' + field);
     encodeCell(ds, field, envelope.value); // validate the full value before exposing it
-    return envelope.value;
+    return spec.type === 'lookup' ? lookupValue(spec, envelope.value, true, 0) : envelope.value;
   }}
   return value instanceof Date ? value.toISOString() : value;
 }}
@@ -355,7 +408,12 @@ def data_contracts(ir: AppIR) -> dict:
     from ..fx.naming import snake
 
     contracts = {}
-    for ds in data_sources_with_fields(ir):
+    tables = data_sources_with_fields(ir)
+    by_logical = {}
+    for ds in tables:
+        if ds.logical_name:
+            by_logical.setdefault(ds.logical_name, []).append(ds.name)
+    for ds in tables:
         primary = snake(ds.primary_key or "id")
         fields = {}
         for field in ds.fields:
@@ -367,6 +425,9 @@ def data_contracts(ir: AppIR) -> dict:
                 aliases.append("id") # the runtime's generic row identity points at the source key
             fields[name] = {"type": field.type, "aliases": [alias for alias in aliases if alias != name],
                             "choices": field.choices}
+            if field.type == 'lookup':
+                fields[name].update(lookupSources=[name for target in field.lookup_targets for name in by_logical.get(target, [])],
+                                    lookupTargetCount=len(field.lookup_targets))
         used = {}
         if ds.origin == "dataverse" and primary not in fields:
             raise ValueError(f"Missing Dataverse primary key in {ds.name}: {primary}")

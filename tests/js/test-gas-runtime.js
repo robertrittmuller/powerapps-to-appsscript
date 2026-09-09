@@ -331,13 +331,24 @@ test('gallery row selection exposes Selected and AllItems records', () => {
       rows.splice(before ? rows.indexOf(before) : rows.length, 0, row);
     },
   };
-  global.document.createElement = () => ({firstElementChild: rowElement()});
+  global.document.createElement = () => ({
+    set innerHTML(markup) {
+      assert.strictEqual(markup, template.innerHTML, 'new rows must use the owning gallery template');
+    },
+    firstElementChild: rowElement(),
+  });
   const template = { innerHTML: '<div class="fx-row"><span data-control="Name"></span></div>' };
   const attrs = { 'data-template-size': '87', 'data-template-padding': '3' };
   const host = {
     tagName: 'DIV', textContent: '', style: { width: '210px' }, selectedOptions: [],
     getAttribute(name) { return attrs[name] === undefined ? null : attrs[name]; },
-    querySelector(selector) { return selector === 'template' ? template : rowsEl; },
+    querySelector(selector) {
+      if (selector === ':scope > template') return template;
+      // Once rows are mounted, a descendant query finds a nested gallery first.
+      if (selector === 'template') return rows.length ? {innerHTML:'nested rating template'} : template;
+      if (selector === ':scope > .fx-rows' || selector === '.fx-rows') return rowsEl;
+      return null;
+    },
   };
   global.document.querySelector = (selector) => selector.includes('PeopleGallery') ? host
     : rows[0] ? rows[0].child : null;
@@ -363,6 +374,12 @@ test('gallery row selection exposes Selected and AllItems records', () => {
   rows[1].click();
   assert.deepStrictEqual(global.val('PeopleGallery').selected, items[1]);
   assert.deepStrictEqual(global.val('PeopleGallery').all_items, items);
+  items.push({id:3, name:'Katherine'});
+  RT.updateBindings();
+  assert.strictEqual(rows.length,3);
+  assert.strictEqual(rows[2].child.textContent,'Katherine');
+  assert.strictEqual(rows[0],retained[0]);
+  assert.strictEqual(rows[1],retained[1]);
   global.document.querySelector = original;
   global.document.createElement = originalCreate;
 });

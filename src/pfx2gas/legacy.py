@@ -101,7 +101,7 @@ def _normalize_template_for(node: dict) -> str:
         props = _rules_to_properties(node.get("Rules") or [])
         if _TEXT_INPUT_PROPS & props.keys():
             mode = props.get("Mode", "")
-            return "TextArea" if "MultiLine" in mode else "TextInput"
+            return "TextArea" if mode.removeprefix('=').strip() == "TextMode.MultiLine" else "TextInput"
     return base
 
 

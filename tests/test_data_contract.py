@@ -41,7 +41,11 @@ def test_native_export_keeps_metadata_and_does_not_infer_duplicate_alias_columns
 
 @pytest.fixture
 def backend(native_ir, tmp_path):
-    out = synthesize(native_ir, tmp_path / "Native")
+    yield from run_backend(native_ir, tmp_path)
+
+
+def run_backend(ir, tmp_path):
+    out = synthesize(ir, tmp_path / "Native")
     assert validate_project(out)["ok"]
     server = subprocess.Popen(["node", str(Path(__file__).parent / "browser/gas-server.cjs"), str(out)],
                               stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
@@ -54,6 +58,75 @@ def backend(native_ir, tmp_path):
     yield call
     server.stdin.close()
     server.wait(timeout=10)
+
+
+@pytest.fixture
+def lookup_ir(native_ir):
+    from pfx2gas.ir import DataSource, FieldDef
+    native_ir.data_sources.extend([
+        DataSource(name='Users', origin='dataverse', logical_name='systemuser', primary_key='User', fields=[
+            FieldDef(name='User', aliases=['systemuserid']), FieldDef(name='First Name', aliases=['firstname']),
+            FieldDef(name='Active', type='bool', aliases=['isactive']),
+            FieldDef(name='Manager', type='lookup', aliases=['managerid'], lookup_targets=['systemuser'])]),
+        DataSource(name='Teams', origin='dataverse', logical_name='team', primary_key='Team', fields=[
+            FieldDef(name='Team', aliases=['teamid']), FieldDef(name='Name', aliases=['teamname'])]),
+    ])
+    native_ir.data_sources[0].fields.append(FieldDef(name='Assignee', type='lookup', lookup_targets=['systemuser','team']))
+    return native_ir
+
+
+@pytest.fixture
+def lookup_backend(lookup_ir, tmp_path):
+    yield from run_backend(lookup_ir, tmp_path)
+
+
+def test_lookup_snapshots_preserve_target_aliases_nested_values_and_extra_formula_columns(lookup_backend):
+    call = lookup_backend
+    response = call('api','Projects','patch',{'base':{'id':'project-two'},'record':{'owner':{
+        'systemuserid':'user-two','firstname':'Grace','isactive':False,
+        'managerid':{'systemuserid':'user-one','firstname':'Ada'},'app_note':'local extension'}}})
+    assert 'error' not in response, response
+    for record in [response['result'], call('api','Projects','list',{})['result'][1]]:
+        owner = record['owner']
+        assert owner['user'] == owner['systemuserid'] == owner['id'] == 'user-two'
+        assert owner['first__name'] == owner['firstname'] == owner['First Name'] == 'Grace'
+        assert owner['active'] is owner['isactive'] is False
+        assert owner['manager']['first__name'] == owner['managerid']['firstname'] == 'Ada'
+        assert owner['app_note'] == 'local extension'
+    # A scalar key becomes a typed key-only snapshot, with no invented name.
+    owner = call('api','Projects','patch',{'base':{'id':'project-two'},'record':{'owner':'user-three'}})['result']['owner']
+    assert owner['user'] == owner['systemuserid'] == 'user-three'
+    assert 'firstname' not in owner
+
+
+def test_invalid_nested_lookup_values_fail_before_any_row_cells_are_written(lookup_backend):
+    call = lookup_backend
+    before = call('api','Projects','list',{})['result']
+    nested = {'systemuserid':'user-one'}
+    for _ in range(23):
+        nested = {'systemuserid':'user-one','managerid':nested}
+    for owner in [
+        {'systemuserid':'one','user':'two'}, {'systemuserid':'one','firstname':'Ada','First Name':'Other'},
+        {'systemuserid':'one','isactive':'false'}, {'firstname':'Missing key'},
+        {'systemuserid':'one','managerid':{'user':'two','isactive':0}}, nested,
+    ]:
+        result = call('api','Projects','patch',{'base':{'id':'project-two'},'record':{'name':'Must not save','owner':owner}})
+        assert 'error' in result, result
+        assert call('api','Projects','list',{})['result'] == before
+
+
+def test_polymorphic_lookup_requires_a_unique_exported_target_key(lookup_backend):
+    call = lookup_backend
+    for assignee, key, name in [({'systemuserid':'person','firstname':'Ada'},'user','person'),
+                                ({'teamid':'group','teamname':'Group'},'team','group')]:
+        result = call('api','Projects','patch',{'base':{'id':'project-two'},'record':{'assignee':assignee}})
+        assert 'error' not in result, result
+        assert result['result']['assignee'][key] == name
+    before = call('api','Projects','list',{})['result']
+    for assignee in ['ambiguous', {'id':'ambiguous'}, {'systemuserid':'person','teamid':'group'}]:
+        result = call('api','Projects','patch',{'base':{'id':'project-two'},'record':{'assignee':assignee}})
+        assert 'unambiguous' in result['error'], result
+        assert call('api','Projects','list',{})['result'] == before
 
 
 def test_generated_server_preserves_primary_keys_aliases_and_typed_values(backend):

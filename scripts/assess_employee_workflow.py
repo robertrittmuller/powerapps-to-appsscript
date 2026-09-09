@@ -21,7 +21,15 @@ RECORDS = {'Users': [{'systemuserid':'test-source-user',
          'createdon':f'2026-09-0{index + 1}T00:00:00Z'}
         for index, (title, status) in enumerate([
             ('Better meetings',299600000), ('Energy savings',299600000),
-            ('Expired campaign',299600001), ('Future campaign',299600002)])]}
+            ('Expired campaign',299600001), ('Future campaign',299600002)])],
+    'Employee Idea Questions': [
+        {'msft_employeeidea_questionid':f'question-{index}', 'msft_name':title,
+         'msft_sequence':index, 'msft_employeeidea_responsetypecode':kind,
+         'msft_employeeidea_campaignid':{'msft_employeeidea_campaignid':campaign}}
+        for index, (title, kind, campaign) in enumerate([
+            ('Who will benefit?',299600001,'campaign-1'),
+            ('How would you measure success?',299600002,'campaign-1'),
+            ('Question from another campaign',299600001,'campaign-0')])]}
 
 
 def seed(backend):
@@ -33,7 +41,8 @@ def seed(backend):
             'sha256':hashlib.sha256(json.dumps(RECORDS, sort_keys=True).encode()).hexdigest()}
 
 
-def main():
+def main(voting=False):
+    name = NAME + ('-voting' if voting else '')
     steps = []
     def check(name, action):
         try:
@@ -56,14 +65,14 @@ def main():
         check('campaign-search', lambda: expect(titles).to_have_text(['Better meetings']))
         search.fill('')
         expect(titles).to_have_count(2)
-        page.screenshot(path=str(OUT / NAME / 'active-campaigns.png'), full_page=True, timeout=10000)
+        page.screenshot(path=str(OUT / name / 'active-campaigns.png'), full_page=True, timeout=10000)
         check('select-template-row', lambda: gallery.locator('[data-control="btnMobileCampaignSummary_SelectBorder"]').first.click())
         check('selected-campaign-detail', lambda: expect(control(page,'lblMobileCampaignDetail_Title')).to_have_text('Energy savings'))
         check('new-idea-action', lambda: control(page,'btnMobileCampaignIdea_Submit').click())
         check('new-idea-screen', lambda: expect(page.locator('[data-screen="Mobile Idea Screen"]')).to_be_visible())
         def usable_fields():
             fields = control(page, 'galMobileIdeaResponses').locator('[data-control="txtMobileResponseText"]')
-            expect(fields).to_have_count(2)
+            expect(fields).to_have_count(4)
             width = page.viewport_size['width']
             for field in fields.all():
                 box = field.bounding_box()
@@ -73,14 +82,24 @@ def main():
         check('idea-fields-fit-mobile-viewport', usable_fields)
         responses = control(page, 'galMobileIdeaResponses')
         check('source-field-labels', lambda: expect(responses.locator(
-            '[data-control="lblMobileIdeaResponseRating_Instructions"]')).to_have_text(['Title','Description']))
+            '[data-control="lblMobileIdeaResponseRating_Instructions"]')).to_have_text([
+                'Title','Description','Who will benefit?','How would you measure success?']))
         submit = control(page, 'btnMobileCampaignIdeaControls_Submit')
         check('empty-title-disables-submit', lambda: expect(submit).to_be_disabled())
         fields = responses.locator('[data-control="txtMobileResponseText"]')
+        def field_modes():
+            modes = fields.evaluate_all('els=>els.map(el=>el.tagName)')
+            assert modes == ['INPUT','TEXTAREA','INPUT','TEXTAREA'], modes
+        check('source-single-and-multiline-field-modes', field_modes)
         fields.nth(0).fill('Shorter meetings with written decisions')
         fields.nth(0).press('Tab')
         fields.nth(1).fill('Share an agenda, time-box discussion, and retain the decision notes.')
         fields.nth(1).press('Tab')
+        fields.nth(2).fill('All meeting participants')
+        fields.nth(2).press('Tab')
+        fields.nth(3).fill('Track meeting hours.\nCount decisions recorded each week.')
+        fields.nth(3).press('Tab')
+        page.screenshot(path=str(OUT / name / 'custom-responses-entered.png'), timeout=10000)
         check('valid-title-enables-submit', lambda: expect(submit).to_be_enabled())
         check('submit-idea', lambda: submit.click())
         check('submission-success-screen', lambda: expect(page.locator('[data-screen="Mobile Success Screen"]')).to_be_visible())
@@ -91,6 +110,18 @@ def main():
             assert len(rows) == 1 and rows[0]['title'] == 'Shorter meetings with written decisions', rows
             assert rows[0]['description'] == 'Share an agenda, time-box discussion, and retain the decision notes.', rows
         check('generated-server-saved-idea', saved_idea)
+        def saved_responses():
+            result = backend({'fn':'api','args':['Employee Idea Responses','list',{}]})
+            assert 'error' not in result, result
+            rows = sorted(result['result'],key=lambda row:row['sequence'])
+            assert len(rows) == 2, rows
+            assert [row['instructions'] for row in rows] == ['Who will benefit?','How would you measure success?'], rows
+            assert [row['response__text'] for row in rows] == [
+                'All meeting participants','Track meeting hours.\nCount decisions recorded each week.'], rows
+            assert [row['question']['employee__idea__question'] for row in rows] == ['question-0','question-1'], rows
+            ideas = backend({'fn':'api','args':['Employee Ideas','list',{}]})['result']
+            assert all(row['idea']['employee__idea'] == ideas[0]['employee__idea'] for row in rows), rows
+        check('generated-server-saved-custom-responses', saved_responses)
         check('source-posting-failure-warning', lambda: expect(page.locator('#fx-toast')).to_contain_text('Message was not posted'))
         check('return-to-campaign', lambda: control(page,'btnMobileCampaignIdeaControls_Return').click())
         ideas = control(page,'galMobileCampaignDetailsIdeas')
@@ -106,21 +137,45 @@ def main():
         # Retain that bounded title behavior; do not credit it as full-title visibility.
         check('source-title-overflow-boundary', lambda: expect(control(page,'lblMobileCampaignIdeaCard_Title')).to_have_css('overflow','hidden'))
         check('server-record-retained-after-reload', saved_idea)
+        check('custom-responses-retained-after-reload', saved_responses)
+        def reopened_responses():
+            expect(responses.locator('[data-control="lblMobileIdeaResponseRating_Instructions"]')).to_have_text([
+                'Who will benefit?','How would you measure success?'])
+            expect(fields.nth(0)).to_have_value('All meeting participants')
+            expect(fields.nth(1)).to_have_value('Track meeting hours.\nCount decisions recorded each week.')
+        check('reopened-custom-response-fields', reopened_responses)
+        if voting:
+            check('return-from-idea-to-vote', lambda: control(page,'comMobileHeader_IdeaSubmission__btnMobileHeader').click())
+            vote = ideas.locator('[data-control="btnMobileCampaignDetailsIdeas_Votes"]').first
+            check('initial-vote-count', lambda: expect(vote).to_have_text('0 votes'))
+            try:
+                check('cast-vote', lambda: vote.click())
+                check('optimistic-vote-count-displayed', lambda: expect(vote).to_have_text('1 vote'))
+                def persisted_vote():
+                    records = backend({'fn':'api','args':['Employee Ideas','list',{}]})['result']
+                    assert records[0]['vote__count'] == 1, records[0]['vote__count']
+                check('vote-persisted-in-generated-server', persisted_vote)
+            finally:
+                (OUT / name / 'vote-records.json').write_text(json.dumps(
+                    backend({'fn':'api','args':['Employee Ideas','list',{}]}), indent=2))
 
     with sync_playwright() as p:
         browser = p.chromium.launch()
-        result = run_case(browser, NAME, REPO / 'samples/microsoft/employee-ideas.msapp', journey,
+        result = run_case(browser, name, REPO / 'samples/microsoft/employee-ideas.msapp', journey,
             launch_parameters={'hostClientType':'ios'}, viewport={'width':390,'height':844},
             solution=REPO / 'samples/microsoft/EmployeeIdeas.solution.zip', setup_backend=seed)
         browser.close()
     result.update(sourceAppId='employee-ideas', steps=steps,
-        assessmentScope='populated campaign browsing, selection, validation, idea submission, reload and reopening',
+        assessmentScope='populated campaign browsing, custom text questions, idea submission, reload and reopening' + ('; voting probe' if voting else ''),
         completeUsability='unassessed', mutationAndSubmission='assessed by individual steps',
         externalPosting='unsupported; source warning/recovery path is exercised')
-    (OUT / NAME / 'result.json').write_text(json.dumps(result, indent=2) + '\n')
+    (OUT / name / 'result.json').write_text(json.dumps(result, indent=2) + '\n')
     print(json.dumps({'status':result['status'], 'steps':steps}, indent=2))
     return int(result['status'] != 'pass')
 
 
 if __name__ == '__main__':
-    raise SystemExit(main())
+    import argparse
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--voting', action='store_true', help='Continue into the currently unsupported voting workflow')
+    raise SystemExit(main(voting=parser.parse_args().voting))

@@ -306,10 +306,15 @@
     updateBindings();
   }
 
+  function listen(el, event, callback) {
+    (el.__fxListeners || (el.__fxListeners = [])).push({event:event, callback:callback});
+    el.addEventListener(event, callback);
+  }
+
   function bind(name, event, fn, parentName) {
     var el = document.querySelector('[data-control="' + name + '"]');
     if (!el) { console.warn('control not found for binding:', name); return; }
-    el.addEventListener(event === 'OnSelect' ? 'click' : 'change', function () {
+    listen(el, event === 'OnSelect' ? 'click' : 'change', function () {
       var previousSelf = global.selfRef;
       var previousParent = global.parentRef;
       global.selfRef = val(name);
@@ -722,6 +727,34 @@
     return val(name, el);
   }
 
+  function inputMode(el, mode) {
+    if (['SingleLine', 'MultiLine', 'Password'].indexOf(mode) < 0)
+      throw new Error('Unsupported TextMode: ' + mode);
+    var tag = mode === 'MultiLine' ? 'TEXTAREA' : 'INPUT';
+    var type = mode === 'Password' ? 'password' : 'text';
+    if (el.tagName === tag) {
+      if (tag === 'INPUT' && el.type !== type) el.type = type;
+      return el;
+    }
+    var focused = document.activeElement === el, start = el.selectionStart, end = el.selectionEnd;
+    var replacement = document.createElement(tag.toLowerCase());
+    Array.prototype.forEach.call(el.attributes, function (attribute) {
+      if (attribute.name !== 'type') replacement.setAttribute(attribute.name, attribute.value);
+    });
+    if (tag === 'INPUT') replacement.type = type;
+    replacement.value = el.value;
+    Object.keys(el).forEach(function (key) {
+      if (key.indexOf('__fx') === 0 && key !== '__fxListeners') replacement[key] = el[key];
+    });
+    (el.__fxListeners || []).forEach(function (listener) { listen(replacement, listener.event, listener.callback); });
+    el.replaceWith(replacement);
+    if (focused) {
+      replacement.focus({preventScroll:true});
+      if (start !== null && start !== undefined) replacement.setSelectionRange(start, end);
+    }
+    return replacement;
+  }
+
   function rowControl(row, name, parentName, propertyFns) {
     if (!row || typeof row.querySelector !== 'function') return;
     var el = row.querySelector('[data-control="' + name + '"]');
@@ -731,7 +764,9 @@
     try {
       Object.keys(propertyFns || {}).forEach(function (key) {
         var value = propertyFns[key](read, read(name), read(parentName));
-        if (key === 'text') {
+        if (key === 'mode') {
+          el = inputMode(el, value);
+        } else if (key === 'text') {
           el.textContent = value == null ? '' : String(value);
         } else if (key === 'default') {
           var signature = JSON.stringify(value == null ? '' : value);
@@ -839,8 +874,10 @@
       apply: function () {
         var host = document.querySelector('[data-control="' + name + '"]');
         if (!host || typeof host.querySelector !== 'function') return;
-        var tpl = host.querySelector('template');
-        var rowsEl = host.querySelector('.fx-rows');
+        // A mounted row can contain another gallery. Its template must never
+        // replace this gallery's own template when additional rows are added.
+        var tpl = host.querySelector(':scope > template');
+        var rowsEl = host.querySelector(':scope > .fx-rows');
         if (!tpl || !rowsEl) return;
         var items;
         try { items = itemsFn() || []; } catch (e) { console.error('gallery Items error', name, e); items = []; }
@@ -880,7 +917,7 @@
               ['OnSelect', 'OnChange'].forEach(function (event) {
                 var descriptor = handlers[control];
                 if (!(typeof descriptor === 'function' && event === 'OnSelect') && !descriptor[event]) return;
-                el.addEventListener(event === 'OnSelect' ? 'click' : 'change', function (domEvent) {
+                listen(el, event === 'OnSelect' ? 'click' : 'change', function (domEvent) {
                   if (domEvent) domEvent.stopPropagation();
                   choose(row);
                   invoke(row, control, event);
@@ -888,7 +925,7 @@
               });
             });
             row.querySelectorAll('input, textarea, select').forEach(function (el) {
-              el.addEventListener('input', updateBindings);
+              listen(el, 'input', updateBindings);
             });
           }
           row.__fxItem = item;
@@ -1236,8 +1273,8 @@
     var el = document.querySelector('[data-control="' + name + '"]');
     if (el && !el.__fxInputUpdates) {
       el.__fxInputUpdates = true;
-      el.addEventListener('input', updateBindings);
-      el.addEventListener('change', updateBindings);
+      listen(el, 'input', updateBindings);
+      listen(el, 'change', updateBindings);
     }
     evaluators.push(evaluator);
     evaluator.apply();

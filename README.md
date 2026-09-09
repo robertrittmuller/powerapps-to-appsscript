@@ -153,11 +153,13 @@ first actions for Milestones, Employee Ideas and Inspection in Chromium,
 retaining delayed connector errors and unreadable primary controls as failures.
 These are partial workflow checks; complete usability remains unproven.
 `./pfx2gas browser scripts/assess_employee_workflow.py` adds explicitly authored
-campaign/user records through generated Code.gs before startup. Its 23 checks
+campaign/user/question records through generated Code.gs before startup. Its 27 checks
 pass: campaign filtering/order/search/selection, mobile field layout and labels,
-required-title validation, submission, persistence, reload and reopening.
-The unsupported Teams post follows the source warning/recovery path. Voting,
-attachments, custom questions and complete app usability remain unassessed.
+required-title validation, single/multiline custom responses, submission,
+persistence, reload and reopening. The unsupported Teams post follows the source
+warning/recovery path. Adding `--voting` reproduces a failure: the UI displays
+one vote, but the generated server retains zero after unsupported Relate.
+Ratings, attachments, manager workflows and complete app usability remain unassessed.
 The normal `./pfx2gas soak` enforces the existing
 required regression corpus, including failed required journeys and missing apps.
 
@@ -236,6 +238,11 @@ Converted apps aim to match the original visually and behaviorally:
   `Italic`, `Underline`, `Strikethrough`, `LineHeight`, `Align`,
   `VerticalAlign`, `Wrap`; requested faces retain cross-platform serif,
   sans-serif, or monospace fallbacks.
+- **Text input modes** — literal and conditional `TextMode.SingleLine`,
+  `MultiLine` and `Password` select the corresponding native input. Mode changes
+  retain edits, event handlers, focus and caret; unrelated updates retain the
+  node. Generated browser checks cover standalone and per-row controls, newline
+  persistence and adding rows whose templates contain another gallery.
 - **Borders & effects** — `BorderStyle` (solid/dashed/dotted/double),
   thickness, color, radius per corner, `DropShadow`, `HoverFill/Color/BorderColor`,
   `PressedFill/Color/BorderColor`, `DisabledFill/Color/BorderColor`,

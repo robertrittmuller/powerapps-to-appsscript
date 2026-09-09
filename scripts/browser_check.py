@@ -540,6 +540,9 @@ def check_collection_aliases(page, backend):
     expect(rows).to_have_count(2)
     expect(rows.nth(0)).to_have_value('Draft one')
     expect(rows.nth(1)).to_have_value('Draft two')
+    expect(control(page,'DraftRows').locator('[data-control="DraftOwner"]')).to_have_text(['Ada','Grace'])
+    expect(control(page,'StandaloneModeDraft')).to_have_js_property('tagName','INPUT')
+    expect(control(page,'MaskedExample')).to_have_attribute('type','password')
     expect(control(page,'DraftSummary')).to_have_text('Draft one:0, Draft two:0')
     rows.nth(1).fill('Edited second draft')
     rows.nth(1).press('Tab')
@@ -560,6 +563,27 @@ def check_collection_aliases(page, backend):
     expect(control(page,'DraftStatus')).to_have_text('conflict retained draft')
     expect(control(page,'DraftSummary')).to_have_text('Draft one:1, Edited second draft:1')
     page.screenshot(path=str(OUT / 'collection-aliases/restored-and-validated.png'))
+    rows.nth(1).focus()
+    rows.nth(1).evaluate('el=>el.setSelectionRange(2,7)')
+    control(page,'ToggleDraftMode').evaluate('el=>el.click()')
+    expect(rows.nth(1)).to_have_js_property('tagName','TEXTAREA')
+    assert rows.nth(1).evaluate('el=>document.activeElement===el && el.selectionStart===2 && el.selectionEnd===7')
+    expect(control(page,'StandaloneModeDraft')).to_have_js_property('tagName','TEXTAREA')
+    expect(control(page,'StandaloneModeDraft')).to_have_value('Standalone draft')
+    control(page,'StandaloneModeDraft').fill('Standalone\nsecond line')
+    control(page,'StandaloneModeDraft').press('Tab')
+    expect(control(page,'ModeChanged')).to_have_text('Standalone\nsecond line')
+    rows.nth(1).fill('Multiline draft\nSecond line')
+    rows.nth(1).press('Tab')
+    control(page,'DraftRows').locator('[data-control="SaveDraftRow"]').nth(1).click()
+    expect(control(page,'DraftStatus')).to_have_text('saved')
+    records = backend({'fn':'api','args':['Projects','list',{}]})['result']
+    assert records[1]['name'] == 'Multiline draft\nSecond line', records
+    control(page,'AppendDraft').click()
+    expect(rows).to_have_count(3)
+    expect(rows.nth(2)).to_have_value('Third draft')
+    expect(rows.nth(1)).to_have_value('Multiline draft\nSecond line')
+    page.screenshot(path=str(OUT / 'collection-aliases/appended-multiline-draft.png'))
 
 
 def check_card_layout(page, _backend):

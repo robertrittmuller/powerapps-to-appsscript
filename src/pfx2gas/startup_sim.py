@@ -22,6 +22,7 @@ function makeEl(tag, attrs) {
     get textContent() { return this.__text || ''; },
     set textContent(value) { this.__text = value == null ? '' : String(value); },
     innerHTML: '', value: '', selectedOptions: [],
+    get attributes() { return Object.keys(attrs).map(name=>({name,value:attrs[name]})); },
     getAttribute(k) { return attrs[k] !== undefined ? attrs[k] : null; },
     setAttribute(k, v) { attrs[k] = String(v); },
     removeAttribute(k) { delete attrs[k]; },
@@ -38,6 +39,16 @@ function makeEl(tag, attrs) {
       if (this.parentNode) {
         const children = this.parentNode.children;
         children.splice(children.indexOf(this), 1); this.parentNode = null;
+      }
+    },
+    replaceWith(replacement) {
+      if (this.parentNode) {
+        this.parentNode.insertBefore(replacement, this); this.remove();
+      }
+      Object.keys(elements).forEach(key=>{if (elements[key] === this) elements[key] = replacement;});
+      if (this.__rowControls) {
+        replacement.__rowControls = this.__rowControls;
+        this.__rowControls[attrs['data-control']] = replacement;
       }
     },
     querySelector() { return null; },
@@ -202,6 +213,7 @@ function makeRow(markup) {
     const child = hydrateInlineStyle(makeEl(match[1], parseAttrs(match[2])));
     child.type = child.attrs.type || '';
     row.__controls[match[3]] = child;
+    child.__rowControls = row.__controls;
   }
   row.querySelector = function (selector) {
     const match = selector.match(/^\[data-control="([^"]+)"\]/);
@@ -231,8 +243,8 @@ while ((gm = galleryRe.exec(screensSrc)) !== null) {
   const rowMarkup = screensSrc.slice(templateStart + '<template>'.length, templateEnd).trim();
   const template = { innerHTML: rowMarkup };
   const rowsEl = makeEl('div', { class: 'fx-rows' });
-  host.querySelector = (selector) => selector === 'template' ? template
-    : selector === '.fx-rows' ? rowsEl : null;
+  host.querySelector = (selector) => selector === ':scope > template' ? template
+    : selector === ':scope > .fx-rows' ? rowsEl : null;
   host.attrs = Object.assign(host.attrs, parseAttrs(gm[2]));
   host.__fxRows = rowsEl;
   galleryRows[name] = rowsEl;

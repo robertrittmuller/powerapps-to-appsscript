@@ -588,33 +588,60 @@ def dataverse_fixture_files() -> dict[str, str]:
 
 def collection_alias_fixture_files() -> dict[str, str]:
     files = dataverse_fixture_files()
+    data = json.loads(files['References\\DataSources.json'])
+    projects = data['DataSources'][0]
+    rows = json.loads(projects['Data'])
+    for index, row in enumerate(rows):
+        row['msft_owner'] = {'systemuserid':f'user-{index}', 'firstname':['Ada','Grace'][index]}
+    projects['Data'] = json.dumps(rows)
+    user_fields = [('systemuserid','User','Uniqueidentifier'),('firstname','First Name','String')]
+    data['DataSources'].append({'Name':'Users','Type':'NativeCDSDataSourceInfo',
+        'NativeCDSDataSourceInfoNameMapping':{key:name for key,name,_ in user_fields},
+        'TableDefinition':json.dumps({'EntityMetadata':json.dumps({'LogicalName':'systemuser',
+            'PrimaryIdAttribute':'systemuserid','Attributes':[{'LogicalName':key,'AttributeType':kind,
+                'DisplayName':{'UserLocalizedLabel':{'Label':name}}} for key,name,kind in user_fields]})})})
+    files['References\\DataSources.json'] = json.dumps(data)
     def control(name, kind, props, children=None):
         return {'Name':name, 'Template':{'Name':kind}, 'Rules':[
             {'Property':key,'InvariantScript':str(value)} for key,value in props.items()], 'Children':children or []}
     app = json.loads(files['Controls\\1.json'])
     for rule in app['TopParent']['Rules']:
         if rule['Property']=='OnStart':
-            rule['InvariantScript']='ClearCollect(Drafts, Filter(Projects, false)); Collect(Drafts, {msft_projectid:"project-one",msft_name:"Draft one",msft_budget:0,msft_active:false}, {msft_projectid:"project-two",msft_name:"Draft two",msft_budget:0,msft_active:true}); Set(draftStatus, "ready")'
+            rule['InvariantScript']='Set(expandDrafts, false); ClearCollect(Drafts, Filter(Projects, false)); Collect(Drafts, {msft_projectid:"project-one",msft_name:"Draft one",msft_budget:0,msft_active:false}, {msft_projectid:"project-two",msft_name:"Draft two",msft_budget:0,msft_active:true}); Set(draftStatus, "ready")'
     files['Controls\\1.json']=json.dumps(app)
     screen=json.loads(files['Controls\\2.json'])
     screen['TopParent']['Children']=[
         control('DraftSummary','label',{'X':20,'Y':20,'Width':700,'Height':40,
             'Text':'Concat(Drafts, Name & ":" & Text(msft_budget), ", ")'}),
         control('DraftStatus','label',{'X':20,'Y':70,'Width':500,'Height':40,'Text':'draftStatus'}),
-        control('DraftRows','gallery',{'X':20,'Y':130,'Width':600,'Height':200,'TemplateSize':80,'TemplatePadding':0,'Items':'Drafts'},[
+        control('DraftRows','gallery',{'X':20,'Y':130,'Width':600,'Height':300,'TemplateSize':80,'TemplatePadding':0,'Items':'Drafts'},[
             control('DraftTemplate','gallerytemplate',{},[
-                control('DraftName','text',{'X':0,'Y':0,'Width':380,'Height':44,'Mode':'TextMode.SingleLine',
+                control('DraftName','text',{'X':0,'Y':0,'Width':380,'Height':44,'Mode':'If(expandDrafts, TextMode.MultiLine, TextMode.SingleLine)',
                     'Default':'ThisItem.Name','AccessibleLabel':'"Draft name"',
                     'OnChange':'UpdateIf(Drafts, ThisItem.Project = Project, {msft_name: Self.Text})'}),
                 control('SaveDraftRow','button',{'X':400,'Y':0,'Width':180,'Height':44,'Text':'"Save row and cache"',
                     'OnSelect':'Patch(Projects, LookUp(Projects, Project = ThisItem.Project), {Name: DraftName.Text}); SaveData(Drafts, "draft-cache"); Set(draftStatus, "saved")'}),
+                control('DraftOwner','label',{'X':0,'Y':48,'Width':380,'Height':24,
+                    'Text':"LookUp(Projects, Project = ThisItem.Project).Owner.'First Name'"}),
+                control('NestedTemplate','gallery',{'X':580,'Y':50,'Width':10,'Height':10,'Visible':'false','Items':'Table()'},[
+                    control('NestedCaption','label',{'Text':'"Nested template must not become an outer row"'})]),
             ])]),
-        control('BumpDrafts','button',{'X':20,'Y':360,'Width':180,'Height':44,'Text':'"Increment budgets"',
+        control('BumpDrafts','button',{'X':20,'Y':460,'Width':180,'Height':44,'Text':'"Increment budgets"',
             'OnSelect':'UpdateIf(Drafts, Budget >= 0, {msft_budget:Budget + 1}, true, {Budget:99})'}),
-        control('RestoreDrafts','button',{'X':220,'Y':360,'Width':180,'Height':44,'Text':'"Restore cache"',
+        control('RestoreDrafts','button',{'X':220,'Y':460,'Width':180,'Height':44,'Text':'"Restore cache"',
             'OnSelect':'Clear(Drafts); LoadData(Drafts, "draft-cache")'}),
-        control('ConflictingDraft','button',{'X':420,'Y':360,'Width':200,'Height':44,'Text':'"Test invalid aliases"',
+        control('ConflictingDraft','button',{'X':420,'Y':460,'Width':200,'Height':44,'Text':'"Test invalid aliases"',
             'OnSelect':'IfError(ClearCollect(Drafts, {Name:"A",msft_name:"B"}), Set(draftStatus, "conflict retained draft"))'}),
+        control('ToggleDraftMode','button',{'X':20,'Y':520,'Width':180,'Height':44,'Text':'"Toggle multiline"',
+            'OnSelect':'Set(expandDrafts, !expandDrafts)'}),
+        control('AppendDraft','button',{'X':220,'Y':520,'Width':180,'Height':44,'Text':'"Append draft"',
+            'OnSelect':'Collect(Drafts, {msft_projectid:"project-three",msft_name:"Third draft",msft_budget:0})'}),
+        control('StandaloneModeDraft','text',{'X':650,'Y':130,'Width':380,'Height':80,'Default':'"Standalone draft"',
+            'Mode':'If(expandDrafts, TextMode.MultiLine, TextMode.SingleLine)',
+            'OnChange':'Set(modeChanged, Self.Text)'}),
+        control('ModeChanged','label',{'X':650,'Y':220,'Width':380,'Height':60,'Text':'modeChanged'}),
+        control('MaskedExample','text',{'X':650,'Y':300,'Width':380,'Height':44,
+            'Default':'"sample only"','Mode':'TextMode.Password'}),
     ]
     files['Controls\\2.json']=json.dumps(screen)
     files['Properties.json']=json.dumps({'Name':'FixtureCollectionAliases'})

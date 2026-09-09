@@ -98,18 +98,33 @@ IsError restores the original source warning/recovery path around a failed post.
 External UpdateIf, asynchronous predicates/change records, complete error-value
 propagation and nested-gallery card layouts remain unsupported or unverified.
 
+Lookup snapshots now use exported target-table metadata to expose logical,
+canonical and display aliases recursively. Key-only references retain identity
+without inventing names; ambiguous polymorphic references and conflicting or
+invalid nested values fail before writes. Snapshots do not resolve current
+related-table values or enforce relationships. Employee Ideas' question filter
+now finds the correct campaign questions. Gallery updates use their own direct
+template even when mounted rows contain nested templates. Conditional TextMode
+retains single-line/multiline/password behavior and edits, focus, caret and
+listeners across mode changes. Browser checks save and reload multiline answers.
+
 Eleven pinned source exports are available here: five public regression apps
 and six Microsoft business apps. **All eleven generate valid code; six pass
 the short startup check. None has complete usability acceptance evidence.**
 The solution-aware checks expose previously silent relative-date view filters
 and missing identity mappings, so five Microsoft apps now fail short startup
 and all three default first-action probes fail. With one explicitly authored
-user and four campaigns, Employee Ideas now passes 23 checks covering active
+user, four campaigns and three questions, Employee Ideas now passes 27 checks covering active
 filtering/order/search, selected detail, mobile field geometry/labels,
-required-title validation, submission, persistence, reload and reopening.
+required-title validation, single/multiline responses, submission, persistence,
+reload and reopening. One unrelated campaign question is correctly excluded.
 The source's failed Teams-post warning executes without aborting the save.
 Its title remains deliberately truncated under source Wrap=false/Overflow.Hidden.
-Voting, attachments, custom questions and complete usability remain unassessed.
+The optional voting probe fails: a local count of one masks a persisted count
+of zero after unsupported Relate. Its exported Concurrent also contains an
+unconditional Unrelate branch, a source race risk requiring original-app review;
+the converter does not rewrite it. Ratings, attachments, manager workflows and
+complete usability remain unassessed.
 Milestones also exposes a nonfinite dtcSettings.Height dependency during startup;
 the new card layout gate surfaces it instead of silently accepting NaN geometry.
 Fourteen generated-fixture Chromium journeys pass. Fixtures are regression
@@ -167,7 +182,7 @@ the implementation order.
 
 | Evidence | Latest result | What remains unproven |
 |---|---|---|
-| Unit/runtime tests | 269 Python pass, 3 skip; 88 JS pass; bare globals, FX, FXRuntime and FX.collections emitter/runtime consistency passes | Complete deployed workflows and broader control semantics |
+| Unit/runtime tests | 273 Python pass, 3 skip; 88 JS pass; bare globals, FX, FXRuntime and FX.collections emitter/runtime consistency passes | Complete deployed workflows and broader control semantics |
 | Current real-app soak | 5/5 Bootable; 1,145 formulas, including previously dropped App/screen properties | Usability unassessed; the other five historical local exports are absent |
 | Current regression translation/wiring | 1,140 translated; 971 emitted, 13 approximated, 161 ignored/unsupported | Translation does not establish runtime behavior |
 | Historical ten-app corpus | Previously 10/10 Bootable; 23,746 formulas | Not reproduced in this workspace; those results did not establish usability |
@@ -177,7 +192,7 @@ the implementation order.
 | Chromium regression suite | 14/14 fixtures pass, including native card reflow/overflow and typed draft aliases/UpdateIf; the intentional screenshot-failure gate also retains its original journey failure | Real Google services, real-app critical workflows and original visual comparisons; HelpDesk is absent here |
 | Microsoft generated-server initialization | Six exports: setup and reads across 124 tables and 302 choice fields pass in the Sheets test double | Tenant data migration, real Google writes, source defaults, calculations, relationships and permissions |
 | Microsoft business baseline | 6/6 convert and validate; 1/6 passes short startup (Employee Ideas) | Saved-view relative dates, migrated identities and Teams/Planner dependencies fail prerequisites |
-| Microsoft first actions | All three default probes fail with source views now enforced. Populated Employee Ideas passes 23 checks through mobile validation, submission, persistence, reload and reopening, plus the source posting-warning path | Voting, custom questions, attachments, complete workflows, real Google persistence, target identities and UI parity; partial success never promotes an app to Usable |
+| Microsoft first actions | All three default probes fail with source views now enforced. Populated Employee Ideas passes 27 checks through mobile validation, custom text questions, submission, persistence, reload and reopening, plus the source posting-warning path. Optional voting fails its persisted-record assertion | Relationships, ratings, attachments, complete workflows, real Google persistence, target identities and UI parity; partial success never promotes an app to Usable |
 | CI configuration | Existing tests plus required-app/journey gates and new Chromium artifact job | Browser job configured and locally tested, not yet verified in remote CI; local HelpDesk remains optional |
 
 Evidence: `.artifacts/benchmark/benchmark-scorecard.json`,

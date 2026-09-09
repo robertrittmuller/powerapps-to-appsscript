@@ -111,6 +111,13 @@ def test_iserror_defers_sync_and_async_failures_and_distinguishes_blank():
                     behavior=True, tail='return state;') == {'failed':True,'after':True}
 
 
+def test_text_mode_enums_survive_literal_and_row_dependent_formulas():
+    for mode in ['SingleLine', 'MultiLine', 'Password']:
+        assert evaluate('TextMode.' + mode) == mode
+    assert evaluate('If(ThisItem.Multiline, TextMode.MultiLine, TextMode.SingleLine)', item={'multiline':True}) == 'MultiLine'
+    assert evaluate('If(ThisItem.Multiline, TextMode.MultiLine, TextMode.SingleLine)', item={'multiline':False}) == 'SingleLine'
+
+
 def test_async_iferror_and_with_await_failure_before_following_behavior():
     assert evaluate('With({fallback: "failed"}, Set(result, IfError(Patch(Tasks, Defaults(Tasks), {Name: "x"}), fallback))); Set(after, result)',
                     behavior=True, tail="return state;") == {"result": "failed", "after": "failed"}
