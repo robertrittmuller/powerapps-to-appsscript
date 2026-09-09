@@ -586,6 +586,41 @@ def dataverse_fixture_files() -> dict[str, str]:
         "References\\DataSources.json": json.dumps({"DataSources": sources})}
 
 
+def source_formula_fixture_files() -> dict[str, str]:
+    """Complete MIT-licensed Microsoft formulas in a small UI test harness.
+
+    Formula text and original names are preserved; the surrounding controls
+    and collection data are test scaffolding, not a converted real app.
+    See microsoft-formulas.json and MICROSOFT-LICENSE.txt for provenance.
+    """
+    formulas = json.loads((FIXTURE_DIR / "microsoft-formulas.json").read_text())
+    def control(name, kind, props):
+        return {name: {"Control": kind, "Properties": {k: "=" + str(v) for k, v in props.items()}}}
+    children = [control("txtSetupSharePoint_URL", "TextInput", {
+        "X": 20, "Y": 20, "Width": 820, "Height": 44, "Default": '""',
+        "AccessibleLabel": '"SharePoint site URL"'})]
+    for formula in formulas:
+        children.append(control(formula["control"], "Label", {
+            "X": 20, "Y": 130 if formula["app"] == "milestones" else 80,
+            "Width": 950, "Height": 40, "Text": formula["raw"]}))
+    # The real formula includes both today's timestamp and localized older dates.
+    actions = [
+        ("FormulaToday", 'ClearCollect(\'Project Work Items\', {\'Project Work item\': "work-1", \'Created On\': Now()}); Set(gblUserLanguage, "en-US")'),
+        ("FormulaFrench", 'Set(gblUserLanguage, "fr-FR"); ClearCollect(colLocalization, {OOBTextID: "lblEditWorkItemCreatedOn1__locText", LocalizedText: "Créé le"})'),
+        ("FormulaJapanese", 'Set(gblUserLanguage, "ja-JP"); Clear(colLocalization)'),
+        ("FormulaOlder", 'ClearCollect(\'Project Work Items\', {\'Project Work item\': "work-1", \'Created On\': Date(2014, 9, 9)}); Set(gblUserLanguage, "en-US"); Clear(colLocalization)'),
+    ]
+    for i, (name, action) in enumerate(actions):
+        children.append(control(name, "Button", {"X": 20 + 240 * i, "Y": 210,
+            "Width": 220, "Height": 44, "Text": '"' + name + '"', "OnSelect": action}))
+    return {
+        "CanvasManifest.json": json.dumps({"Name": "FixtureSourceFormulas", "ScreenOrder": ["SourceFormulas"]}),
+        "src/App.pa.yaml": json.dumps({"App": {"Control": "AppHost", "Properties": {
+            "OnStart": '=Set(gblUserLanguage, "en-US"); ClearCollect(colLocalization, Table()); Set(locSelectedWorkItem, {\'Project Work item\': "work-1"}); ' + actions[-1][1]}}}),
+        "src/SourceFormulas.pa.yaml": json.dumps({"SourceFormulas": {"Control": "Screen", "Children": children}}),
+    }
+
+
 def build_fixtures() -> None:
     # Fixture A: navigation + globals, all rule-transpilable
     _write_msapp(
@@ -661,6 +696,7 @@ def build_fixtures() -> None:
     _write_msapp(FIXTURE_DIR / "fixtureTimer.msapp", timer_fixture_files())
     _write_msapp(FIXTURE_DIR / "fixtureStorage.msapp", storage_fixture_files())
     _write_msapp(FIXTURE_DIR / "fixtureDataverse.msapp", dataverse_fixture_files())
+    _write_msapp(FIXTURE_DIR / "fixtureSourceFormulas.msapp", source_formula_fixture_files())
 
 
 if __name__ == "__main__":

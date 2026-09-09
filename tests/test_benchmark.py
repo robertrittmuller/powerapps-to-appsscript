@@ -76,6 +76,41 @@ def test_startup_does_not_get_promoted_to_usability_or_visual_fidelity():
     assert grades["highFidelity"]["status"] == UNASSESSED
 
 
+def test_first_action_failure_is_attached_without_promoting_partial_success(monkeypatch):
+    monkeypatch.syspath_prepend(str(REPO / 'scripts'))
+    from assess_microsoft_samples import merge_first_actions
+    app = _app()
+    app['inputSha256'] = 'source-hash'
+    scorecard = build_scorecard([app], catalog_path='catalog', sample_dir='samples')
+    probe = {'sourceAppId': 'sample', 'app': 'microsoft-first-action-sample',
+             'inputSha256': 'source-hash', 'converterSourceSha256': scorecard['converterSourceSha256'],
+             'status': FAIL, 'steps': [], 'assessmentScope': 'first action only',
+             'evidenceType': 'chromium-generated-client-and-server'}
+    merged = merge_first_actions(scorecard, [probe])
+    assert merged['summary']['grades']['usable'][FAIL] == 1
+    assert merged['gateErrors']
+    probe['status'] = PASS
+    merged = merge_first_actions(scorecard, [probe])
+    assert merged['summary']['grades']['usable'][UNASSESSED] == 1
+    assert len(app['evidence']['journeys']) == 2
+    probe['consoleErrors'] = ['delayed connector error']
+    assert merge_first_actions(scorecard, [probe])['summary']['grades']['usable'][FAIL] == 1
+
+
+@pytest.mark.parametrize('mismatch', ['inputSha256', 'converterSourceSha256'])
+def test_first_action_evidence_rejects_stale_source_or_converter(monkeypatch, mismatch):
+    monkeypatch.syspath_prepend(str(REPO / 'scripts'))
+    from assess_microsoft_samples import merge_first_actions
+    app = _app()
+    app['inputSha256'] = 'source-hash'
+    scorecard = build_scorecard([app], catalog_path='catalog', sample_dir='samples')
+    probe = {'sourceAppId': 'sample', 'inputSha256': 'source-hash',
+             'converterSourceSha256': scorecard['converterSourceSha256']}
+    probe[mismatch] = 'stale'
+    with pytest.raises(ValueError, match='does not match'):
+        merge_first_actions(scorecard, [probe])
+
+
 def test_complete_journey_coverage_can_prove_usable():
     grades = evaluate_grades(_app(journey_coverage="complete"))
     assert grades["usable"]["status"] == PASS

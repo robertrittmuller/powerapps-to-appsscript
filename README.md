@@ -147,13 +147,16 @@ documented in [benchmark/SOURCES.md](benchmark/SOURCES.md).
 ./pfx2gas browser scripts/assess_microsoft_samples.py
 ```
 
-This separate baseline currently fails startup; it is not a claim that these
-business apps are usable yet. The normal `./pfx2gas soak` enforces the existing
+This separate baseline currently fails. It also exercises source loading and
+first actions for Milestones, Employee Ideas and Inspection in Chromium,
+retaining delayed connector errors and unreadable primary controls as failures.
+These are partial workflow checks; complete usability remains unproven.
+The normal `./pfx2gas soak` enforces the existing
 required regression corpus, including failed required journeys and missing apps.
 
 `./pfx2gas browser` tests generated forms, charts, record scopes, editable
-galleries, timer lifecycles, launch parameters, local drafts and Dataverse record
-contracts in Chromium, plus HelpDesk
+galleries, timer lifecycles, launch parameters, local drafts, Dataverse record
+contracts and complete source timestamp/URL-validation formulas in Chromium, plus HelpDesk
 when its local export is present. It runs
 generated `doGet`/client/server code against a Sheets test double to check save,
 validation, failure, delete and reload behavior, including safe request templating.
@@ -268,6 +271,16 @@ Converted apps aim to match the original visually and behaviorally:
   the browser profile. Storage is plaintext, limited to 1 MB per encoded entry,
   and can be unavailable or removed by browser settings. This does not make
   the Apps Script page or remote data services available offline.
+- **Time and validation formulas** — TimeValue handles clock text, fractional
+  seconds, localized day periods and ISO timestamps. Text distinguishes minutes
+  from months and retains its output-language argument for date/time labels.
+  IsMatch/Match/MatchAll support constant JavaScript-compatible canvas patterns,
+  boundaries, case options and capture records. Find uses one-based positions
+  and returns Blank when absent; IsBlankOrError catches deferred synchronous or
+  awaited failures. The complete Milestones timestamp and Inspection Manager
+  URL formulas have executed regressions. Full locale/format coverage and the
+  newer Unicode Power Fx regex dialect remain unverified; unsupported Match
+  enums are rejected explicitly.
 - **Timers** — Duration, Start, AutoStart, AutoPause, Repeat, Reset,
   OnTimerStart and OnTimerEnd are wired to browser scheduling, with elapsed
   Value and SetFocus support. Browser timer precision is approximate; timers
@@ -344,19 +357,19 @@ with confidence and notes; LLM-touched formulas appear in the report as
 
 ## Supported Power Fx surface (v1)
 
-Rule-transpiled today (~70 functions via the `FX.*` stdlib):
+The deterministic function map includes:
 
-- **Logic** `If`, `Switch`, `IfError`, `IsBlank`, `IsEmpty`, `Coalesce`, `With`
+- **Logic** `If`, `Switch`, `IfError`, `IsBlank`, `IsBlankOrError`, `IsEmpty`, `Coalesce`, `With`
 - **Tables** `Filter`, `ForAll`, `LookUp`, `CountRows`, `CountIf`, `Concat`,
   `First`, `Last`, `Sort`, `SortByColumns`, `Distinct`, `Sum`, `Average`,
   `AddColumns`, `Sequence`, `Split`
 - **Text** `Concatenate`, `Upper`, `Lower`, `Trim`, `Left`, `Right`, `Mid`,
   `Len`, `Find`, `Substitute`, `Replace`, `Text` (number/date formats),
-  `Proper`, `Char`, `GUID`, `EncodeUrl`, `PlainText`
+  `IsMatch`, `Match`, `MatchAll`, `Proper`, `Char`, `GUID`, `EncodeUrl`, `PlainText`
 - **Math** `Abs`, `Int`, `Round`/`RoundUp`/`RoundDown`, `Mod`, `Sqrt`, `Power`,
   `Min`, `Max`, `Value`, `Rand`
 - **Dates** `Today`, `Now`, `Year`, `Month`, `Day`, `Hour`, `Minute`,
-  `Weekday`, `DateAdd`, `DateDiff`, `Date`, `Time`
+  `Weekday`, `DateAdd`, `DateDiff`, `Date`, `Time`, `TimeValue`
 - **Colors** `RGBA`, `ColorFade`; **enums** (`Color.X`, `Font.X`,
   `Font.'Open Sans'`, …) emitted as literals
 - **Behavior** `Set`, `UpdateContext`, `Navigate`, `Back`, `Notify`,
@@ -364,7 +377,8 @@ Rule-transpiled today (~70 functions via the `FX.*` stdlib):
   `Reset`, `Select` (as data-layer/control calls), `Launch`
   (opens a new tab)
 
-`Choices('Source'.Field)` is supported through the generated `__Choices` tab;
+`Choices('Source'.Field)` uses retained native choice metadata when available,
+with the generated `__Choices` tab as a fallback;
 anything else not in the map (for example custom `Environment.*` functions or
 `ShowHostInfo`) becomes documented unsupported
 operations via the coverage ledger — never silently wrong. Adding functions is one entry in

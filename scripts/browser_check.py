@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import hashlib
+import re
 from pathlib import Path
 import subprocess
 import sys
@@ -400,6 +401,34 @@ def check_dataverse(page, backend):
     expect(count).to_have_text("2")
 
 
+def check_source_formulas(page, _backend):
+    url, error = (control(page, key) for key in ("txtSetupSharePoint_URL", "lblSetupSharePoint_ErrorURL"))
+    expect(error).to_have_text("")
+    for text, message in [
+        ("not a URL", "Please enter a valid URL"),
+        ("https://contoso.sharepoint.com/sites/Team/extra", "URL must have exactly 4 forward slashes"),
+        ("https://contoso.example.com/sites/Team", "URL must include .sharepoint.com/sites/"),
+        ("https://contoso.sharepoint.com/sites/Ab", "URL must include at least a three character site name"),
+        ("https://contoso.sharepoint.com/sites/Team", ""),
+        ("", ""),
+    ]:
+        url.fill(text)
+        if message:
+            expect(error).to_contain_text(message)
+        else:
+            expect(error).to_have_text("")
+    label = control(page, "lblEditWorkItemCreatedOn")
+    expect(label).to_have_text("Created on 09 Sep")
+    control(page, "FormulaFrench").click()
+    expect(label).to_have_text("Créé le 09 sept.")
+    control(page, "FormulaJapanese").click()
+    expect(label).to_have_text("Created on 09 9月")
+    control(page, "FormulaToday").click()
+    expect(label).to_have_text(re.compile(r"Created at \d{2}:\d{2} (AM|PM)"))
+    assert label.evaluate("el => el.scrollWidth <= el.clientWidth")
+    page.screenshot(path=str(OUT / "source-formulas/validated-formulas.png"))
+
+
 def main():
     subprocess.run([sys.executable, str(REPO / "tests/fixtures/build.py")], check=True, capture_output=True)
     cases = [("business-form", REPO / "tests/fixtures/fixtureForm.msapp", check_form),
@@ -409,6 +438,7 @@ def main():
     cases.append(("timer-lifecycle", REPO / "tests/fixtures/fixtureTimer.msapp", check_timers, True))
     cases.append(("local-draft-storage", REPO / "tests/fixtures/fixtureStorage.msapp", check_storage))
     cases.append(("dataverse-contract", REPO / "tests/fixtures/fixtureDataverse.msapp", check_dataverse))
+    cases.append(("source-formulas", REPO / "tests/fixtures/fixtureSourceFormulas.msapp", check_source_formulas))
     helpdesk = REPO / "samples/real/helpdesk.msapp"
     if helpdesk.exists():
         cases.append(("helpdesk", helpdesk, check_helpdesk))

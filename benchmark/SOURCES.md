@@ -29,6 +29,11 @@ Upstream code is [MIT licensed, copyright Microsoft Corporation](https://github.
 Microsoft's README separately documents trademark restrictions. We link to and
 fetch the upstream packages; no sample binary is redistributed in this repo.
 Keep the upstream license with any separately redistributed sample package.
+Two complete source formulas are retained in
+`tests/fixtures/microsoft-formulas.json`, with input/formula hashes and original
+screen/control names, under `tests/fixtures/MICROSOFT-LICENSE.txt`. The generated
+`fixtureSourceFormulas.msapp` wraps those unchanged formulas in test controls and
+sample collections. It is a regression fixture, not a real acceptance app.
 
 Reproduce with Docker:
 
@@ -38,12 +43,14 @@ Reproduce with Docker:
 ./pfx2gas browser scripts/assess_microsoft_samples.py
 ```
 
-The September 6 assessment exits **1**: all six generate syntactically valid
-projects; four fail startup. Employee Ideas and Inspection have error-free
-startup checks but still show their loading screen. Their usability and visual
-grades remain unassessed; the other four fail the startup prerequisite. See
-`GAP_ASSESSMENT.md` for the fix sequence. This is a separate acceptance baseline,
-not a hidden allowance in the existing passing regression corpus.
+The September 9 assessment exits **1**: all six generate syntactically valid
+projects; three fail startup. Employee Ideas, Inspection and Milestones pass
+the short startup check and leave loading in Chromium. Their first-action
+probes fail on clipped controls or delayed connector calls; these failures are
+attached to the combined scorecard with matching source/converter hashes.
+All six remain below usability acceptance. See `GAP_ASSESSMENT.md` for the fix
+sequence. This is a separate acceptance baseline, not a hidden allowance in
+the existing passing regression corpus.
 
 ## Existing modern regression corpus
 

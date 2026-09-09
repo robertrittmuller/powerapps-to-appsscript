@@ -40,16 +40,24 @@ text. A seventh Chromium fixture executes save/failure/create/delete/reload.
 Every real-app soak now executes generated setup and table/choice reads against
 the Sheets test double, in addition to syntax and client startup checks.
 
+The time/validation slice adds TimeValue, localized date/time Text formats,
+constant canvas regex matching, correct Find arguments and deferred
+IsBlankOrError. Two complete Microsoft source formulas are retained with hashes
+and their MIT license; executed formula tests and an eighth generated Chromium
+fixture cover timestamps, localization and every URL-validation outcome.
+
 Eleven pinned source exports are available here: five public regression apps
-and six Microsoft business apps. **All eleven generate valid code; the five
-regression apps, Employee Ideas and Inspection currently pass startup. None has
-complete usability acceptance evidence.** The previous two clean Microsoft startup results hid
-initialization formulas that were never emitted; restoring those formulas now
-exposes TimeValue, IsMatch and connector dependencies. GroupBy and LoadData no longer
-block Employee Ideas and Inspection, but their loading-to-business workflows
-remain unassessed. Seven generated-fixture Chromium journeys pass. These fixtures
-are regression evidence, not additional
-real acceptance apps. The last recorded Google deployment remains HelpDesk @14.
+and six Microsoft business apps. **All eleven generate valid code; eight pass
+the short startup check. None has complete usability acceptance evidence.**
+Milestones, Employee Ideas and Inspection now leave their loading screen in a
+real browser. Their first-action probes all fail: Milestones' New project is
+blocked by Office365Users.UserProfileV2; Employee Ideas navigates to campaigns
+but its Browse button clips text; Inspection reaches Items while a delayed
+Planner.ListMyPlansV2 error surfaces. These failures are attached to the combined
+Microsoft scorecard; all six Microsoft apps fail usability prerequisites.
+Eight generated-fixture Chromium journeys pass. Fixtures are regression
+evidence, not additional real acceptance apps. The last recorded Google
+deployment remains HelpDesk @14.
 
 ## Acceptance goal: faithful business-app conversion
 
@@ -102,16 +110,17 @@ the implementation order.
 
 | Evidence | Latest result | What remains unproven |
 |---|---|---|
-| Unit/runtime tests | 200 Python pass, 3 skip; 72 JS pass; bare globals, FX and FXRuntime emitter/runtime consistency passes | Complete deployed workflows and broader control semantics |
+| Unit/runtime tests | 208 Python pass, 3 skip; 76 JS pass; bare globals, FX and FXRuntime emitter/runtime consistency passes | Complete deployed workflows and broader control semantics |
 | Current real-app soak | 5/5 Bootable; 1,120 formulas | Usability unassessed; the other five historical local exports are absent |
 | Current regression translation/wiring | 1,114 translated; 969 emitted, 13 approximated, 138 ignored/unsupported | Translation does not establish runtime behavior |
 | Historical ten-app corpus | Previously 10/10 Bootable; 23,746 formulas | Not reproduced in this workspace; those results did not establish usability |
 | HelpDesk generated-app journeys | HOME → NEW → HOME; dashboard row text, logo URI, pie and legend output pass | All-screen interactions, image decoding/layout in CI, persistence |
 | HelpDesk @14 live browser | Ticket cards, decoded 64×64 logos, pie/bar/legend SVGs, readable fonts/labels, HOME → NEW → HOME | Same-state original comparison, user name/avatar, complete workflow coverage |
 | Chromium: business form | Actual generated client + Code.gs: edit/create, required validation, write failure, delete and page reload pass against a persistent Sheets test double | Real Google authorization/Sheets writes and another user/session |
-| Chromium regression suite | 7/7 fixtures pass: form, charts, record scopes/launch parameters, editable gallery, timer lifecycle, local draft persistence, Dataverse record contracts; generated client and server code | Real Google services, real-app critical workflows and original visual comparisons; HelpDesk is absent here |
+| Chromium regression suite | 8/8 fixtures pass: form, charts, record scopes/launch parameters, editable gallery, timer lifecycle, local draft persistence, Dataverse contracts, complete source time/validation formulas; generated client and server code | Real Google services, real-app critical workflows and original visual comparisons; HelpDesk is absent here |
 | Microsoft generated-server initialization | Six exports: setup and reads across 124 tables and 302 choice fields pass in the Sheets test double | Tenant data migration, real Google writes, source defaults, calculations, relationships and permissions |
-| Microsoft business baseline | 6/6 convert and validate; 2/6 pass startup (Employee Ideas, Inspection) | Startup alone does not prove leaving loading or completing business actions; all business workflows remain unverified |
+| Microsoft business baseline | 6/6 convert and validate; 3/6 pass short startup (Employee Ideas, Inspection, Milestones) | Three other exports still fail startup on Teams/Planner dependencies |
+| Microsoft first actions | 3/3 leave loading; all three probes fail on a connector error or unreadable primary action. Employee Ideas and Inspection reach the source action destination; Milestones does not | Complete business workflows, persistence, target identities and UI parity; partial success never promotes an app to Usable |
 | CI configuration | Existing tests plus required-app/journey gates and new Chromium artifact job | Browser job configured and locally tested, not yet verified in remote CI; local HelpDesk remains optional |
 
 Evidence: `.artifacts/benchmark/benchmark-scorecard.json`,
@@ -203,7 +212,7 @@ with `./pfx2gas browser scripts/assess_microsoft_samples.py`.
 
 Milestones supplies the first project/task lifecycle target; Employee Ideas and
 Inspection verify that fixes generalize. The Microsoft baseline still exits 1
-with four startup failures; Employee Ideas and Inspection are Usable/High fidelity unassessed,
+with three startup failures; first-action failures keep the other three below Usable/High fidelity,
 not passing business apps. None of R1–R5 is fully complete under its original
 acceptance criteria.
 
@@ -236,19 +245,24 @@ previously prevented entire startup formulas from being emitted; those cases
 now translate. Immediate errors are only the first reachable failures, not the
 full dependency list:
 
-| Microsoft export | Current startup blocker | Additional source dependencies to preserve |
+| Microsoft export | Latest observed blocker | Additional source dependencies to preserve |
 |---|---|---|
-| Employee Ideas | No error in the startup window; leaving Loading Screen remains unverified | Teams channel posting and Dataverse campaign/idea data |
+| Employee Ideas | Leaves loading and opens campaigns, but Browse campaigns has only 16 px of content width and clips its text | Typed toggle values, viewport/layout semantics, Teams posting and Dataverse campaign/idea data |
 | Employee Ideas Manager | `MicrosoftTeams.GetAllTeams` | Loading/focus timers; team/channel lookup and posting |
-| Inspection | No error in the startup window; leaving Landing Screen remains unverified | Browser draft persistence implemented and tested independently; full inspection submission, Planner tasks, Office365 identity and Teams posting remain |
-| Inspection Manager | Teams lookup, `Planner.ListMyPlansV2`, `IsMatch` | Loading/focus timers; plan/bucket/task/group-plan lookups and settings validation |
-| Milestones | `TimeValue` | Loading/focus timers; Office365 user/profile/photo and relational project/task data |
+| Inspection | Leaves Landing for Welcome/Items; delayed `Planner.ListMyPlansV2` fails in Chromium | Local draft helpers are tested independently; full submission, Planner tasks, Office365 identity and Teams posting remain |
+| Inspection Manager | Teams lookup and `Planner.ListMyPlansV2` | Loading/focus timers; plan/bucket/task/group-plan lookups; complete URL validation formula now tested |
+| Milestones | Leaves Loading for Projects; New project fails on `Office365Users.UserProfileV2` | Typed toggle/theme values, Office365 user/profile/photo and relational project/task data |
 | Review Inspections | `Planner.ListMyPlansV2` | Loading/focus timers and inspection data |
 
-Next acceptance evidence must demonstrate leaving the loading state through
-the source-defined flow, with real mapped data, then completing a business
-journey. Follow that immediately with editable-gallery focus/selection tests
-and original-versus-converted UI comparisons in the same data state.
+Next, correct typed control values and layout before extending these first
+actions into complete data-backed business journeys. The runtime currently
+reads an HTML checkbox's `.value` string for Power Fx `.Value`, while the source
+uses toggles for mobile/theme decisions; verify and gate boolean semantics.
+Check screen/App dimensions and narrow controls using source formulas and
+browser measurements. Then implement required target connector contracts,
+exercise editable-gallery focus/selection, and compare original/converted UI
+in the same data state. The new probes must keep failing until those behaviors
+work; do not bypass initialization or substitute empty connector success.
 
 The decoder now retains `NativeCDSDataSourceInfo.TableDefinition` attributes,
 keys, choices, relationships, views and logical/display-name mappings in

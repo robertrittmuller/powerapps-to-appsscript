@@ -76,7 +76,7 @@ def generated_fixture_bare_calls() -> tuple[list[str], Path, set[str], set[str]]
     apps = []
     out = tmp / "FixtureA"
     fixture_build.build_fixtures()
-    for fixture_name in ("fixtureA.msapp", "fixtureForm.msapp", "fixtureCharts.msapp", "fixtureScopes.msapp", "fixtureGallery.msapp", "fixtureTimer.msapp", "fixtureStorage.msapp", "fixtureDataverse.msapp"):
+    for fixture_name in ("fixtureA.msapp", "fixtureForm.msapp", "fixtureCharts.msapp", "fixtureScopes.msapp", "fixtureGallery.msapp", "fixtureTimer.msapp", "fixtureStorage.msapp", "fixtureDataverse.msapp", "fixtureSourceFormulas.msapp"):
         ir = analyze(parse(unpack(fixture_build.FIXTURE_DIR / fixture_name)))
         out = synthesize(ir, tmp / fixture_name.removesuffix(".msapp"))
         apps.append((out / "App.js.html").read_text())

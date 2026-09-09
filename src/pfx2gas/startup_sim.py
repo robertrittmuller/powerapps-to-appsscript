@@ -19,7 +19,9 @@ const consoleErrors = [];
 function makeEl(tag, attrs) {
   return {
     tag, tagName: String(tag).toUpperCase(), attrs, style: {}, children: [], listeners: {},
-    textContent: '', innerHTML: '', value: '', selectedOptions: [],
+    get textContent() { return this.__text || ''; },
+    set textContent(value) { this.__text = value == null ? '' : String(value); },
+    innerHTML: '', value: '', selectedOptions: [],
     getAttribute(k) { return attrs[k] !== undefined ? attrs[k] : null; },
     setAttribute(k, v) { attrs[k] = String(v); },
     removeAttribute(k) { delete attrs[k]; },

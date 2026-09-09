@@ -44,10 +44,138 @@
     return [typeof value, ignoreCase && typeof value === 'string' ? value.toLowerCase() : value];
   }
 
+  function localeTag(language) {
+    return language || (global.navigator && global.navigator.language) || 'en-US';
+  }
+  function dayPeriod(hour, language) {
+    return new Intl.DateTimeFormat(localeTag(language), {hour: 'numeric', hour12: true})
+      .formatToParts(new Date(2020, 0, 1, hour)).find(function (part) { return part.type === 'dayPeriod'; }).value;
+  }
+  function clockValue(h, m, s, ms) {
+    return new Date(1970, 0, 1, h, m, s, ms);
+  }
+  function timeValue(value, language) {
+    if (isBlank(value)) return null;
+    if (value instanceof Date) {
+      if (!isFinite(value.getTime())) throw new Error('Invalid TimeValue');
+      return clockValue(value.getHours(), value.getMinutes(), value.getSeconds(), value.getMilliseconds());
+    }
+    var text = String(value).trim().replace(/[\u200e\u200f]/g, '');
+    // UTC/offset timestamps from external records display in the user's zone.
+    if (/^\d{4}-\d{2}-\d{2}T.*(?:Z|[+-]\d{2}:?\d{2})$/i.test(text)) {
+      var instant = new Date(text);
+      if (!isFinite(instant.getTime())) throw new Error('Invalid TimeValue timestamp');
+      return timeValue(instant, language);
+    }
+    var lang = localeTag(language);
+    var number = new Intl.NumberFormat(lang, {useGrouping: false});
+    for (var n = 0; n < 10; n++) text = text.split(number.format(n)).join(String(n));
+    var separator = new Intl.DateTimeFormat(lang, {hour: '2-digit', minute: '2-digit', hourCycle: 'h23'})
+      .formatToParts(new Date(2020, 0, 1, 13, 24)).find(function (part) { return part.type === 'literal'; }).value;
+    if (separator !== ':') text = text.split(separator).join(':');
+    var match = /(?:^|[^0-9])(\d{1,2}):(\d{2})(?::(\d{2})(?:[.,](\d{1,3}))?)?(?![\d:.,])/.exec(text);
+    if (!match) throw new Error('TimeValue requires valid clock text');
+    var hours = Number(match[1]), minutes = Number(match[2]), seconds = Number(match[3] || 0);
+    var milliseconds = Number((match[4] || '').padEnd(3, '0') || 0);
+    var remainder = text;
+    var period = null;
+    ['AM', 'PM', dayPeriod(1, lang), dayPeriod(13, lang)].forEach(function (marker, i) {
+      var escaped = marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      if (new RegExp('(?:^|[^a-z])' + escaped + '(?:$|[^a-z])', 'i').test(remainder)) period = i % 2;
+    });
+    if (minutes > 59 || seconds > 59 || hours > (period === null ? 23 : 12) || (period !== null && hours < 1))
+      throw new Error('TimeValue component is out of range');
+    if (period !== null) hours = hours % 12 + period * 12;
+    return clockValue(hours, minutes, seconds, milliseconds);
+  }
+
+  function dateText(value, format, language) {
+    if (isBlank(value)) return '';
+    var date = new Date(toDate(value).getTime());
+    if (!isFinite(date.getTime())) throw new Error('Invalid date for Text');
+    var lang = localeTag(language), f = format || 'ShortDateTime';
+    if (f === 'UTC') return date.toISOString();
+    var enumMatch = /^(Long|Short)(DateTime|Date|Time)(24)?$/.exec(f);
+    if (enumMatch) {
+      var long = enumMatch[1] === 'Long', kind = enumMatch[2], twentyFour = !!enumMatch[3], pieces = [];
+      if (kind.indexOf('Date') >= 0) {
+        var dates = {year: 'numeric', month: long ? 'long' : 'numeric', day: 'numeric'};
+        if (long) dates.weekday = 'long';
+        pieces.push(new Intl.DateTimeFormat(lang, dates).format(date));
+      }
+      if (kind.indexOf('Time') >= 0) {
+        var times = {hour: 'numeric', minute: '2-digit'};
+        if (twentyFour) times.hourCycle = 'h23'; else times.hour12 = true;
+        if (long) times.second = '2-digit';
+        pieces.push(new Intl.DateTimeFormat(lang, times).format(date));
+      }
+      return pieces.join(' ').replace(/[\u202f\u00a0]/g, ' ');
+    }
+    var tokens = f.match(/"[^"]*"|AM\/PM|a\/p|yyyy|yy|mmmm|mmm|mm|m|dddd|ddd|dd|d|hh|h|ss|s|fff|ff|f|./gi) || [];
+    var fraction = tokens.find(function (token) { return /^f{1,3}$/i.test(token); });
+    if (fraction && fraction.length < 3) {
+      var precision = Math.pow(10, 3 - fraction.length);
+      date.setMilliseconds(Math.round(date.getMilliseconds() / precision) * precision);
+    }
+    var twelve = tokens.some(function (token) { return /^(am\/pm|a\/p)$/i.test(token); });
+    function padded(value, length) { return String(value).padStart(length, '0'); }
+    function named(options) { return new Intl.DateTimeFormat(lang, options).format(date); }
+    return tokens.map(function (token, index) {
+      var lower = token.toLowerCase();
+      if (token[0] === '"') return token.slice(1, -1);
+      if (lower === 'yyyy') return padded(date.getFullYear(), 4);
+      if (lower === 'yy') return padded(date.getFullYear() % 100, 2);
+      if (lower === 'mmmm' || lower === 'mmm') return named({month: lower === 'mmmm' ? 'long' : 'short'});
+      if (lower === 'dddd' || lower === 'ddd') return named({weekday: lower === 'dddd' ? 'long' : 'short'});
+      if (lower === 'd' || lower === 'dd') return padded(date.getDate(), lower.length);
+      if (lower === 'h' || lower === 'hh') return padded(twelve ? date.getHours() % 12 || 12 : date.getHours(), lower.length);
+      if (lower === 's' || lower === 'ss') return padded(date.getSeconds(), lower.length);
+      if (lower === 'm' || lower === 'mm') {
+        var before = tokens.slice(0, index).reverse().find(function (part) { return /^[a-z]+$/i.test(part); }) || '';
+        var after = tokens.slice(index + 1).find(function (part) { return /^[a-z]+$/i.test(part); }) || '';
+        var minute = /^h{1,2}$/i.test(before) || /^s{1,2}$/i.test(after);
+        return padded(minute ? date.getMinutes() : date.getMonth() + 1, lower.length);
+      }
+      if (/^f{1,3}$/.test(lower)) return padded(date.getMilliseconds(), 3).slice(0, lower.length);
+      if (lower === 'am/pm') return dayPeriod(date.getHours(), lang);
+      if (lower === 'a/p') return date.getHours() < 12 ? 'a' : 'p';
+      return token;
+    }).join('');
+  }
+
+  function regexFor(pattern, options, complete, all) {
+    var opts = String(options || '').split('|').filter(Boolean);
+    var allowed = ['BeginsWith', 'Complete', 'Contains', 'EndsWith', 'IgnoreCase', 'Multiline', 'NumberedSubMatches'];
+    if (opts.some(function (option) { return allowed.indexOf(option) < 0; })) throw new Error('Unsupported canvas match option');
+    var boundaries = opts.filter(function (option) { return ['BeginsWith', 'Complete', 'Contains', 'EndsWith'].indexOf(option) >= 0; });
+    if (boundaries.length > 1) throw new Error('Conflicting canvas match boundaries');
+    var boundary = boundaries[0] || (complete ? 'Complete' : 'Contains');
+    var expression = '(?:' + String(pattern) + ')';
+    if (boundary === 'Complete' || boundary === 'BeginsWith') expression = '^' + expression;
+    if (boundary === 'Complete' || boundary === 'EndsWith') expression += '$';
+    return new RegExp(expression, (all ? 'g' : '') + (opts.indexOf('IgnoreCase') >= 0 ? 'i' : '') + (opts.indexOf('Multiline') >= 0 ? 'm' : ''));
+  }
+  function captureName(name) {
+    var out = '', upper = false;
+    for (var i = 0; i < name.length; i++) {
+      var ch = name[i], nextUpper = /[A-Z]/.test(ch);
+      if (nextUpper && i > 0 && !upper) out += '_';
+      out += ch.toLowerCase(); upper = nextUpper;
+    }
+    return out.replace(/^_+|_+$/g, '');
+  }
+  function matchRecord(match) {
+    if (!match) return null;
+    var record = {full_match: match[0], start_match: match.index + 1,
+      sub_matches: match.slice(1).map(function (value) { return {value: value == null ? null : value}; })};
+    Object.keys(match.groups || {}).forEach(function (name) { record[captureName(name)] = match.groups[name] == null ? null : match.groups[name]; });
+    return record;
+  }
+
   var FX = {
     // --- predicates / equality -------------------------------------------
-    eq: function (a, b) { return a == b; },        // Power Fx compares loosely across text/number
-    neq: function (a, b) { return a != b; },
+    eq: function (a, b) { return a instanceof Date && b instanceof Date ? a.getTime() === b.getTime() : a == b; },
+    neq: function (a, b) { return !FX.eq(a, b); },
     concatStr: function (a, b) {
       return (a == null ? '' : String(a)) + (b == null ? '' : String(b));
     },
@@ -91,7 +219,28 @@
       return (exact ? text : text.toLowerCase()).indexOf(exact ? part : part.toLowerCase()) >= 0;
     },
     isBlank: isBlank,
-    isBlankOrError: function (v) { return isBlank(v); },
+    isBlankOrError: function (v) {
+      try {
+        var value = typeof v === 'function' ? v() : v;
+        return value && typeof value.then === 'function' ? value.then(isBlank, function () { return true; }) : isBlank(value);
+      } catch (error) { return true; }
+    },
+    isMatch: function (text, pattern, options) { return regexFor(pattern, options, true, false).test(String(text == null ? '' : text)); },
+    match: function (text, pattern, options) { return matchRecord(regexFor(pattern, options, false, false).exec(String(text == null ? '' : text))); },
+    matchAll: function (text, pattern, options) {
+      var regex = regexFor(pattern, options, false, true), out = [], match, input = String(text == null ? '' : text);
+      while ((match = regex.exec(input)) !== null) {
+        out.push(matchRecord(match));
+        if (match[0] === '') regex.lastIndex += 1;
+      }
+      return out;
+    },
+    find: function (needle, haystack, start) {
+      var position = start == null ? 1 : Number(start);
+      if (!isFinite(position) || position < 1) throw new Error('Find starting position must be positive');
+      var index = String(haystack == null ? '' : haystack).indexOf(String(needle == null ? '' : needle), Math.floor(position) - 1);
+      return index < 0 ? null : index + 1;
+    },
     isEmpty: function (t) { return rows(t).length === 0; },
     isNumeric: function (v) { return !isNaN(parseFloat(v)) && isFinite(v); },
     coalesce: function (list) {
@@ -232,6 +381,7 @@
     right: function (s, n) {
       var str = String(s == null ? '' : s);
       var k = toNum(n);
+      if (k < 0) throw new Error('Right count cannot be negative');
       return k <= 0 ? '' : str.slice(Math.max(0, str.length - k));
     },
     proper: function (s) {
@@ -246,19 +396,12 @@
       var str = String(s == null ? '' : s);
       return str.slice(0, toNum(start) - 1) + String(rep) + str.slice(toNum(start) - 1 + toNum(count));
     },
-    text: function (v, fmt) {
+    text: function (v, fmt, language) {
       var str = String(v == null ? '' : v);
-      if (!fmt) return str;
-      var f = String(fmt);
+      if (!fmt) return v instanceof Date ? dateText(v, null, language) : str;
+      var f = String(fmt).replace(/\[\$-[^\]]+\]/g, '');
       if (/0\.00/.test(f)) return toNum(v).toFixed((f.split('.')[1] || '00').length);
-      if (/yyyy|mm|dd/i.test(f)) {
-        var d = toDate(v);
-        if (!isNaN(d.getTime())) {
-          return f.replace(/yyyy/i, String(d.getFullYear()))
-            .replace(/mm/i, String(d.getMonth() + 1).padStart(2, '0'))
-            .replace(/dd/i, String(d.getDate()).padStart(2, '0'));
-        }
-      }
+      if (v instanceof Date || /[ymdhs]|^(Long|Short)|^UTC$/i.test(f)) return dateText(v, f, language);
       if (/^#,#/.test(f)) return toNum(v).toLocaleString();
       return str;
     },
@@ -397,10 +540,9 @@
     },
     date: function (y, m, d) { return new Date(toNum(y), toNum(m) - 1, toNum(d)); },
     time: function (h, m, s) {
-      var d = new Date();
-      d.setHours(toNum(h), toNum(m), toNum(s || 0), 0);
-      return d;
+      return clockValue(toNum(h), toNum(m), toNum(s || 0), 0);
     },
+    timeValue: timeValue,
   };
 
   function flattenArgs(args) {

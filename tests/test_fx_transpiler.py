@@ -43,7 +43,7 @@ def test_lowercase_control_and_parent_refs_use_runtime_context():
 
 
 def test_optional_function_arguments_never_leak_template_tokens():
-    assert js("Text(score)") == "FX.text(state.score, null)"
+    assert js("Text(score)") == "FX.text(state.score)"
     assert "{a" not in js("Round(score)")
 
 

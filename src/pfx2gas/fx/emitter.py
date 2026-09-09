@@ -37,7 +37,14 @@ ENUM_TYPES = {"Color", "Icon", "Font", "FontWeight", "Align", "Image",
               "LayoutDirection", "LayoutAlignItems", "LayoutJustifyContent",
               "LayoutWrap", "VerticalAlign", "FillPortions", "Overflow",
               "ImagePosition", "ImageRotation", "TextPosition", "FontWeight2",
-              "BorderStyle", "TextRole", "Live"}
+              "BorderStyle", "TextRole", "Live", "DateTimeFormat"}
+
+MATCH_PATTERNS = {"Any": ".", "Comma": ",", "Digit": r"\d", "Hyphen": r"\-",
+                  "LeftParen": r"\(", "RightParen": r"\)", "Period": r"\.", "Tab": r"\t",
+                  "MultipleDigits": r"\d+", "OptionalDigits": r"\d*", "Space": r"\s",
+                  "MultipleSpaces": r"\s+", "OptionalSpaces": r"\s*", "NonSpace": r"\S",
+                  "MultipleNonSpaces": r"\S+", "OptionalNonSpaces": r"\S*"}
+MATCH_OPTIONS = {"BeginsWith", "Complete", "Contains", "EndsWith", "IgnoreCase", "Multiline", "NumberedSubMatches"}
 
 # Legacy component exports sometimes serialize Color.White/Color.Black as
 # bare reserved names. Treat the Power Apps constants as colors rather than
@@ -237,6 +244,20 @@ class Emitter:
     def call(self, node) -> str:
         name = str(node.value)
         args = node.children
+        if name in {"IsMatch", "Match", "MatchAll"}:
+            if len(args) not in {2, 3}:
+                raise lx.FxSyntaxError(f"{name} requires text, a constant pattern, and optional match options")
+            pattern = self.match_constant(args[1], False)
+            options = self.match_constant(args[2], True) if len(args) == 3 else ""
+            fn = {"IsMatch": "isMatch", "Match": "match", "MatchAll": "matchAll"}[name]
+            return f"FX.{fn}({self.expr(args[0])}, {_q(pattern)}, {_q(options)})"
+        if name == "IsBlankOrError":
+            if len(args) != 1:
+                raise lx.FxSyntaxError("IsBlankOrError requires one expression")
+            value = self.expr(args[0])
+            prefix = "async " if "await " in value else ""
+            call = f"FX.isBlankOrError({prefix}() => ({value}))"
+            return f"await {call}" if prefix else call
         if name == "Set":
             return self.set_call(node)
         if name == "UpdateContext":
@@ -452,6 +473,19 @@ class Emitter:
             value = lx.reference_parts(str(node.value))[0] if node.kind == "ident" else str(node.value)
             return _q(_snake(value))
         return self.expr(node)
+
+    def match_constant(self, node, options: bool) -> str:
+        if node.kind == "str":
+            return str(node.value)
+        if node.kind == "binary" and node.value == "&":
+            return "".join(self.match_constant(child, options) for child in node.children)
+        if node.kind == "ident":
+            parts = lx.reference_parts(str(node.value))
+            if options and ((len(parts) == 2 and parts[0] == "MatchOptions") or len(parts) == 1) and parts[-1] in MATCH_OPTIONS:
+                return parts[-1] + "|"
+            if not options and len(parts) == 2 and parts[0] == "Match" and parts[1] in MATCH_PATTERNS:
+                return MATCH_PATTERNS[parts[1]]
+        raise lx.FxSyntaxError("matching requires a constant supported canvas pattern/options; unsupported Match enums need an explicit mapping")
 
     def switch_call(self, node) -> str:
         subject = self.expr(node.children[0])
