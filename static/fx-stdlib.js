@@ -32,6 +32,17 @@
     x.setHours(0, 0, 0, 0);
     return x;
   }
+  // Typed keys avoid collisions between values such as 1/"1", delimiter
+  // characters in text, and records whose properties arrived in a new order.
+  function valueKey(value, ignoreCase) {
+    if (value == null) return ['blank'];
+    if (value instanceof Date) return ['date', value.getTime()];
+    if (Array.isArray(value)) return ['table', value.map(function (v) { return valueKey(v, ignoreCase); })];
+    if (typeof value === 'object') return ['record', Object.keys(value).sort().map(function (key) {
+      return [key, valueKey(value[key], ignoreCase)];
+    })];
+    return [typeof value, ignoreCase && typeof value === 'string' ? value.toLowerCase() : value];
+  }
 
   var FX = {
     // --- predicates / equality -------------------------------------------
@@ -45,6 +56,12 @@
     // route through this helper.
     field: function (record, key) {
       if (record == null) return null;
+      if (Array.isArray(record)) return record.map(function (row) {
+        var projected = {};
+        projected[key] = FX.field(row, key);
+        return projected;
+      });
+      if (key === 'value' && typeof record !== 'object') return record;
       return record[key] === undefined ? null : record[key];
     },
     // Inner record fields shadow outer fields, including explicit Blank values.
@@ -57,9 +74,21 @@
       }
       return fallback();
     },
-    contains: function (needle, haystack) {
-      if (Array.isArray(haystack)) return haystack.indexOf(needle) >= 0;
-      return String(haystack).indexOf(String(needle)) >= 0;
+    contains: function (needle, haystack, exact) {
+      if (Array.isArray(haystack)) {
+        var key = JSON.stringify(valueKey(needle, !exact));
+        return haystack.some(function (row) {
+          // A scalar is compared with the sole field of a single-column
+          // table. A record is compared with the complete row.
+          if ((needle == null || typeof needle !== 'object') && row && typeof row === 'object') {
+            var names = Object.keys(row);
+            if (names.length === 1) row = row[names[0]];
+          }
+          return JSON.stringify(valueKey(row, !exact)) === key;
+        });
+      }
+      var text = String(haystack == null ? '' : haystack), part = String(needle == null ? '' : needle);
+      return (exact ? text : text.toLowerCase()).indexOf(exact ? part : part.toLowerCase()) >= 0;
     },
     isBlank: isBlank,
     isBlankOrError: function (v) { return isBlank(v); },
@@ -134,6 +163,43 @@
         table.forEach(function (r) { r[name] = fn(r); });
       }
       return table;
+    },
+    groupBy: function (t, columns, groupColumn) {
+      if (!columns.length || new Set(columns).size !== columns.length || columns.indexOf(groupColumn) >= 0)
+        throw new Error('GroupBy requires distinct grouping columns and a separate group column');
+      var groups = new Map(), result = [];
+      rows(t).forEach(function (row) {
+        var key = JSON.stringify(columns.map(function (column) { return valueKey(FX.field(row, column), false); }));
+        var group = groups.get(key);
+        if (!group) {
+          group = {};
+          columns.forEach(function (column) { group[column] = FX.field(row, column); });
+          group[groupColumn] = [];
+          groups.set(key, group);
+          result.push(group);
+        }
+        var remaining = Object.assign({}, row);
+        columns.forEach(function (column) { delete remaining[column]; });
+        group[groupColumn].push(remaining);
+      });
+      return result;
+    },
+    ungroup: function (t, groupColumn) {
+      var result = [];
+      rows(t).forEach(function (group) {
+        // Scalar single-column tables use bare values internally. Nested
+        // ForAll therefore produces an array of tables in the Value column.
+        if (Array.isArray(group) && groupColumn === 'value') {
+          result = result.concat(group);
+          return;
+        }
+        var outer = Object.assign({}, group);
+        delete outer[groupColumn];
+        rows(FX.field(group, groupColumn)).forEach(function (row) {
+          result.push(Object.assign({}, outer, row));
+        });
+      });
+      return result;
     },
     sum: function (t, keyFn) {
       return rows(t).reduce(function (acc, r) { return acc + toNum(keyFn(r)); }, 0);

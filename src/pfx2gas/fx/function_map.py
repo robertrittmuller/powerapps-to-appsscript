@@ -17,7 +17,7 @@ class FnSpec:
 # {args} is replaced with the comma-joined argument expressions.
 FUNCTION_MAP: dict[str, FnSpec] = {
     # logic
-    "If": FnSpec("({a0} ? ({a1}) : ({a2}))"),
+    "If": FnSpec("({a0} ? ({a1}) : ({a2}))", "special-cased in emitter: all condition/result pairs"),
     "Switch": FnSpec("FX.switch({a0}, [[{rest}]]", "special-cased in emitter"),
     "IfError": FnSpec("FX.ifError(() => ({a0}), () => ({a1}))"),
     "IsBlank": FnSpec("FX.isBlank({a0})"),
@@ -110,6 +110,8 @@ FUNCTION_MAP: dict[str, FnSpec] = {
     "SortByColumns": FnSpec("FX.sortByColumns({a0}, [{a1}], {a2})"),
     "Distinct": FnSpec("FX.distinct({a0}, ({it}) => ({a1}))"),
     "AddColumns": FnSpec("FX.addColumns({a0}, [{rest}])", "special-cased in emitter"),
+    "GroupBy": FnSpec("FX.groupBy({a0}, [{rest}])", "special-cased in emitter; local nested tables"),
+    "Ungroup": FnSpec("FX.ungroup({a0}, {a1})", "special-cased column name in emitter"),
     "Summarize": FnSpec("FX.unsupported('Summarize')"),
     # records / misc
     "JSON": FnSpec("JSON.stringify({a0})"),

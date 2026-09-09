@@ -19,7 +19,7 @@ class Tok:
 
 IDENT_START = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_")
 IDENT_CHARS = IDENT_START | set("0123456789")
-KEYWORDS = {"true", "false", "in", "and", "or", "not", "As"}
+KEYWORDS = {"true", "false", "in", "exactin", "and", "or", "not", "as"}
 
 
 def reference_parts(name: str) -> list[str]:
@@ -87,7 +87,7 @@ def tokenize(src: str) -> list[Tok]:
                         k += 1
                     word += src[j:k]
                     j = k
-            if word.lower() in {"true", "false", "in", "and", "or", "not"}:
+            if word.lower() in KEYWORDS:
                 word = word.lower()
             toks.append(Tok("keyword" if word in KEYWORDS else "ident", word, i))
             i = j
@@ -155,7 +155,7 @@ def tokenize(src: str) -> list[Tok]:
             toks.append(Tok("punct", c, i))
             i += 1
             continue
-        if c in "()[],{}:;":
+        if c in "()[],{}:;@":
             toks.append(Tok("punct", c, i))
             i += 1
             continue
@@ -179,7 +179,7 @@ class Node:
 
 
 BINARY_PRECEDENCE = {
-    "in": 1, "or": 1, "||": 1,
+    "in": 3, "exactin": 3, "or": 1, "||": 1,
     "and": 2, "&&": 2,
     "=": 3, "<>": 3, "<": 3, ">": 3, "<=": 3, ">=": 3,
     "+": 4, "-": 4, "&": 4,
@@ -218,10 +218,17 @@ class Parser:
         left = self.parse_unary()
         while True:
             t = self.peek()
+            if t.kind == "keyword" and t.value == "as" and min_prec == 0:
+                self.next()
+                alias = self.expect("ident")
+                if len(reference_parts(alias.value)) != 1 or left.kind == "alias":
+                    raise FxSyntaxError("As requires one record alias")
+                left = Node("alias", reference_parts(alias.value)[0], [left])
+                continue
             op = None
             if t.kind == "op" and t.value in BINARY_PRECEDENCE:
                 op = t.value
-            elif t.kind == "keyword" and t.value in {"in", "and", "or"}:
+            elif t.kind == "keyword" and t.value in {"in", "exactin", "and", "or"}:
                 op = t.value
             if op is None or BINARY_PRECEDENCE[op] < min_prec:
                 return left
@@ -256,6 +263,14 @@ class Parser:
                 if name.kind not in {"ident", "keyword"}:
                     raise FxSyntaxError(f"expected identifier after '.', got {name.value!r}")
                 node = Node("member", name.value, [node])
+            elif t.kind == "punct" and t.value == "[":
+                self.next()
+                self.expect("punct", "@")
+                name = self.expect("ident")
+                if len(reference_parts(name.value)) != 1:
+                    raise FxSyntaxError("table disambiguation requires one field inside [@...]")
+                self.expect("punct", "]")
+                node = Node("disambiguate", reference_parts(name.value)[0], [node])
             elif t.kind == "punct" and t.value == "(":
                 if node.kind != "ident":
                     raise FxSyntaxError(f"cannot call non-identifier at {t.pos}")
@@ -300,6 +315,14 @@ class Parser:
             self.expect("punct", ")")
             return inner
         if t.kind == "punct" and t.value == "[":
+            if self.toks[self.i + 1].value == "@":
+                self.next()
+                self.next()
+                name = self.expect("ident")
+                if len(reference_parts(name.value)) != 1:
+                    raise FxSyntaxError("global disambiguation requires one name inside [@...]")
+                self.expect("punct", "]")
+                return Node("global", name.value)
             return self.parse_table()
         if t.kind == "punct" and t.value == "{":
             return self.parse_record()

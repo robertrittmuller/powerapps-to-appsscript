@@ -228,10 +228,17 @@ Converted apps aim to match the original visually and behaviorally:
 - **Record formulas** — nested/quoted fields are blank-safe; nested `With` and
   table predicates preserve row/global scope and the enclosing gallery's
   `ThisItem`. LookUp projections and AddColumns field pairs are retained.
+  `As` aliases work in nested record functions and gallery templates;
+  `Table[@Field]` resolves the active table record and `[@Name]` bypasses it.
+  Column projections preserve a single-column table; `in`/`exactin` support
+  membership with the corresponding case rules. GroupBy/Ungroup retain local
+  nested rows for aggregation and filtering, including nested ForAll results.
   Two-argument `IfError` can recover from an awaited save; nested saves expose
   fields for the generated Sheet schema and receive stable row IDs when absent.
 - **Behavior syntax** — block/line comments, `And`/`Or`/`Not`, and nested
   semicolon-separated actions retain branch-local execution order.
+  Multi-condition `If` retains every branch and its optional fallback;
+  `Switch` evaluates its subject once. Selected async results are awaited.
   Sort/SortByColumns preserve normalized column names, ascending/descending
   directions and multiple column/order pairs.
 - **Timers** — Duration, Start, AutoStart, AutoPause, Repeat, Reset,

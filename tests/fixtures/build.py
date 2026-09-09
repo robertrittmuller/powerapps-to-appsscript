@@ -371,6 +371,11 @@ def scope_fixture_files() -> dict[str, str]:
     add("LaunchCase", "Label", {"X": 20, "Y": 390, "Width": 200, "Height": 40,
         "Text": 'If(IsBlank(Param("RecordId")), "case-sensitive", "incorrect")'})
     add("LaunchLanguage", "Label", {"X": 350, "Y": 390, "Width": 200, "Height": 40, "Text": "Language()"})
+    add("GroupedScopeTotal", "Label", {"X": 20, "Y": 490, "Width": 300, "Height": 40,
+        "Text": 'Concat(AddColumns(GroupBy(AddColumns(\'Scope Rows\' As source, Band, If(source.Amount < 0, "negative", source.Amount > 3, "high", "low")), Band, Entries) As group, Total, Sum(group.Entries As entry, entry.Amount)), Band & ":" & Text(Total), ",")'})
+    add("RemoveScopeRows", "Button", {"X": 350, "Y": 490, "Width": 200, "Height": 40,
+        "Text": '"Remove matching row"',
+        "OnSelect": "RemoveIf('Scope Rows' As candidate, candidate.Amount in Table({Amount: 5}).Amount, 'Scope Rows'[@Amount] < [@limit])"})
     return {
         "CanvasManifest.json": json.dumps({"Name": "FixtureScopes", "ScreenOrder": ["Scopes"]}),
         "src/App.pa.yaml": json.dumps({"App": {"Control": "AppHost", "Properties": {"OnStart": "=" + on_start}}}),
@@ -389,9 +394,9 @@ def gallery_fixture_files() -> dict[str, str]:
 
     row_children = [
         control("RowFirst", "TextInput", {"X": 8, "Y": 8, "Width": 180, "Height": 36,
-            "Default": "ThisItem.FirstName", "AccessibleLabel": '"First name"',
+            "Default": "contact.FirstName", "AccessibleLabel": '"First name"',
             "OnSelect": "Set(focusedId, ThisItem.ID)",
-            "OnChange": 'Patch(Contacts, ThisItem, {FirstName: Self.Text}); Set(savedRow, RowFirst.Text)'}),
+            "OnChange": 'Patch([@Contacts], contact, {FirstName: Self.Text}); Set(savedRow, RowFirst.Text)'}),
         control("RowLast", "TextInput", {"X": 200, "Y": 8, "Width": 180, "Height": 36,
             "Default": "ThisItem.LastName", "AccessibleLabel": '"Last name"',
             "OnSelect": "Set(focusedId, ThisItem.ID)",
@@ -399,7 +404,7 @@ def gallery_fixture_files() -> dict[str, str]:
         control("RowPreview", "Label", {"X": 8, "Y": 52, "Width": 220, "Height": 32,
             "Text": 'RowFirst.Text & " " & RowLast.Text'}),
         control("RowSave", "Button", {"X": 390, "Y": 8, "Width": 100, "Height": 36,
-            "Text": '"Save row"', "OnSelect": 'Patch(Contacts, ThisItem, {FirstName: RowFirst.Text, LastName: RowLast.Text}); Set(savedRow, RowFirst.Text); Select(Parent); Set(childFinished, true)'}),
+            "Text": '"Save row"', "OnSelect": 'Patch([@Contacts], LookUp([@Contacts] As persisted, persisted.ID = contact.ID), {FirstName: RowFirst.Text, LastName: RowLast.Text}); Set(savedRow, RowFirst.Text); Select(Parent); Set(childFinished, true)'}),
         control("RowReset", "Button", {"X": 390, "Y": 52, "Width": 100, "Height": 32,
             "Text": '"Reset row"', "OnSelect": 'Reset(RowLast)'}),
         control("RowChoice", "ComboBox", {"X": 8, "Y": 94, "Width": 180, "Height": 34,
@@ -412,8 +417,8 @@ def gallery_fixture_files() -> dict[str, str]:
     children = [
         control("ContactRows", "Gallery", {"X": 20, "Y": 20, "Width": 520, "Height": 360,
             "TemplateSize": 150, "TemplatePadding": 0,
-            "Items": 'SortByColumns(Contacts, "ID", If(reverseRows, Descending, Ascending))',
-            "OnSelect": 'Set(parentCalls, parentCalls + 1); Set(parentSawFinished, childFinished); Set(selectedName, ThisItem.FirstName)'},
+            "Items": 'SortByColumns(Contacts, "ID", If(reverseRows, Descending, Ascending)) As contact',
+            "OnSelect": 'Set(parentCalls, parentCalls + 1); Set(parentSawFinished, childFinished); Set(selectedName, contact.FirstName)'},
             [control("RowTemplate", "GalleryTemplate", {}, row_children)]),
         control("UnrelatedUpdate", "Button", {"X": 570, "Y": 20, "Width": 180, "Height": 40,
             "Text": '"Update counter"', "OnSelect": "Set(counter, counter + 1)"}),

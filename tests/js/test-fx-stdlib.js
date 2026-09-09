@@ -53,6 +53,40 @@ test('field reads on blank or missing records return Power Fx Blank', () => {
   assert.strictEqual(FX.field({ name: 'Ada' }, 'name'), 'Ada');
 });
 
+test('table projection preserves row count, column name, and blank values', () => {
+  assert.deepStrictEqual(FX.field([{name: 'Ada', extra: 1}, {name: null}, {}], 'name'),
+    [{name: 'Ada'}, {name: null}, {name: null}]);
+  assert.strictEqual(FX.field(0, 'value'), 0);
+  assert.strictEqual(FX.field(false, 'value'), false);
+});
+
+test('membership compares single-column values and structural records', () => {
+  assert.strictEqual(FX.contains('ADA', [{name: 'Ada'}]), true);
+  assert.strictEqual(FX.contains('ADA', [{name: 'Ada'}], true), false);
+  assert.strictEqual(FX.contains({name: 'Ada', id: 1}, [{id: 1, name: 'Ada'}]), true);
+  assert.strictEqual(FX.contains(1, ['1']), false);
+  assert.strictEqual(FX.contains(null, [{value: null}]), true);
+  assert.strictEqual(FX.contains('Ada', [{name: 'Ada', id: 1}]), false);
+});
+
+test('groupBy handles multiple typed keys without collisions or mutating source rows', () => {
+  const original = [
+    {a: 'x|y', b: 'z', n: 1}, {a: 'x', b: 'y|z', n: 2},
+    {a: 'x|y', b: 'z', n: 3}, {a: 1, b: null, n: 4}, {a: '1', b: null, n: 5},
+    {a: {name: 'Ada', id: 1}, b: null, n: 6}, {a: {id: 1, name: 'Ada'}, b: null, n: 7},
+  ];
+  const snapshot = JSON.stringify(original);
+  const groups = FX.groupBy(original, ['a', 'b'], 'entries');
+  assert.strictEqual(groups.length, 5);
+  assert.deepStrictEqual(groups[0], {a: 'x|y', b: 'z', entries: [{n: 1}, {n: 3}]});
+  assert.deepStrictEqual(groups[4].entries, [{n: 6}, {n: 7}]);
+  assert.deepStrictEqual(FX.ungroup(groups.slice(0, 1), 'entries'), [original[0], original[2]]);
+  assert.strictEqual(JSON.stringify(original), snapshot);
+  assert.deepStrictEqual(FX.groupBy([], ['a'], 'entries'), []);
+  assert.deepStrictEqual(FX.ungroup([{a: 1, entries: []}], 'entries'), []);
+  assert.throws(() => FX.groupBy(original, ['a'], 'a'), /distinct grouping columns/);
+});
+
 test('value coerces text numbers and currency', () => {
   assert.strictEqual(FX.value('$1,234.5'), 1234.5);
   assert.strictEqual(FX.value('abc'), 0);

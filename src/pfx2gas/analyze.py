@@ -34,6 +34,16 @@ def walk_formula(node):
             yield from walk_formula(value)
 
 
+def named_target(node) -> str | None:
+    if node.kind == "alias":
+        node = node.children[0]
+    if node.kind in {"ident", "global"}:
+        parts = lx.reference_parts(str(node.value))
+        if len(parts) == 1:
+            return parts[0]
+    return None
+
+
 def collect_global_vars(ir: AppIR) -> list[str]:
     """All identifiers assigned via Set/UpdateContext/Collect in behavior formulas."""
     names: set[str] = set()
@@ -52,8 +62,9 @@ def collect_global_vars(ir: AppIR) -> list[str]:
                     names.update(str(name) for name, _value in record.value)
             elif st.kind == "call" and st.value in {"Set", "Collect", "ClearCollect"}:
                 t = st.children[0] if st.children else None
-                if t is not None and t.kind == "ident":
-                    names.add(lx.reference_parts(str(t.value))[0])
+                name = named_target(t) if t is not None else None
+                if name is not None:
+                    names.add(name)
 
     for expr in behavior_formulas(ir):
         add_from(expr)
@@ -76,8 +87,8 @@ def infer_local_collections(ir: AppIR) -> None:
             if node.kind != "call" or node.value not in {"Collect", "ClearCollect"} or not node.children:
                 continue
             target = node.children[0]
-            name = lx.reference_parts(str(target.value))[0]
-            if target.kind == "ident" and name not in known:
+            name = named_target(target)
+            if name is not None and name not in known:
                 ir.data_sources.append(DataSource(name=name, origin="collection"))
                 known.add(name)
 
@@ -192,9 +203,9 @@ def infer_data_source_fields(ir: AppIR) -> None:
         except lx.FxSyntaxError:
             continue
         for st in (node for root in stmts for node in walk_formula(root)):
-            if st.kind != "call" or not st.children or st.children[0].kind != "ident":
+            if st.kind != "call" or not st.children:
                 continue
-            ds_name = lx.reference_parts(str(st.children[0].value))[0]
+            ds_name = named_target(st.children[0])
             ds = by_name.get(ds_name)
             if ds is None:
                 continue
@@ -259,7 +270,7 @@ def analyze(ir: AppIR, uncovered: list[dict] | None = None) -> AppIR:
     row_fields = collect_row_fields(ir)
     collections = {ds.name for ds in ir.data_sources if ds.origin == "collection"}
 
-    def convert_formula(expr: FxExpr) -> None:
+    def convert_formula(expr: FxExpr, row_alias: str | None = None) -> None:
         if not expr.raw:
             return
         try:
@@ -267,7 +278,7 @@ def analyze(ir: AppIR, uncovered: list[dict] | None = None) -> AppIR:
                             row_fields=row_fields, control_names=control_names,
                             collections=collections, screen_names=screen_names,
                             global_names=set(ir.global_vars) | {ds.name for ds in ir.data_sources},
-                            media_resources=ir.media_resources)
+                            media_resources=ir.media_resources, row_alias=row_alias)
             expr.js = res.js
             expr.translation_status = "stubbed" if res.unmapped else "rule"
             if res.unmapped:
@@ -286,12 +297,32 @@ def analyze(ir: AppIR, uncovered: list[dict] | None = None) -> AppIR:
 
     if ir.on_start:
         convert_formula(ir.on_start)
+
+    def convert_control(ctrl: ControlNode, row_alias: str | None = None) -> None:
+        child_alias = row_alias
+        if ctrl.type in {"Gallery", "DataTable"}:
+            child_alias = None
+            items = ctrl.properties.get("Items")
+            if items:
+                try:
+                    roots = lx.parse_formula(items.raw)
+                    if len(roots) == 1 and roots[0].kind == "alias":
+                        child_alias = str(roots[0].value)
+                except lx.FxSyntaxError:
+                    pass  # the normal formula conversion records the failure
+        for name, prop in ctrl.properties.items():
+            # Gallery OnSelect runs with its selected row; other gallery
+            # properties (including Items) run outside that row's scope.
+            alias = child_alias if ctrl.type == "Gallery" and name == "OnSelect" else row_alias
+            convert_formula(prop, alias)
+        for child in ctrl.children:
+            convert_control(child, child_alias)
+
     for screen in ir.screens:
         if screen.on_visible:
             convert_formula(screen.on_visible)
-        for ctrl in screen.walk_controls():
-            for prop in ctrl.properties.values():
-                convert_formula(prop)
+        for ctrl in screen.controls:
+            convert_control(ctrl)
 
     # Collect Choices('DS'.Field) references for the generated Choices table.
     choice_refs: set[str] = set()

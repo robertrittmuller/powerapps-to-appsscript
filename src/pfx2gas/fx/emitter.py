@@ -7,6 +7,7 @@ Anything the map misses becomes a ledger 'unmapped' entry handled upstream.
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 
 from . import lexer as lx
 from .function_map import FUNCTION_MAP
@@ -47,11 +48,19 @@ NAMED_COLORS = {
 }
 
 
+@dataclass(frozen=True)
+class RecordScope:
+    variable: str
+    table: str | None = None
+    alias: str | None = None
+
+
 class Emitter:
     def __init__(self, res: TranspileResult, behavior: bool, row_fields: set[str] | None = None,
                  control_names: set[str] | None = None, collections: set[str] | None = None,
                  screen_names: set[str] | None = None, global_names: set[str] | None = None,
-                 media_resources: dict[str, str] | None = None):
+                 media_resources: dict[str, str] | None = None,
+                 row_alias: str | None = None):
         self.res = res
         self.behavior = behavior
         self.row_fields = row_fields or set()
@@ -66,7 +75,8 @@ class Emitter:
         # that a bare Navigate target is a screen. Analysis always supplies
         # the app's concrete screen set.
         self.screen_names = screen_names
-        self.scopes: list[str] = []
+        self.scopes: list[RecordScope] = []
+        self.row_alias = row_alias
         self.scope_sequence = 0
 
     def new_scope(self) -> str:
@@ -76,6 +86,19 @@ class Emitter:
     @staticmethod
     def state_ref(name: str) -> str:
         return f"state.{name}" if re.fullmatch(r"[A-Za-z_]\w*", name) else f"state[{_q(name)}]"
+
+    @staticmethod
+    def source_name(node) -> str | None:
+        if node.kind in {"ident", "global"}:
+            parts = lx.reference_parts(str(node.value))
+            if len(parts) == 1:
+                return parts[0]
+        return None
+
+    def scoped_source(self, node, variable: str):
+        alias = str(node.value) if node.kind == "alias" else None
+        source = node.children[0] if alias else node
+        return source, RecordScope(variable, self.source_name(source), alias)
 
     # ---- top level ---------------------------------------------------------
 
@@ -110,6 +133,16 @@ class Emitter:
             return "null"
         if k == "ident":
             return self.ident(node.value)
+        if k == "global":
+            return self.ident(node.value, global_only=True)
+        if k == "alias":
+            return self.expr(node.children[0])
+        if k == "disambiguate":
+            table = self.source_name(node.children[0])
+            for scope in reversed(self.scopes):
+                if table is not None and scope.table == table:
+                    return f"FX.field({scope.variable}, {_q(_snake(str(node.value)))})"
+            raise lx.FxSyntaxError(f"no active record scope for {table or 'expression'}[@{node.value}]")
         if k == "member":
             return self.member(node)
         if k == "binary":
@@ -129,17 +162,22 @@ class Emitter:
             return "(" + ", ".join(self.expr(child) for child in node.children) + ")"
         raise RuntimeError(f"unhandled node kind {k!r}")
 
-    def ident(self, name: str) -> str:
+    def ident(self, name: str, global_only: bool = False) -> str:
         base, *members = lx.reference_parts(name)
+        alias = next((scope.variable for scope in reversed(self.scopes) if scope.alias == base), None)
+        if alias is None and base == self.row_alias:
+            alias = "item"
         control = False
         if not members and base in {"Ascending", "Descending"}:
             return _q(base)
         if base in ENUM_TYPES and members:
             return _q(".".join(members))
-        if base == "ThisItem":
+        if alias is not None and not global_only:
+            access = alias
+        elif base == "ThisItem" and not global_only:
             access = "item"  # gallery item is not shadowed by nested With/Filter
-        elif base == "ThisRecord":
-            access = self.scopes[-1] if self.scopes else "item"
+        elif base == "ThisRecord" and not global_only:
+            access = self.scopes[-1].variable if self.scopes else "item"
         elif base in {"Parent", "Self"}:
             access = "parentRef" if base == "Parent" else "selfRef"
             control = True
@@ -153,8 +191,8 @@ class Emitter:
             control = True
         else:
             fallback = _q(base.lower()) if base in NAMED_COLORS else self.state_ref(base)
-            if self.scopes:
-                access = (f"FX.scopeValue([{', '.join(reversed(self.scopes))}], "
+            if self.scopes and not global_only:
+                access = (f"FX.scopeValue([{', '.join(scope.variable for scope in reversed(self.scopes))}], "
                           f"{_q(_snake(base))}, () => {fallback})")
             else:
                 access = fallback
@@ -186,8 +224,8 @@ class Emitter:
             return f"({l} && {r})"
         if op in ("or", "||"):
             return f"({l} || {r})"
-        if op == "in":
-            return f"FX.contains({l}, {r})"
+        if op in {"in", "exactin"}:
+            return f"FX.contains({l}, {r}, {'true' if op == 'exactin' else 'false'})"
         return f"({l} {op} {r})"
 
     def record(self, node) -> str:
@@ -220,6 +258,17 @@ class Emitter:
             return f"toast(String({self.expr(args[0])}))"
         if name == "Defaults":
             return "null"
+        if name == "If":
+            if len(args) < 2:
+                raise lx.FxSyntaxError("If requires a condition and a result")
+            # Each condition and selected result is evaluated at most once.
+            # Preserve all condition/result pairs and the optional fallback;
+            # a fixed three-argument map silently discards later branches.
+            pairs = [(args[i], args[i + 1]) for i in range(0, len(args) - 1, 2)]
+            result = self.expr(args[-1]) if len(args) % 2 else "null"
+            for condition, value in reversed(pairs):
+                result = f"({self.expr(condition)} ? ({self.expr(value)}) : ({result}))"
+            return result
         if name == "Switch":
             return self.switch_call(node)
         if name == "With":
@@ -237,9 +286,10 @@ class Emitter:
             return self.data_call(name, node)
         if name == "Clear":
             target = args[0]
-            if target.kind != "ident":
+            source = self.source_name(target)
+            if source is None:
                 raise lx.FxSyntaxError("Clear target must be an identifier")
-            return f"FXRuntime.setState({{{_q(lx.reference_parts(target.value)[0])}: []}})"
+            return f"FXRuntime.setState({{{_q(source)}: []}})"
         if name == "SubmitForm":
             target = args[0]
             ctrl = str(target.value) if target.kind == "ident" else self.expr(target)
@@ -275,6 +325,14 @@ class Emitter:
         if name in {"ShowColumns", "DropColumns", "RenameColumns"}:
             fn = {"ShowColumns": "showColumns", "DropColumns": "dropColumns", "RenameColumns": "renameColumns"}[name]
             return f"FX.{fn}({self.expr(args[0])}, [{', '.join(self._col_literal(a) for a in args[1:])}])"
+        if name == "GroupBy":
+            if len(args) < 3:
+                raise lx.FxSyntaxError("GroupBy requires a table, grouping columns, and a group column")
+            return f"FX.groupBy({self.expr(args[0])}, [{', '.join(self._col_literal(a) for a in args[1:-1])}], {self._col_literal(args[-1])})"
+        if name == "Ungroup":
+            if len(args) != 2:
+                raise lx.FxSyntaxError("Ungroup requires a table and a group column")
+            return f"FX.ungroup({self.expr(args[0])}, {self._col_literal(args[1])})"
         if name == "Table":
             # Table(record1, record2, ...) -> array of records
             js_args = [self.expr(a) for a in args]
@@ -311,6 +369,7 @@ class Emitter:
     def lambda_call(self, name: str, args: list, spec) -> str:
         """Only predicate/projection arguments introduce a fresh record scope."""
         scope = self.new_scope()
+        source, binding = self.scoped_source(args[0], scope)
         js_args: list[str] = []
         has_await = False
         for i, a in enumerate(args):
@@ -318,9 +377,9 @@ class Emitter:
             if name == "AddColumns":
                 scoped = i >= 2 and i % 2 == 0
             if scoped:
-                self.scopes.append(scope)
+                self.scopes.append(binding)
             try:
-                js_args.append(self.expr(a) if not (name == "AddColumns" and i % 2 == 1)
+                js_args.append(self.expr(source if i == 0 else a) if not (name == "AddColumns" and i % 2 == 1)
                                else self._col_literal(a))
             finally:
                 if scoped:
@@ -381,18 +440,22 @@ class Emitter:
 
     def switch_call(self, node) -> str:
         subject = self.expr(node.children[0])
+        value = self.new_scope()
         rest = node.children[1:]
         pairs = [(rest[i], rest[i + 1]) for i in range(0, len(rest) - 1, 2)]
         default = rest[-1] if len(rest) % 2 == 1 else None
         js = "null" if default is None else self.expr(default)
         for cond, result in reversed(pairs):
-            js = f"((FX.eq({subject}, {self.expr(cond)})) ? ({self.expr(result)}) : ({js}))"
-        return js
+            js = f"((FX.eq({value}, {self.expr(cond)})) ? ({self.expr(result)}) : ({js}))"
+        async_prefix = "async " if "await " in js else ""
+        call = f"({async_prefix}({value}) => ({js}))({subject})"
+        return f"await {call}" if async_prefix else call
 
     def with_call(self, node) -> str:
-        record = self.expr(node.children[0])  # evaluated in the enclosing scope
         scope = self.new_scope()
-        self.scopes.append(scope)
+        source, binding = self.scoped_source(node.children[0], scope)
+        record = self.expr(source)  # evaluated in the enclosing scope
+        self.scopes.append(binding)
         try:
             body = self.expr(node.children[-1])
         finally:
@@ -404,20 +467,25 @@ class Emitter:
     def set_call(self, node) -> str:
         target = node.children[0]
         value = self.expr(node.children[1])
-        if target.kind != "ident":
+        name = self.source_name(target)
+        if name is None:
             raise lx.FxSyntaxError("Set target must be an identifier")
-        name = lx.reference_parts(target.value)[0]
         key = name if re.fullmatch(r"[A-Za-z_]\w*", name) else _q(name)
         return f"FXRuntime.setState({{{key}: {value}}})"
 
     def data_call(self, name: str, node) -> str:
         args = node.children
-        ds = lx.reference_parts(str(args[0].value))[0] if args and args[0].kind == "ident" else ""
+        if not args:
+            raise lx.FxSyntaxError(f"{name} requires a data source")
         row_scope = self.new_scope() if name == "RemoveIf" else "item"
+        source, binding = self.scoped_source(args[0], row_scope)
+        ds = self.source_name(source)
+        if ds is None:
+            raise lx.FxSyntaxError(f"{name} target requires a named data source")
 
         def ex(i: int, row_ctx: bool = False) -> str:
             if row_ctx:
-                self.scopes.append(row_scope)
+                self.scopes.append(binding)
             try:
                 return self.expr(args[i])
             finally:
@@ -437,7 +505,8 @@ class Emitter:
         if name == "Remove":
             return f"await apiRemove({_q(ds)}, {ex(1) if len(args) > 1 else 'item'})"
         if name == "RemoveIf":
-            return f"await apiRemoveIf({_q(ds)}, ({row_scope}) => ({ex(1, row_ctx=True) if len(args) > 1 else 'true'}))"
+            conditions = " && ".join(f"({ex(i, row_ctx=True)})" for i in range(1, len(args))) or "true"
+            return f"await apiRemoveIf({_q(ds)}, ({row_scope}) => ({conditions}))"
         if name == "Collect":
             return f"await apiCreate({_q(ds)}, {ex(1) if len(args) > 1 else '{}'})"
         if name == "ClearCollect":
@@ -460,7 +529,8 @@ class Emitter:
         if name == "Remove":
             return f"powerapps_remove(state, {ds!r}, {ex(1) if len(args) > 1 else 'item'})"
         if name == "RemoveIf":
-            return f"powerapps_removeIf(state, {ds!r}, ({row_scope}) => ({ex(1, row_ctx=True) if len(args) > 1 else 'true'}))"
+            conditions = " && ".join(f"({ex(i, row_ctx=True)})" for i in range(1, len(args))) or "true"
+            return f"powerapps_removeIf(state, {ds!r}, ({row_scope}) => ({conditions}))"
         if name == "Collect":
             records = ", ".join(ex(i) for i in range(1, len(args))) or "{}"
             return f"powerapps_collect(state, {ds!r}, {records})"

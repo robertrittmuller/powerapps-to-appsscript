@@ -14,12 +14,20 @@ Untranslatable behavior now fails visibly instead of disappearing. The LLM
 single-formula seam has structural parsing, helper-name and response-schema
 checks, while remaining explicitly partial until behavior is tested.
 
+The next slice adds nested `As` record aliases, gallery aliases across async
+saves, table/global disambiguation, single-column projections and membership,
+plus GroupBy/Ungroup. Generated Chromium tests exercise reactive grouped totals,
+targeted row removal, and persisted edits through aliased gallery records.
+Multi-condition If now retains all branches and its fallback; Switch evaluates
+its subject once. Both preserve selected async action order.
+
 Eleven pinned source exports are available here: five public regression apps
-and six Microsoft business apps. **All eleven generate valid code; only the five
-regression apps currently pass startup. None has complete ten-app usability
+and six Microsoft business apps. **All eleven generate valid code; the five
+regression apps and Employee Ideas currently pass startup. None has complete ten-app usability
 acceptance evidence.** The previous two clean Microsoft startup results hid
 initialization formulas that were never emitted; restoring those formulas now
-exposes GroupBy, LoadData and connector dependencies. Five generated-fixture
+exposes LoadData, TimeValue, IsMatch and connector dependencies. GroupBy no longer
+blocks Employee Ideas, but its loading-to-business workflow is still unassessed. Five generated-fixture
 Chromium journeys pass. These fixtures are regression evidence, not additional
 real acceptance apps. The last recorded Google deployment remains HelpDesk @14.
 
@@ -74,7 +82,7 @@ the implementation order.
 
 | Evidence | Latest result | What remains unproven |
 |---|---|---|
-| Unit/runtime tests | 177 Python pass, 3 skip; 63 JS pass; bare and namespaced emitter/runtime consistency passes | Complete deployed workflows and broader control semantics |
+| Unit/runtime tests | 191 Python pass, 3 skip; 66 JS pass; bare globals, FX and FXRuntime emitter/runtime consistency passes | Complete deployed workflows and broader control semantics |
 | Current real-app soak | 5/5 Bootable; 1,120 formulas | Usability unassessed; the other five historical local exports are absent |
 | Current regression translation/wiring | 1,114 translated; 964 emitted, 13 approximated, 143 ignored/unsupported | Translation does not establish runtime behavior |
 | Historical ten-app corpus | Previously 10/10 Bootable; 23,746 formulas | Not reproduced in this workspace; those results did not establish usability |
@@ -82,7 +90,7 @@ the implementation order.
 | HelpDesk @14 live browser | Ticket cards, decoded 64×64 logos, pie/bar/legend SVGs, readable fonts/labels, HOME → NEW → HOME | Same-state original comparison, user name/avatar, complete workflow coverage |
 | Chromium: business form | Actual generated client + Code.gs: edit/create, required validation, write failure, delete and page reload pass against a persistent Sheets test double | Real Google authorization/Sheets writes and another user/session |
 | Chromium regression suite | 5/5 fixtures pass: form, charts, record scopes/launch parameters, editable gallery, timer lifecycle; generated client and server code | Real Google services, real-app critical workflows and original visual comparisons; HelpDesk is absent here |
-| Microsoft business baseline | 6/6 convert and validate; 0/6 pass startup; 105,155/105,336 formulas translate | Restored initialization exposes dependencies instead of passing an inert loading screen; all business workflows remain unverified |
+| Microsoft business baseline | 6/6 convert and validate; 1/6 passes startup (Employee Ideas) | Startup alone does not prove leaving loading or completing business actions; all business workflows remain unverified |
 | CI configuration | Existing tests plus required-app/journey gates and new Chromium artifact job | Browser job configured and locally tested, not yet verified in remote CI; local HelpDesk remains optional |
 
 Evidence: `.artifacts/benchmark/benchmark-scorecard.json`,
@@ -167,14 +175,14 @@ with `./pfx2gas browser scripts/assess_microsoft_samples.py`.
 
 | Next priority | Observed blocker and outcome required |
 |---|---|
-| 1. Correct record and formula scopes (R4/R5) | First slice implemented: nested/quoted blank-safe fields, nested `With`, row/global fallback, distinct `ThisItem`/`ThisRecord`, LookUp projection and AddColumns field pairs. Remaining: `As` aliases/disambiguation, single-column table projection/membership, broader conditional/variadic semantics and source workflow coverage. |
+| 1. Correct record and formula scopes (R4/R5) | Implemented: blank-safe fields, nested `With`, row/global fallback, `ThisItem`/`ThisRecord`, LookUp/AddColumns, `As` aliases in functions/galleries, table/global disambiguation, column projection, membership, grouping and multi-branch If/Switch. Remaining: variadic/error-handling and async semantics, source workflow coverage and complete table value semantics. |
 | 2. Preserve initialization and data contracts (R5) — next | `Param`, browser `Language()`, Timer lifecycle and explicit initialization failures are implemented. Next preserve Dataverse solution schemas/choices/lookups and define explicit Google connector adapters. Do not fake connector success or navigate past unexecuted initialization. |
-| 3. Make record editing reliable (R4/R5) | Stabilize gallery DOM and row-scoped inputs/OnChange, selection, reactive defaults and DisplayMode. Demonstrate editing the correct row with no lost focus/edits, then save/reload against the generated server and real Google Sheets. |
+| 3. Make record editing reliable (R4/R5) | Stable gallery rows, scoped handlers, defaults/DisplayMode, focus retention and correct-row save/reload pass in generated fixtures. Extend to source business apps, nested layouts and real Google Sheets. |
 | 4. Close visible UI differences (R2/R3/R4) | Use those same workflows for text/media/disabled/validation states, chart series/axes and responsive layout. Extend Chromium to source-sized and narrow viewports and compare matching original screenshots. |
 
 Milestones supplies the first project/task lifecycle target; Employee Ideas and
 Inspection verify that fixes generalize. The Microsoft baseline still exits 1
-with four startup failures; the other two are Usable/High fidelity unassessed,
+with five startup failures; Employee Ideas is Usable/High fidelity unassessed,
 not passing business apps. None of R1–R5 is fully complete under its original
 acceptance criteria.
 
@@ -209,7 +217,7 @@ full dependency list:
 
 | Microsoft export | Current startup blocker | Additional source dependencies to preserve |
 |---|---|---|
-| Employee Ideas | `GroupBy`; still on Loading Screen | Teams channel posting and Dataverse campaign/idea data |
+| Employee Ideas | No error in the startup window; leaving Loading Screen remains unverified | Teams channel posting and Dataverse campaign/idea data |
 | Employee Ideas Manager | `MicrosoftTeams.GetAllTeams` | Loading/focus timers; team/channel lookup and posting |
 | Inspection | `LoadData`; still on Landing Screen | Browser persistence contract; Planner plans/tasks/buckets and task creation; Office365 user/profile/photo; Teams posting |
 | Inspection Manager | Teams lookup, `Planner.ListMyPlansV2`, `IsMatch` | Loading/focus timers; plan/bucket/task/group-plan lookups and settings validation |
