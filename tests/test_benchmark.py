@@ -97,7 +97,7 @@ def test_first_action_failure_is_attached_without_promoting_partial_success(monk
     assert merge_first_actions(scorecard, [probe])['summary']['grades']['usable'][FAIL] == 1
 
 
-@pytest.mark.parametrize('mismatch', ['inputSha256', 'converterSourceSha256'])
+@pytest.mark.parametrize('mismatch', ['inputSha256', 'converterSourceSha256', 'sourceMetadata'])
 def test_first_action_evidence_rejects_stale_source_or_converter(monkeypatch, mismatch):
     monkeypatch.syspath_prepend(str(REPO / 'scripts'))
     from assess_microsoft_samples import merge_first_actions

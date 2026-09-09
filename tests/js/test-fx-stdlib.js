@@ -3,6 +3,26 @@ const test = require('node:test');
 const assert = require('node:assert');
 const FX = require('../../static/fx-stdlib.js');
 
+test('current-user views require one explicit source identity mapped to the Google email', () => {
+  const users = [{user:'source-one', primary_email:'User@Example.test'}, {user:'source-two', primary_email:'other@example.test'}];
+  const id = FX.userId(users, 'user@example.test', 'user', 'primary_email');
+  assert.strictEqual(id, 'source-one');
+  assert.throws(() => FX.userId(users, '', 'user', 'primary_email'), /identified Google session/);
+  assert.throws(() => FX.userId(users, 'missing@example.test', 'user', 'primary_email'), /one migrated user/);
+  assert.throws(() => FX.userId([...users, users[0]], 'user@example.test', 'user', 'primary_email'), /one migrated user/);
+  const query = {identity:{key:'user'}, filter:{op:'eq-userid',field:'owner',type:'lookup',values:[]},order:[]};
+  const rows = [{owner:{user:'source-one'}}, {owner:'source-two'}, {owner:null}, {owner:{id:'source-one'}}];
+  assert.deepStrictEqual(FX.applyView(rows, query, id), [rows[0], rows[3]]);
+  query.filter.op = 'ne-userid';
+  assert.deepStrictEqual(FX.applyView(rows, query, id), [rows[1]]);
+  assert.throws(() => FX.applyView([], query), /identity is missing/);
+});
+
+test('view failures are surfaced even for an empty table', () => {
+  assert.throws(() => FX.applyView([], {error:'missing original filter'}), /missing original filter/);
+  assert.throws(() => FX.applyView([], {filter:{op:'invented',values:[]},order:[]}), /Unsupported Dataverse view operator/);
+});
+
 test('filter + eq', () => {
   const rows = [{ amount: 150, status: 'Open' }, { amount: 50, status: 'Open' }];
   assert.deepStrictEqual(

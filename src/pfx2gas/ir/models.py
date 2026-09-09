@@ -20,6 +20,8 @@ class FxExpr(BaseModel):
         "pending", "emitted", "approximated", "ignored", "unsupported"
     ] = "pending"
     fidelity_note: str = ""
+    blocked_dependencies: list[str] = Field(default_factory=list)
+    approximations: list[str] = Field(default_factory=list)
 
 
 class SupportEntry(BaseModel):
@@ -98,6 +100,8 @@ class AppIR(BaseModel):
     data_sources: list[DataSource] = Field(default_factory=list)
     global_vars: list[str] = Field(default_factory=list)
     choice_fields: list[str] = Field(default_factory=list)  # 'DataSource.Field'
+    view_sets: dict[str, dict] = Field(default_factory=dict)
+    source_metadata: dict = Field(default_factory=dict)
     support_matrix: list[SupportEntry] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     # Local image resources embedded in the .msapp, keyed by the Power Apps

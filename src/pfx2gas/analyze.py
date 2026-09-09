@@ -304,10 +304,12 @@ def verdict_for_property(prop: FxExpr, control_names: set[str], row_fields: set[
     return SupportEntry(subject=prop.raw[:80], status=status, detail=detail)
 
 
-def analyze(ir: AppIR, uncovered: list[dict] | None = None) -> AppIR:
+def analyze(ir: AppIR, uncovered: list[dict] | None = None, solution=None) -> AppIR:
     ir.global_vars = collect_global_vars(ir)
     infer_local_collections(ir)
     infer_data_source_fields(ir)
+    from .views import resolve_views
+    resolve_views(ir, solution)
 
     control_names = {c.name for s in ir.screens for c in s.walk_controls()}
     control_screens = {c.name: s.name for s in ir.screens for c in s.walk_controls()}
@@ -325,9 +327,13 @@ def analyze(ir: AppIR, uncovered: list[dict] | None = None) -> AppIR:
                             collections=collections, screen_names=screen_names,
                             global_names=set(ir.global_vars) | {ds.name for ds in ir.data_sources},
                             media_resources=ir.media_resources, row_alias=row_alias,
-                            screen_name=screen_name, control_screens=control_screens)
+                            screen_name=screen_name, control_screens=control_screens, view_sets=ir.view_sets)
             expr.js = res.js
             expr.translation_status = "stubbed" if res.unmapped else "rule"
+            expr.blocked_dependencies = [name for name in res.unmapped if name.startswith('Dataverse view')]
+            expr.approximations = sorted(set(res.approximations))
+            if expr.blocked_dependencies:
+                expr.fidelity_note = '; '.join(expr.blocked_dependencies)
             if res.unmapped:
                 for fn in res.unmapped:
                     ir.support_matrix.append(SupportEntry(

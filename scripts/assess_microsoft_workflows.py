@@ -69,7 +69,9 @@ def main():
                 failed = [step['id'] for step in steps if step['status'] == 'fail']
                 assert not failed, failed
 
-            result = run_case(browser, name, REPO / 'samples/microsoft' / (app + '.msapp'), journey)
+            template = {'milestones': 'Milestones', 'employee-ideas': 'EmployeeIdeas', 'inspection': 'Inspection'}[app]
+            result = run_case(browser, name, REPO / 'samples/microsoft' / (app + '.msapp'), journey,
+                              solution=REPO / 'samples/microsoft' / (template + '.solution.zip'))
             result.update(sourceAppId=app, assessmentScope='source loading and first action only',
                           completeUsability='unassessed', steps=steps)
             (OUT / name / 'result.json').write_text(json.dumps(result, indent=2) + '\n')

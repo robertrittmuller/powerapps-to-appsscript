@@ -53,8 +53,10 @@ def apply_source_contract(source: DataSource, raw: dict) -> None:
         # and view/enum references, without copying tenant connection secrets.
         source.metadata = {key: raw[key] for key in (
             "Type", "RelatedEntityName", "RelatedColumnInvariantName", "OptionSetReference",
-            "OptionSetIsBooleanValued", "OptionSetIsGlobal", "ViewName", "ViewId",
+            "OptionSetIsBooleanValued", "OptionSetIsGlobal", "ViewName", "ViewId", "ViewInfoNameMapping",
         ) if key in raw}
+        if kind == "ViewInfo":
+            source.metadata['ViewInfoNameMapping'] = _document(raw.get('ViewInfoNameMapping', {}), 'view name mapping')
         if kind == "OptionSetInfo":
             mapping = _document(raw.get("OptionSetInfoNameMapping", {}), "option name mapping")
             boolean = raw.get("OptionSetIsBooleanValued") is True

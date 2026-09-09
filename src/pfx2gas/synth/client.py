@@ -1105,8 +1105,17 @@ def render_app_js(ir: AppIR) -> str:
                     row_fns = []
                     handlers = {}
                     gallery_select = ctrl.properties.get("OnSelect")
+                    # Legacy exports store row selection on the structural
+                    # GalleryTemplate. Its DOM wrapper is flattened, but its
+                    # action must survive Select(Parent) from a row child.
+                    selection_owner = ctrl
+                    if not gallery_select or not gallery_select.raw:
+                        templates = [child for child in ctrl.children if child.type == "GalleryTemplate"]
+                        if len(templates) == 1:
+                            selection_owner = templates[0]
+                            gallery_select = selection_owner.properties.get("OnSelect")
                     if gallery_select and gallery_select.raw:
-                        handlers[ctrl.name] = (parent_names.get(ctrl.name), {"OnSelect": _behavior_js(gallery_select, f"{ctrl.name}.OnSelect")})
+                        handlers[ctrl.name] = (parent_names.get(selection_owner.name), {"OnSelect": _behavior_js(gallery_select, f"{selection_owner.name}.OnSelect")})
                         mark_emission(gallery_select)
                     row_controls = [descendant for child in _gallery_row_controls(ctrl)
                                     for descendant in child.walk()]

@@ -77,17 +77,25 @@ helpers and known mutating methods in value formulas; it is not an equivalence
 proof or a JavaScript sandbox. Fallback receives screen/local metadata and now
 includes App and screen properties, with unverified equivalence ledgered.
 
+Saved-view filters now come from companion solution FetchXML, with source hashes
+in each assessment. Supported nested filters and explicit ordering execute
+against migrated tables; unsupported or missing queries fail even on empty
+tables. Current-user views require exactly one migrated systemuser record
+matching the actual Google session email. Startup awaits User() before running
+source initialization. Template-stored legacy gallery actions now survive row
+flattening. A native Chromium fixture verifies filtering/search, saved changes,
+reload and selection through the original template action.
+
 Eleven pinned source exports are available here: five public regression apps
-and six Microsoft business apps. **All eleven generate valid code; eight pass
+and six Microsoft business apps. **All eleven generate valid code; six pass
 the short startup check. None has complete usability acceptance evidence.**
-Milestones, Employee Ideas and Inspection now leave their loading screen in a
-real browser. Milestones completes both restored onboarding dialogs and reaches its desktop Add Project screen but
-Office365Users.UserProfileV2 fails; Inspection reaches Items while a delayed
-Planner.ListMyPlansV2 error surfaces. These failures are attached to the combined
-Microsoft scorecard. Employee Ideas opens the desktop campaign summary and its
-explicit iOS entry passes readable Browse campaigns → Mobile Campaign Summary.
-Five Microsoft apps fail usability prerequisites; Employee Ideas remains
-unassessed for complete usability.
+The solution-aware checks expose previously silent relative-date view filters
+and missing identity mappings, so five Microsoft apps now fail short startup
+and all three default first-action probes fail. With one explicitly authored
+user and four campaigns, Employee Ideas passes active-view filtering/order,
+search, selected campaign detail and opening a new idea. Its response fields
+extend beyond the mobile viewport (x=420, width=350 in a 390px viewport), failing
+the new usability assertion. Submission/voting/reload remains unassessed.
 Eleven generated-fixture Chromium journeys pass. Fixtures are regression
 evidence, not additional real acceptance apps. The last recorded Google
 deployment remains HelpDesk @14.
@@ -143,17 +151,17 @@ the implementation order.
 
 | Evidence | Latest result | What remains unproven |
 |---|---|---|
-| Unit/runtime tests | 233 Python pass, 3 skip; 80 JS pass; bare globals, FX and FXRuntime emitter/runtime consistency passes | Complete deployed workflows and broader control semantics |
+| Unit/runtime tests | 258 Python pass, 3 skip; 83 JS pass; bare globals, FX and FXRuntime emitter/runtime consistency passes | Complete deployed workflows and broader control semantics |
 | Current real-app soak | 5/5 Bootable; 1,145 formulas, including previously dropped App/screen properties | Usability unassessed; the other five historical local exports are absent |
 | Current regression translation/wiring | 1,139 translated; 970 emitted, 13 approximated, 162 ignored/unsupported | Translation does not establish runtime behavior |
 | Historical ten-app corpus | Previously 10/10 Bootable; 23,746 formulas | Not reproduced in this workspace; those results did not establish usability |
 | HelpDesk generated-app journeys | HOME → NEW → HOME; dashboard row text, logo URI, pie and legend output pass | All-screen interactions, image decoding/layout in CI, persistence |
 | HelpDesk @14 live browser | Ticket cards, decoded 64×64 logos, pie/bar/legend SVGs, readable fonts/labels, HOME → NEW → HOME | Same-state original comparison, user name/avatar, complete workflow coverage |
 | Chromium: business form | Actual generated client + Code.gs: edit/create, required validation, write failure, delete and page reload pass against a persistent Sheets test double | Real Google authorization/Sheets writes and another user/session |
-| Chromium regression suite | 10/10 fixtures pass: form, charts, record scopes/launch parameters, editable gallery, timer lifecycle, local drafts, Dataverse contracts, source time/validation formulas, responsive canvas and scaled canvas; generated client and server code | Real Google services, real-app critical workflows and original visual comparisons; HelpDesk is absent here |
+| Chromium regression suite | 12/12 fixtures pass, including navigation context and saved views/template selection; the intentional screenshot-failure gate also retains its original journey failure | Real Google services, real-app critical workflows and original visual comparisons; HelpDesk is absent here |
 | Microsoft generated-server initialization | Six exports: setup and reads across 124 tables and 302 choice fields pass in the Sheets test double | Tenant data migration, real Google writes, source defaults, calculations, relationships and permissions |
-| Microsoft business baseline | 6/6 convert and validate; 3/6 pass short startup (Employee Ideas, Inspection, Milestones) | Three other exports still fail startup on Teams/Planner dependencies |
-| Microsoft first actions | 3/3 leave loading; Employee Ideas passes desktop entry and readable mobile Browse campaigns navigation. Milestones reaches desktop Add Project and Inspection reaches Items before connector errors | Complete business workflows, persistence, target identities and UI parity; partial success never promotes an app to Usable |
+| Microsoft business baseline | 6/6 convert and validate; 1/6 passes short startup (Employee Ideas) | Saved-view relative dates, migrated identities and Teams/Planner dependencies fail prerequisites |
+| Microsoft first actions | All three default probes fail with source views now enforced. Populated Employee Ideas passes campaign browsing/search/selection and opens a new idea, then fails the mobile field layout assertion | Complete business workflows, persistence, target identities and UI parity; partial success never promotes an app to Usable |
 | CI configuration | Existing tests plus required-app/journey gates and new Chromium artifact job | Browser job configured and locally tested, not yet verified in remote CI; local HelpDesk remains optional |
 
 Evidence: `.artifacts/benchmark/benchmark-scorecard.json`,
@@ -300,7 +308,12 @@ work; do not bypass initialization or substitute empty connector success.
 The decoder now retains `NativeCDSDataSourceInfo.TableDefinition` attributes,
 keys, choices, relationships, views and logical/display-name mappings in
 `data-contract.json`. OptionSetInfo constants initialize typed client values;
-services and views remain explicit adapter dependencies. Lookup records are
+services remain explicit adapter dependencies. Saved views now accept companion
+solution FetchXML for a bounded deterministic subset. Relative dates, joins,
+aggregates, paging/limits and localized choice-label ordering fail explicitly;
+numeric choice ordering requires exported `useraworderby="true"`. Tenant text
+collation and implicit primary-key ordering are ledgered approximations.
+Missing metadata cannot use LLM fallback. Lookup records are
 stored snapshots, not live relationships. Source defaults/calculated fields,
 permissions, implicit localized choice-to-text conversion and complete typed
 date comparisons remain unimplemented or unverified. These are converter gaps,

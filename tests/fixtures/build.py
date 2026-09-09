@@ -728,6 +728,60 @@ def navigation_fixture_files() -> dict[str, str]:
     return files
 
 
+VIEW_QUERY = '''<fetch version="1.0" distinct="false"><entity name="msft_project">
+<attribute name="msft_name"/><attribute name="msft_projectid"/>
+<filter type="and"><condition attribute="msft_status" operator="eq" value="0"/>
+<filter type="or"><condition attribute="msft_active" operator="eq" value="1"/>
+<condition attribute="msft_budget" operator="ge" value="10"/></filter></filter>
+<order attribute="msft_budget" descending="true"/><order attribute="msft_name"/>
+</entity></fetch>'''
+VIEW_ID = '11111111-1111-1111-1111-111111111111'
+
+
+def view_fixture_files() -> dict[str, str]:
+    files = dataverse_fixture_files()
+    app = json.loads(files['Controls\\1.json'])
+    for rule in app['TopParent']['Rules']:
+        if rule['Property'] == 'OnStart':
+            rule['InvariantScript'] = 'Set(selectedProjectName, "")'
+    files['Controls\\1.json'] = json.dumps(app)
+    sources = json.loads(files['References\\DataSources.json'])['DataSources']
+    view_source = next(source for source in sources if source['Type'] == 'ViewInfo')
+    view_source.update(RelatedEntityName='Projects', ViewInfoNameMapping={VIEW_ID: 'Open by budget'})
+    table = sources[0]
+    records = json.loads(table['Data'])
+    records.append({'msft_projectid':'project-three', 'msft_name':'Third project', 'msft_status':0, 'msft_active':False, 'msft_budget':20})
+    table['Data'] = json.dumps(records)
+    files['References\\DataSources.json'] = json.dumps({'DataSources': sources})
+    def control(name, kind, y, props):
+        return {'Name':name, 'Template':{'Name':kind}, 'Rules':[
+            {'Property':key, 'InvariantScript':str(value)} for key,value in {
+                'X':20, 'Y':y, 'Width':520, 'Height':44, **props}.items()]}
+    view = "Filter(Projects, 'Project Views'.'Open by budget')"
+    children = [
+        control('ViewSearch','text',20,{'Default':'""','Mode':'TextMode.SingleLine','AccessibleLabel':'"Search projects"'}),
+        control('ViewRows','label',90,{'Text':f'Concat(Search({view}, ViewSearch.Text, "msft_name"), Name, ", ")'}),
+        control('ViewCount','label',160,{'Text':f'Text(CountRows(Filter(Projects, \'Project Views\'.\'Open by budget\', Budget > 0)))'}),
+        control('OpenSecond','button',230,{'Text':'"Open second project"',
+            'OnSelect':'Patch(Projects, LookUp(Projects, msft_projectid = "project-two"), {Status: 0})'}),
+        control('SelectedProject','label',560,{'Text':'selectedProjectName'}),
+    ]
+    row_button = control('SelectProject', 'button', 0, {'X':0, 'Width':480,
+        'Text':'ThisItem.Name', 'OnSelect':'Select(Parent)'})
+    template = control('ProjectTemplate', 'gallerytemplate', 0,
+        {'OnSelect':'Set(selectedProjectName, ThisItem.Name)'})
+    template['Children'] = [row_button]
+    gallery = control('ProjectGallery', 'gallery', 310,
+        {'Height':230, 'TemplateSize':60, 'TemplatePadding':0, 'Items':view})
+    gallery['Children'] = [template]
+    children.append(gallery)
+    screen=json.loads(files['Controls\\2.json'])
+    screen['TopParent']['Children']=children
+    files['Controls\\2.json']=json.dumps(screen)
+    files['Properties.json']=json.dumps({'Name':'FixtureViews'})
+    return files
+
+
 def build_fixtures() -> None:
     # Fixture A: navigation + globals, all rule-transpilable
     _write_msapp(
@@ -807,6 +861,9 @@ def build_fixtures() -> None:
     _write_msapp(FIXTURE_DIR / "fixtureCanvas.msapp", canvas_fixture_files())
     _write_msapp(FIXTURE_DIR / "fixtureScaledCanvas.msapp", canvas_fixture_files(True))
     _write_msapp(FIXTURE_DIR / "fixtureNavigation.msapp", navigation_fixture_files())
+    _write_msapp(FIXTURE_DIR / 'fixtureViews.msapp', view_fixture_files())
+    _write_msapp(FIXTURE_DIR / 'fixtureViews.solution.zip', {'customizations.xml':
+        f'<ImportExportXml><Entities><Entity><savedqueries><savedquery><savedqueryid>{{{VIEW_ID}}}</savedqueryid><fetchxml>{VIEW_QUERY}</fetchxml></savedquery></savedqueries></Entity></Entities></ImportExportXml>'})
 
 
 if __name__ == "__main__":

@@ -109,6 +109,7 @@ converted app and never hit the Sheet.
 | `--report-only` | Produce only `conversion-report.md`, no project files |
 | `--no-llm` | Disable the LLM fallback; unmapped formulas stay stubs |
 | `--no-review` | Disable the LLM behavioral-equivalence review + QA scenarios |
+| `--solution ZIP_OR_XML` | Load saved-view FetchXML from an exported solution ZIP or `customizations.xml` |
 | `--webapp-access` | `ANYONE` (signed-in default), `MYSELF`, `DOMAIN`, or explicit `ANYONE_ANONYMOUS` |
 | `--execute-as` | `USER_ACCESSING` (default) or explicit `USER_DEPLOYING` |
 | `--strict-fidelity` | Exit non-zero when the generated fidelity ledger contains gaps |
@@ -151,6 +152,11 @@ This separate baseline currently fails. It also exercises source loading and
 first actions for Milestones, Employee Ideas and Inspection in Chromium,
 retaining delayed connector errors and unreadable primary controls as failures.
 These are partial workflow checks; complete usability remains unproven.
+`./pfx2gas browser scripts/assess_employee_workflow.py` adds explicitly authored
+campaign/user records through generated Code.gs before startup. Campaign
+filtering, ordering, search, selection and opening the idea screen pass. The
+probe currently fails because the idea fields extend outside the mobile
+viewport; submitting/voting/reopening an idea remains unassessed.
 The normal `./pfx2gas soak` enforces the existing
 required regression corpus, including failed required journeys and missing apps.
 
@@ -282,6 +288,19 @@ Converted apps aim to match the original visually and behaviorally:
   text. Lookup record snapshots and multi-select values persist as structured
   cells. Relationship traversal, source defaults/calculations/permissions and
   implicit localized choice-to-text coercion still need target adapters.
+- **Dataverse saved views** — supply `--solution path/to/export.zip` when the
+  canvas export carries view IDs but omits their FetchXML. Supported direct
+  `Filter(Table, 'Table Views'.'View name')` arguments preserve nested AND/OR,
+  typed comparisons, membership/null tests and explicit multi-column ordering.
+  Current-user filters match the Google session email to exactly one migrated
+  `systemuser` record; missing/ambiguous mappings fail. Startup loads `User()`
+  before source initialization can capture its email. This is a functional
+  identity mapping, not Dataverse authorization. Relative dates, joins,
+  aggregates, paging/limits and localized choice ordering remain unsupported;
+  choice ordering is numeric only when FetchXML explicitly requests
+  `useraworderby="true"`. Tenant text collation and implicit primary-key order
+  are ledgered approximations. Missing queries fail even on empty tables and
+  cannot be invented by the LLM. The ledger records solution hashes and queries.
 - **Behavior syntax** — block/line comments, `And`/`Or`/`Not`, and nested
   semicolon-separated actions retain branch-local execution order.
   Multi-condition `If` retains every branch and its optional fallback;

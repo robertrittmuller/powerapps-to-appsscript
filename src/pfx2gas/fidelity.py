@@ -54,6 +54,11 @@ def finalize_fidelity(ir: AppIR) -> None:
                 expr.fidelity_note = (
                     f"{prop_name} translated to JavaScript but is not consumed by synthesis"
                 )
+        if expr.approximations and expr.emission_status in {"emitted", "approximated"}:
+            expr.emission_status = "approximated"
+            notes = [expr.fidelity_note] if expr.fidelity_note else []
+            notes.extend(note for note in expr.approximations if note not in expr.fidelity_note)
+            expr.fidelity_note = '; '.join(notes)
 
 
 def ledger_rows(ir: AppIR) -> list[dict]:

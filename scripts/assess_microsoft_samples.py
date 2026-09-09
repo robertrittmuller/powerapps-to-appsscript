@@ -20,7 +20,8 @@ def merge_first_actions(scorecard, probes):
     for probe in probes:
         app = by_id[probe['sourceAppId']]
         if (probe['inputSha256'] != app['inputSha256'] or
-                probe['converterSourceSha256'] != scorecard['converterSourceSha256']):
+                probe['converterSourceSha256'] != scorecard['converterSourceSha256'] or
+                probe.get('sourceMetadata', {}) != app.get('sourceMetadata', {})):
             raise ValueError('browser evidence does not match the source/converter hashes')
         if probe['status'] not in {'pass', 'fail'}:
             raise ValueError('browser probe must report pass or fail')
@@ -34,6 +35,7 @@ def merge_first_actions(scorecard, probes):
             'evidenceType': probe['evidenceType'],
             'inputSha256': probe['inputSha256'],
             'converterSourceSha256': probe['converterSourceSha256'],
+            'sourceMetadata': probe.get('sourceMetadata', {}),
             'artifact': '.artifacts/browser/' + probe['app'] + '/result.json',
         })
     for app in scorecard['apps']:

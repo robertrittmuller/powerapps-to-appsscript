@@ -20,6 +20,30 @@ require('../../static/fx-charts.js');
 require('../../static/gas-runtime.js');
 const RT = global.FXRuntime;
 
+test('startup waits for session identity before source OnStart snapshots User()', async () => {
+  const vm = require('node:vm'), fs = require('node:fs');
+  let ready, success;
+  const runner = new Proxy({}, {get(_target, name) {
+    if (name === 'withSuccessHandler') return callback => {success=callback; return runner;};
+    if (name === 'withFailureHandler') return () => runner;
+    if (name === 'whoami') return () => {};
+  }});
+  const ctx = vm.createContext({document:{...global.document,addEventListener:(_ev,fn)=>{ready=fn;}},
+    google:{script:{run:runner}},console,setTimeout,clearTimeout});
+  ctx.window=ctx;
+  vm.runInContext(fs.readFileSync(require.resolve('../../static/gas-runtime.js'),'utf8'),ctx);
+  let observed;
+  ctx.APP_MAIN=()=>{observed=ctx.FXUser().email;};
+  const startup=ready();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.strictEqual(observed,undefined);
+  success({email:'actual@example.test',fullName:'Actual User',pictureUrl:'avatar'});
+  await startup;
+  assert.strictEqual(observed,'actual@example.test');
+  assert.strictEqual(ctx.FXUser().full_name,'Actual User');
+  assert.strictEqual(ctx.FXUser().image,'avatar');
+});
+
 test('launch parameters are case-sensitive text with Blank for absent keys', () => {
   const vm = require('node:vm');
   const fs = require('node:fs');

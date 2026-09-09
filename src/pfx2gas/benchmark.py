@@ -78,6 +78,7 @@ def metadata_for(catalog: dict[str, Any], app_id: str) -> dict[str, Any]:
         "displayName": configured.get("displayName", app_id),
         "archetypes": list(configured.get("archetypes", ["unclassified"])),
         "source": configured.get("source"),
+        "solution": configured.get("solution"),
         "journeyCoverage": configured.get("journeyCoverage", "none"),
         "visualCoverage": configured.get("visualCoverage", "none"),
         "criticalJourneys": list(configured.get("criticalJourneys", [])),

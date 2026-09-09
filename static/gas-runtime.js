@@ -1197,18 +1197,21 @@
 
   // User() equivalent. The server side injects the identity at deploy time:
   // Session.getActiveUser().getEmail() (empty for anonymous deployments).
-  var _cachedUser = null;
-  function fxUser() {
-    if (_cachedUser) return _cachedUser;
-    _cachedUser = { email: '', full_name: '', image: '' };
-    serverRun('whoami').then(function (info) {
+  var _cachedUser = { email: '', full_name: '', image: '' }, _userPromise = null;
+  function loadUser() {
+    if (_userPromise) return _userPromise;
+    _userPromise = serverRun('whoami').then(function (info) {
       _cachedUser = {
         email: info && info.email || '',
         full_name: info && info.fullName || '',
         image: info && info.pictureUrl || '',
       };
       updateBindings();
-    }).catch(function () { /* anonymous deployment: blanks stand */ });
+      return _cachedUser;
+    });
+    return _userPromise;
+  }
+  function fxUser() {
     return _cachedUser;
   }
 
@@ -1387,9 +1390,9 @@
       // A synchronous crash in APP_MAIN must not leave a blank page: catch,
       // surface, and still reveal the first screen (Power Apps start screen).
       var startup = typeof global.APP_MAIN === 'function'
-        ? Promise.resolve().then(function () { return global.APP_MAIN(); })
+        ? Promise.resolve().then(loadUser).then(function () { return global.APP_MAIN(); })
         : Promise.resolve();
-      startup.catch(function (e) {
+      return startup.catch(function (e) {
         console.error(e);
         toast('Startup error: ' + (e && e.message ? e.message : e), true);
       }).then(function () {

@@ -261,6 +261,86 @@
 
     // --- tables ------------------------------------------------------------
     filter: function (t, pred) { return rows(t).filter(pred); },
+    userId: function (users, email, key, emailField) {
+      if (!email) throw new Error('Dataverse current-user view requires an identified Google session');
+      var matches = rows(users).filter(function (row) {
+        return String(FX.field(row, emailField) || '').toLowerCase() === String(email).toLowerCase();
+      });
+      if (matches.length !== 1 || !FX.field(matches[0], key))
+        throw new Error('Dataverse current-user view requires one migrated user record matching the Google account email');
+      return String(FX.field(matches[0], key)).toLowerCase();
+    },
+    applyView: function (table, query, userId) {
+      if (!query || query.error) throw new Error(query && query.error || 'Dataverse view definition is missing');
+      var blank = function (value) { return value === null || value === undefined || value === ''; };
+      var typed = function (value, type) {
+        if (blank(value)) return null;
+        if (type === 'date') {
+          var date = new Date(value).getTime();
+          if (!Number.isFinite(date)) throw new Error('Invalid date in Dataverse view');
+          return date;
+        }
+        if (type === 'number' || type === 'choice') {
+          var number = Number(value);
+          if (!Number.isFinite(number)) throw new Error('Invalid number in Dataverse view');
+          return number;
+        }
+        if (type === 'bool') {
+          if (typeof value !== 'boolean') throw new Error('Invalid boolean in Dataverse view');
+          return value;
+        }
+        if (type === 'text') return String(value).toLowerCase();
+        throw new Error('Unsupported Dataverse view field type: ' + type);
+      };
+      var predicate = function (condition) {
+        if (!condition) throw new Error('Dataverse view filter is missing');
+        var op = condition.op;
+        if (op === 'and' || op === 'or') {
+          var children = condition.args.map(predicate);
+          return function (row) { return op === 'and'
+            ? children.every(function (fn) { return fn(row); })
+            : children.some(function (fn) { return fn(row); }); };
+        }
+        if (op === 'eq-userid' || op === 'ne-userid') {
+          if (!userId) throw new Error('Dataverse current-user view identity is missing');
+          return function (row) {
+            var reference = FX.field(row, condition.field);
+            var id = reference && typeof reference === 'object'
+              ? FX.field(reference, query.identity.key) || reference.id : reference;
+            if (blank(id)) return false;
+            return op === 'eq-userid' ? String(id).toLowerCase() === userId : String(id).toLowerCase() !== userId;
+          };
+        }
+        if (['eq','ne','gt','ge','lt','le','in','not-in','null','not-null'].indexOf(op) < 0)
+          throw new Error('Unsupported Dataverse view operator: ' + op);
+        var values = condition.values.map(function (value) { return typed(value, condition.type); });
+        return function (row) {
+          var value = typed(FX.field(row, condition.field), condition.type);
+          if (op === 'null') return value === null;
+          if (op === 'not-null') return value !== null;
+          // Dataverse/SQL null comparisons do not turn missing values into 0
+          // or include them in a not-equal filter.
+          if (value === null) return false;
+          if (op === 'eq') return value === values[0];
+          if (op === 'ne') return value !== values[0];
+          if (op === 'gt') return value > values[0];
+          if (op === 'ge') return value >= values[0];
+          if (op === 'lt') return value < values[0];
+          if (op === 'le') return value <= values[0];
+          return op === 'in' ? values.indexOf(value) >= 0 : values.indexOf(value) < 0;
+        };
+      };
+      var result = rows(table).filter(predicate(query.filter));
+      return result.sort(function (a, b) {
+        for (var i = 0; i < query.order.length; i++) {
+          var order = query.order[i], av = typed(FX.field(a, order.field), order.type), bv = typed(FX.field(b, order.field), order.type);
+          if (av === bv) continue;
+          var comparison = av === null ? -1 : bv === null ? 1 : av < bv ? -1 : 1;
+          return order.descending ? -comparison : comparison;
+        }
+        return 0;
+      });
+    },
     forAll: function (t, fn) { return rows(t).map(fn); },
     lookUp: function (t, pred, projection) {
       for (var i = 0; i < rows(t).length; i++) if (pred(rows(t)[i])) {

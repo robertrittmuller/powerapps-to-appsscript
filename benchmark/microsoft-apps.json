@@ -4,34 +4,40 @@
   "apps": {
     "milestones": {
       "displayName": "Microsoft Milestones",
+      "solution": "samples/microsoft/Milestones.solution.zip",
       "archetypes": ["project-task-tracking", "relational-records", "editable-galleries"],
       "source": "https://github.com/microsoft/teams-powerapps-app-templates/tree/main/Milestones",
       "criticalJourneys": [{"id": "project-task-lifecycle", "required": true, "description": "Create a project and milestone; create, assign, edit, filter and reopen a persisted work item."}]
     },
     "employee-ideas": {
       "displayName": "Microsoft Employee Ideas",
+      "solution": "samples/microsoft/EmployeeIdeas.solution.zip",
       "archetypes": ["submissions", "voting", "media", "relational-records"],
       "source": "https://github.com/microsoft/teams-powerapps-app-templates/tree/main/EmployeeIdeas",
       "criticalJourneys": [{"id": "submit-vote-reopen", "required": true, "description": "Open a campaign, submit an idea, vote and verify the saved idea and vote after reload."}]
     },
     "employee-ideas-manager": {
       "displayName": "Microsoft Employee Ideas Manager",
+      "solution": "samples/microsoft/EmployeeIdeas.solution.zip",
       "archetypes": ["campaign-management", "roles", "validation"],
       "criticalJourneys": [{"id": "campaign-lifecycle", "required": true, "description": "Create and edit a campaign with required fields, dates and status; verify persistence and role-dependent actions."}]
     },
     "inspection": {
       "displayName": "Microsoft Inspection",
+      "solution": "samples/microsoft/Inspection.solution.zip",
       "archetypes": ["inspection-forms", "conditional-inputs", "media"],
       "source": "https://github.com/microsoft/teams-powerapps-app-templates/tree/main/Inspection",
       "criticalJourneys": [{"id": "inspection-submit", "required": true, "description": "Choose an area and checklist, enter responses and submit; reopen persisted answers and test a failed save."}]
     },
     "inspection-manager": {
       "displayName": "Microsoft Inspection Manager",
+      "solution": "samples/microsoft/Inspection.solution.zip",
       "archetypes": ["checklist-management", "relational-records", "dashboard"],
       "criticalJourneys": [{"id": "configure-inspection", "required": true, "description": "Create and edit areas, checklists and checklist steps used by the inspection app."}]
     },
     "review-inspections": {
       "displayName": "Microsoft Review Inspections",
+      "solution": "samples/microsoft/Inspection.solution.zip",
       "archetypes": ["dashboard", "charts", "filtering", "external-actions"],
       "criticalJourneys": [{"id": "review-filter-followup", "required": true, "description": "Filter inspection results, verify chart totals and drill into a saved inspection; verify any source follow-up integration."}]
     }

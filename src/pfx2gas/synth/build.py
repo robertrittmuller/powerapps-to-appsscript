@@ -38,6 +38,8 @@ def synthesize(ir: AppIR, out_dir: str | Path) -> Path:
         json.dumps({
             "app": ir.name,
             "sourceLayout": ir.layout,
+            "sourceMetadata": ir.source_metadata,
+            "savedViews": ir.view_sets,
             "deployment": {
                 "access": ir.webapp_access,
                 "executeAs": ir.webapp_execute_as,

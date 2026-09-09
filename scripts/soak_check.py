@@ -140,7 +140,9 @@ def _run_app(path: Path, output_dir: Path, metadata: dict[str, Any]) -> dict[str
     shutil.rmtree(output_dir, ignore_errors=True)
     try:
         unpacked = unpack(path)
-        ir = analyze(parse(unpacked))
+        solution = REPO / metadata['solution'] if metadata.get('solution') else None
+        ir = analyze(parse(unpacked), solution=solution)
+        app['sourceMetadata'] = ir.source_metadata
         synthesize(ir, output_dir)
         app["stages"]["convert"] = PASS
         app["name"] = ir.name or metadata["displayName"]

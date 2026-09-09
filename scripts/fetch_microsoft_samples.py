@@ -63,6 +63,8 @@ def main() -> int:
         solution = zipfile.ZipFile(io.BytesIO(extracted))
         if solution.testzip():
             raise ValueError(f"corrupt {app} solution")
+        solution_name = f'{app}.solution.zip'
+        (samples / solution_name).write_bytes(extracted)
         # Read named entries only; never extract archive-controlled filesystem paths.
         for canvas, name in canvases.items():
             source_member = f"CanvasApps/{canvas}_DocumentUri.msapp"
@@ -72,7 +74,8 @@ def main() -> int:
                     raise ValueError(f"corrupt canvas export: {name}")
             (samples / f"{name}.msapp").write_bytes(source)
             record = {"id": name, "template": app, "file": f"{name}.msapp",
-                      "member": source_member, "sha256": hashlib.sha256(source).hexdigest()}
+                      "member": source_member, "sha256": hashlib.sha256(source).hexdigest(),
+                      "solutionFile": solution_name, "solutionSha256": hashlib.sha256(extracted).hexdigest()}
             manifest["apps"].append(record)
             print(name, record["sha256"], flush=True)
     (output / "provenance.json").write_text(json.dumps(manifest, indent=2) + "\n")

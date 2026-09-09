@@ -20,6 +20,7 @@ def main(argv: list[str] | None = None) -> int:
 
     conv = sub.add_parser("convert", help="convert an .msapp to an Apps Script project")
     conv.add_argument("msapp", help="path to the .msapp file")
+    conv.add_argument("--solution", help="exported solution ZIP or customizations.xml supplying Dataverse saved-view filters")
     conv.add_argument("-o", "--output", default=None,
                       help="output directory (default: ./output/<app-name>)")
     conv.add_argument("--report-only", action="store_true",
@@ -86,7 +87,11 @@ def main(argv: list[str] | None = None) -> int:
 
     out.print(f"[bold]{unpacked.app_name}[/bold]: {len(unpacked.screens)} screens, "
               f"{len(unpacked.data_sources)} data sources")
-    ir = analyze(parse(unpacked))
+    try:
+        ir = analyze(parse(unpacked), solution=args.solution)
+    except (OSError, ValueError) as exc:
+        err.print(f"source metadata could not be loaded: {exc}")
+        return 1
     ir.webapp_access = args.webapp_access
     ir.webapp_execute_as = args.execute_as
 
@@ -162,6 +167,8 @@ def _llm_fallback(ir, client) -> None:
     import json
 
     def try_fix(expr, context: str) -> None:
+        if expr.blocked_dependencies:
+            return  # A model must not guess missing saved-query contracts.
         if not expr.raw:
             return
         if expr.js is not None and "FX.unsupported" not in expr.js:

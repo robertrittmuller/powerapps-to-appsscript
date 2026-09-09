@@ -226,8 +226,9 @@ def check_timers(page, _backend):
     page.screenshot(path=str(OUT / "timer-lifecycle/ready.png"))
 
 
-def run_case(browser, name, source, journey, clock=False, launch_parameters=None, viewport=None):
-    project = synthesize(analyze(parse(unpack(source))), OUT / name / "project")
+def run_case(browser, name, source, journey, clock=False, launch_parameters=None, viewport=None, solution=None, setup_backend=None):
+    ir = analyze(parse(unpack(source)), solution=solution)
+    project = synthesize(ir, OUT / name / "project")
     validation = validate_project(project)
     assert validation["ok"], validation["problems"]
     server = subprocess.Popen(["node", str(REPO / "tests/browser/gas-server.cjs"), str(project)],
@@ -263,8 +264,11 @@ def run_case(browser, name, source, journey, clock=False, launch_parameters=None
     result = {"app": name, "status": "pass", "backend": "generated Code.gs + Sheets test double",
               "originalVisualComparison": "unassessed", "evidenceType": "chromium-generated-client-and-server",
               "inputSha256": hashlib.sha256(source.read_bytes()).hexdigest(),
+              "sourceMetadata": ir.source_metadata,
               "converterSourceSha256": converter_fingerprint(), "browserVersion": browser.version}
     try:
+        if setup_backend:
+            result['dataSetup'] = setup_backend(backend)
         page.goto("https://converted.test/?" + urlencode(launch_parameters or {}))
         journey(page, backend)
         assert not errors, errors
@@ -272,11 +276,20 @@ def run_case(browser, name, source, journey, clock=False, launch_parameters=None
         result.update(status="fail", error=str(error) or type(error).__name__)
     finally:
         result["consoleErrors"] = errors
-        page.screenshot(path=str(OUT / name / "result.png"), full_page=True)
-        result["controls"] = page.locator('[data-screen]:visible [data-control]').evaluate_all(
-            "els => els.map(el => {const r=el.getBoundingClientRect(); return {name:el.dataset.control,"
-            "text:el.innerText, x:r.x,y:r.y,width:r.width,height:r.height,"
-            "font:getComputedStyle(el).fontFamily};})")
+        try:
+            page.screenshot(path=str(OUT / name / "result.png"), full_page=True, timeout=10000)
+            result['screenshot'] = {'status':'pass'}
+        except Exception as error:
+            result['status'] = 'fail'
+            result['screenshot'] = {'status':'fail', 'error':str(error)}
+        try:
+            result["controls"] = page.locator('[data-screen]:visible [data-control]').evaluate_all(
+                "els => els.map(el => {const r=el.getBoundingClientRect(); return {name:el.dataset.control,"
+                "text:el.innerText, x:r.x,y:r.y,width:r.width,height:r.height,"
+                "font:getComputedStyle(el).fontFamily};})")
+        except Exception as error:
+            result['status'] = 'fail'
+            result['measurementError'] = str(error)
         (OUT / name / "result.json").write_text(json.dumps(result, indent=2) + "\n")
         context.close()
         server.terminate()
@@ -522,6 +535,30 @@ def check_navigation(page, backend):
     page.screenshot(path=str(OUT / 'navigation-context/persisted-contact.png'))
 
 
+def check_views(page, backend):
+    expect(control(page, 'SelectedProject')).to_have_text('')
+    expect(control(page, 'ViewRows')).to_have_text('Third project, First project')
+    expect(control(page, 'ViewCount')).to_have_text('1')
+    control(page, 'ViewSearch').fill('FIRST')
+    expect(control(page, 'ViewRows')).to_have_text('First project')
+    control(page, 'ViewSearch').fill('absent')
+    expect(control(page, 'ViewRows')).to_have_text('')
+    control(page, 'ViewSearch').fill('')
+    control(page, 'OpenSecond').click()
+    expect(control(page, 'ViewRows')).to_have_text('Second project, Third project, First project')
+    expect(control(page, 'ViewCount')).to_have_text('2')
+    buttons = control(page, 'ProjectGallery').locator('[data-control="SelectProject"]')
+    expect(buttons).to_have_text(['Second project', 'Third project', 'First project'])
+    buttons.nth(1).click()
+    expect(control(page, 'SelectedProject')).to_have_text('Third project')
+    page.reload()
+    expect(control(page, 'ViewRows')).to_have_text('Second project, Third project, First project')
+    expect(control(page, 'SelectedProject')).to_have_text('')
+    rows = backend({'fn':'api','args':['Projects','list',{}]})['result']
+    assert rows[1]['status'] == 0 and rows[1]['active'] is False
+    page.screenshot(path=str(OUT / 'saved-views/filtered-and-reloaded.png'))
+
+
 def main():
     subprocess.run([sys.executable, str(REPO / "tests/fixtures/build.py")], check=True, capture_output=True)
     cases = [("business-form", REPO / "tests/fixtures/fixtureForm.msapp", check_form),
@@ -535,6 +572,8 @@ def main():
     cases.append(("responsive-canvas", REPO / "tests/fixtures/fixtureCanvas.msapp", check_canvas))
     cases.append(("scaled-canvas", REPO / "tests/fixtures/fixtureScaledCanvas.msapp", check_scaled_canvas))
     cases.append(("navigation-context", REPO / "tests/fixtures/fixtureNavigation.msapp", check_navigation))
+    cases.append(("saved-views", REPO / "tests/fixtures/fixtureViews.msapp", check_views,
+                  False, None, None, REPO / 'tests/fixtures/fixtureViews.solution.zip'))
     helpdesk = REPO / "samples/real/helpdesk.msapp"
     if helpdesk.exists():
         cases.append(("helpdesk", helpdesk, check_helpdesk))
@@ -542,6 +581,15 @@ def main():
     with sync_playwright() as p:
         browser = p.chromium.launch()
         results = [run_case(browser, *case) for case in cases]
+        def fail_capture(page, _backend):
+            def fail_screenshot(**_kwargs):
+                raise RuntimeError('deliberate screenshot failure')
+            page.screenshot = fail_screenshot
+            raise RuntimeError('deliberate journey failure')
+        failed = run_case(browser, 'evidence-failure-gate', REPO / 'tests/fixtures/fixtureA.msapp', fail_capture)
+        assert failed['status'] == 'fail' and failed['error'] == 'deliberate journey failure'
+        assert failed['screenshot'] == {'status':'fail','error':'deliberate screenshot failure'}
+        assert (OUT / 'evidence-failure-gate/result.json').exists()
         browser.close()
     (OUT / "results.json").write_text(json.dumps(results, indent=2) + "\n")
     return int(any(result["status"] != "pass" for result in results))

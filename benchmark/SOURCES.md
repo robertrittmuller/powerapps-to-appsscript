@@ -24,6 +24,10 @@ then reads explicitly named CAB/ZIP members. It preserves the original `.msapp`
 bytes. Full source paths and per-export hashes are retained in
 `.artifacts/microsoft/provenance.json`; exports live in gitignored
 `samples/microsoft/`. Nothing is installed in a Microsoft tenant.
+The fetcher also retains the three companion `*.solution.zip` files and their
+hashes. Their `customizations.xml` supplies saved-view FetchXML omitted from
+the canvas exports. Conversion and browser evidence record the solution hash;
+evidence from different solution metadata cannot be merged.
 
 Upstream code is [MIT licensed, copyright Microsoft Corporation](https://github.com/microsoft/teams-powerapps-app-templates/blob/main/LICENSE).
 Microsoft's README separately documents trademark restrictions. We link to and
@@ -43,15 +47,16 @@ Reproduce with Docker:
 ./pfx2gas browser scripts/assess_microsoft_samples.py
 ```
 
-The September 9 assessment exits **1**: all six generate syntactically valid
-projects; three fail startup. Employee Ideas, Inspection and Milestones pass
-the short startup check and leave loading in Chromium. Employee Ideas passes
-its desktop entry and explicit iOS Browse campaigns path after restoring the
-source loading-screen OnHidden initialization. Navigation-context preservation
-restores Milestones' two onboarding dialogs; both dismiss through their source
-buttons before New project reaches Add Project. Milestones and Inspection fail
-their first-action probes on delayed connector calls. The combined scorecard
-retains these results with matching source/converter hashes.
+The solution-aware September 9 assessment exits **1**: all six generate valid
+code and pass generated-server setup/read checks, but only Employee Ideas passes
+the short startup check. Previously silent view filters now expose missing
+migrated identities and unsupported relative-date queries. All three default
+first-action probes fail. The separate populated Employee Ideas probe supplies
+one authored user and four authored campaign records through generated Code.gs:
+active filtering/order, search, campaign selection and opening a new idea pass;
+the mobile idea-field layout fails. Source app and solution bytes stay unchanged.
+The combined scorecard retains failures with matching source/converter/solution
+hashes. Authored record contents and a data hash accompany the populated probe.
 All six remain below complete usability acceptance. See `GAP_ASSESSMENT.md` for the fix
 sequence. This is a separate acceptance baseline, not a hidden allowance in
 the existing passing regression corpus.

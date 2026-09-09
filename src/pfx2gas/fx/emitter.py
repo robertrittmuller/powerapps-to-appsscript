@@ -7,6 +7,7 @@ Anything the map misses becomes a ledger 'unmapped' entry handled upstream.
 from __future__ import annotations
 
 import re
+import json
 from dataclasses import dataclass
 
 from . import lexer as lx
@@ -18,6 +19,7 @@ class TranspileResult:
     def __init__(self) -> None:
         self.js: str | None = None
         self.unmapped: list[str] = []
+        self.approximations: list[str] = []
         self.statement_count = 0
 
 
@@ -68,9 +70,10 @@ class Emitter:
                  screen_names: set[str] | None = None, global_names: set[str] | None = None,
                  media_resources: dict[str, str] | None = None,
                  row_alias: str | None = None, screen_name: str | None = None,
-                 control_screens: dict[str, str] | None = None):
+                 control_screens: dict[str, str] | None = None, view_sets: dict | None = None):
         self.res = res
         self.behavior = behavior
+        self.view_sets = view_sets or {}
         self.row_fields = row_fields or set()
         self.control_names = control_names or set()
         self.known_controls = control_names is not None
@@ -174,6 +177,10 @@ class Emitter:
 
     def ident(self, name: str, global_only: bool = False) -> str:
         base, *members = lx.reference_parts(name)
+        if base in self.view_sets:
+            reason = f'Dataverse view {name}: must be a direct Filter argument'
+            self.res.unmapped.append(reason)
+            return 'FX.applyView([], ' + json.dumps({'error': reason}) + ')'
         alias = next((scope.variable for scope in reversed(self.scopes) if scope.alias == base), None)
         if alias is None and base == self.row_alias:
             alias = "item"
@@ -434,9 +441,39 @@ class Emitter:
         """Only predicate/projection arguments introduce a fresh record scope."""
         scope = self.new_scope()
         source, binding = self.scoped_source(args[0], scope)
+        def view_reference(node):
+            if node.kind in {'ident', 'global'}:
+                return lx.reference_parts(str(node.value))
+            if node.kind == 'member':
+                return [*view_reference(node.children[0]), str(node.value)]
+            return []
+        view_args = {}
+        if name == 'Filter':
+            for index, arg in enumerate(args[1:], 1):
+                parts = view_reference(arg)
+                if len(parts) == 2 and parts[0] in self.view_sets:
+                    query = dict(self.view_sets[parts[0]].get(_snake(parts[1]),
+                        {'error': f'Dataverse view {parts[0]}.{parts[1]}: missing saved view metadata'}))
+                    if not query.get('error') and query['source'] != self.source_name(source):
+                        query['error'] = 'Dataverse view source does not match the Filter data source'
+                    view_args[index] = query
+            if len(view_args) > 1:
+                for query in view_args.values():
+                    query['error'] = 'Dataverse view: only one view per Filter is supported'
         js_args: list[str] = []
         has_await = False
         for i, a in enumerate(args):
+            if i in view_args:
+                query = view_args[i]
+                if query.get('error'):
+                    self.res.unmapped.append(query['error'])
+                self.res.approximations.extend(query.get('limitations', []))
+                identity = query.get('identity') if not query.get('error') else None
+                user_id = (f", FX.userId({self.state_ref(identity['source'])}, FX.field(FXUser(), 'email'), "
+                           f"{_q(identity['key'])}, {_q(identity['emailField'])})") if identity else ''
+                js_args[0] = 'FX.applyView(' + js_args[0] + ', ' + json.dumps(query).replace('<', '\\u003c') + user_id + ')'
+                js_args.append('true')
+                continue
             scoped = i >= 1 if name == "Filter" else (i in {1, 2} if name == "LookUp" else i == 1)
             if name == "AddColumns":
                 scoped = i >= 2 and i % 2 == 0
