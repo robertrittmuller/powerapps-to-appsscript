@@ -11,6 +11,7 @@
   var state = {};
   var screenContexts = Object.create(null);
   var evaluators = [];   // { fn, apply } — re-run on state change
+  var cardLayouts = [], cardGeometry = {};
   var handlers = {};     // controlName -> { event: fn }
   var controlValues = {}; // control name -> evaluated properties used by dependents
   var forms = {};        // form name -> generated DataCard submit configuration
@@ -120,7 +121,8 @@
     var current = state[collectionName];
     if (current != null && !Array.isArray(current)) throw new Error('LoadData requires a collection');
     var update = {};
-    Object.defineProperty(update, collectionName, {value: (current || []).concat(saved), enumerable: true});
+    var restored = global.FX.collections.prepare(state, collectionName, saved);
+    Object.defineProperty(update, collectionName, {value: (current || []).concat(restored), enumerable: true});
     setState(update); // append atomically only after all cached values validate
     return null;
   }
@@ -198,14 +200,23 @@
 
   function updateBindings() {
     updateCanvas();
-    evaluators.forEach(function (e) {
-      try {
-        var result = e.apply();
-        if (result && typeof result.catch === 'function') {
-          result.catch(function (err) { console.error('binding error', err); });
-        }
-      } catch (err) { console.error('binding error', err); }
-    });
+    var changed, pass = 0;
+    do {
+      evaluators.forEach(function (e) {
+        try {
+          var result = e.apply();
+          if (result && typeof result.catch === 'function') {
+            result.catch(function (err) { console.error('binding error', err); });
+          }
+        } catch (err) { console.error('binding error', err); }
+      });
+      changed = false;
+      cardLayouts.forEach(function (layout) {
+        try { changed = layout() || changed; }
+        catch (error) { console.error('card layout error', error); }
+      });
+    } while (changed && ++pass < 8);
+    if (changed) console.error('card layout did not settle after 8 passes');
   }
 
   function setState(patch) {
@@ -395,7 +406,69 @@
       visible: !el.style || el.style.display !== 'none',
       el: el,
     };
-    return Object.assign(standard, element ? (element.__fxValues || {}) : (controlValues[name] || {}));
+    // Template dimensions exist before Items has mounted its first row. Parent
+    // card heights can reference these values during the very first binding.
+    if (typeof el.getAttribute === 'function' && el.getAttribute('data-template-size') !== null) {
+      standard.template_size = standard.template_height = Number(el.getAttribute('data-template-size')) || 0;
+      standard.template_padding = Number(el.getAttribute('data-template-padding')) || 0;
+      standard.template_width = standard.width;
+    }
+    return Object.assign(standard, element ? (element.__fxValues || {}) : (controlValues[name] || {}),
+      element ? {} : (cardGeometry[name] || {}));
+  }
+
+  function registerCardLayout(name, cards, columnsFn, parentName) {
+    var previous = '';
+    cardLayouts.push(function () {
+      var host = document.querySelector('[data-control="' + name + '"]');
+      if (!host) return false;
+      var hostRef = val(name), width = Math.max(0, Number(hostRef.width) || 0);
+      var columns = Math.max(1, Number(columnsFn(val, hostRef, val(parentName))) || 1);
+      var entries = cards.map(function (card, index) {
+        var self = val(card.name), props = card.properties;
+        function get(key, fallback) { return props[key] ? props[key](val, self, hostRef) : fallback; }
+        function number(key, fallback) {
+          var value = Number(get(key, fallback));
+          if (!Number.isFinite(value)) throw new Error('Nonfinite card property: ' + card.name + '.' + key);
+          return value;
+        }
+        return {name:card.name, index:index, x:number('X', 0), y:number('Y', index),
+          width:Math.max(0, number('Width', width / columns)), height:Math.max(0, number('Height', 100)),
+          fit:!!get('WidthFit', false), visible:!!get('Visible', true), el:self.el};
+      }).sort(function (a,b) { return a.y - b.y || a.x - b.x || a.index - b.index; });
+      var row = [], used = 0, top = 0, logicalY, geometry = [];
+      function flush() {
+        if (!row.length) return;
+        var fits = row.filter(function (card) { return card.fit; }).length;
+        var extra = fits ? Math.max(0, width - used) / fits : 0;
+        var height = Math.max.apply(Math, row.map(function (card) { return card.height; }));
+        var left = 0;
+        row.forEach(function (card) {
+          var actualWidth = card.width + (card.fit ? extra : 0);
+          cardGeometry[card.name] = {x:card.x, y:card.y, width:actualWidth, height:height};
+          if (card.el) Object.assign(card.el.style, {left:left+'px', top:top+'px',
+            width:actualWidth+'px', height:height+'px', display:''});
+          geometry.push([card.name, left, top, actualWidth, height, true]);
+          left += actualWidth;
+        });
+        top += height;
+        row = []; used = 0;
+      }
+      entries.forEach(function (card) {
+        if (!card.visible) {
+          cardGeometry[card.name] = {x:card.x, y:card.y, width:card.width, height:card.height};
+          if (card.el) card.el.style.display = 'none';
+          geometry.push([card.name, 0, 0, card.width, card.height, false]);
+          return;
+        }
+        if (row.length && (card.y !== logicalY || used + card.width > width + 0.01)) flush();
+        logicalY = card.y; row.push(card); used += card.width;
+      });
+      flush();
+      var next = JSON.stringify(geometry), changed = previous !== next;
+      previous = next;
+      return changed;
+    });
   }
 
   // Source canvas properties are lazy so hidden screens and forward references
@@ -1266,30 +1339,17 @@
   // calls read powerapps_collect(state, 'Name', record), then fires a
   // binding update.
   global.powerapps_collect = function (st, ds) {
-    var arr = st[ds] = st[ds] || [];
-    for (var i = 2; i < arguments.length; i++) {
-      var v = arguments[i];
-      if (v == null) continue;
-      if (Array.isArray(v)) { for (var j = 0; j < v.length; j++) arr.push(v[j]); }
-      else arr.push(v);
-    }
+    var arr = global.FX.collections.collect.apply(null, arguments);
     updateBindings();
     return arr;
   };
   global.powerapps_clearCollect = function (st, ds) {
-    st[ds] = [];
-    return global.powerapps_collect.apply(null, arguments);
+    var arr = global.FX.collections.clearCollect.apply(null, arguments);
+    updateBindings();
+    return arr;
   };
   global.powerapps_remove = function (st, ds, record) {
-    var arr = st[ds] = st[ds] || [];
-    var idx = -1;
-    for (var i = 0; i < arr.length; i++) { if (arr[i] === record) { idx = i; break; } }
-    if (idx < 0) {
-      for (var j = 0; j < arr.length; j++) {
-        if (JSON.stringify(arr[j]) === JSON.stringify(record)) { idx = j; break; }
-      }
-    }
-    if (idx >= 0) arr.splice(idx, 1);
+    var arr = global.FX.collections.dropRecord(st, ds, record);
     updateBindings();
     return arr;
   };
@@ -1325,6 +1385,7 @@
     updateBindings: updateBindings,
     setState: setState,
     registerControlProps: registerControlProps,
+    registerCardLayout: registerCardLayout,
     styleControl: styleControl,
     attrControl: attrControl,
     htmlControl: htmlControl,

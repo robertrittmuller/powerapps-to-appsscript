@@ -535,6 +535,68 @@ def check_navigation(page, backend):
     page.screenshot(path=str(OUT / 'navigation-context/persisted-contact.png'))
 
 
+def check_collection_aliases(page, backend):
+    rows = control(page,'DraftRows').locator('[data-control="DraftName"]')
+    expect(rows).to_have_count(2)
+    expect(rows.nth(0)).to_have_value('Draft one')
+    expect(rows.nth(1)).to_have_value('Draft two')
+    expect(control(page,'DraftSummary')).to_have_text('Draft one:0, Draft two:0')
+    rows.nth(1).fill('Edited second draft')
+    rows.nth(1).press('Tab')
+    expect(control(page,'DraftSummary')).to_have_text('Draft one:0, Edited second draft:0')
+    control(page,'BumpDrafts').click()
+    expect(control(page,'DraftSummary')).to_have_text('Draft one:1, Edited second draft:1')
+    control(page,'DraftRows').locator('[data-control="SaveDraftRow"]').nth(1).click()
+    expect(control(page,'DraftStatus')).to_have_text('saved')
+    records = backend({'fn':'api','args':['Projects','list',{}]})['result']
+    assert records[0]['name'] == 'First project' and records[1]['name'] == 'Edited second draft'
+    page.reload()
+    expect(control(page,'DraftSummary')).to_have_text('Draft one:0, Draft two:0')
+    control(page,'RestoreDrafts').click()
+    expect(control(page,'DraftSummary')).to_have_text('Draft one:1, Edited second draft:1')
+    expect(rows.nth(0)).to_have_value('Draft one')
+    expect(rows.nth(1)).to_have_value('Edited second draft')
+    control(page,'ConflictingDraft').click()
+    expect(control(page,'DraftStatus')).to_have_text('conflict retained draft')
+    expect(control(page,'DraftSummary')).to_have_text('Draft one:1, Edited second draft:1')
+    page.screenshot(path=str(OUT / 'collection-aliases/restored-and-validated.png'))
+
+
+def check_card_layout(page, _backend):
+    page.set_viewport_size({'width':640,'height':400})
+    first, wide = control(page,'FirstCard'), control(page,'WideCard')
+    draft = control(page,'WideDraft')
+    def box(name):
+        return control(page,name).bounding_box()
+    expect(draft).to_have_value('Retain this draft')
+    assert first.bounding_box()['x'] == 0 and wide.bounding_box()['x'] == 120
+    assert wide.bounding_box()['width'] == 520
+    assert first.bounding_box()['height'] == wide.bounding_box()['height'] == 100
+    assert box('FullCard')['y'] == 160
+    assert box('HiddenCard')['width'] == box('LastCard')['width'] == 320
+    draft.fill('Draft survives resizing')
+    draft.focus()
+    draft.evaluate('el => {window.__cardInput=el; el.setSelectionRange(2,7)}')
+    page.set_viewport_size({'width':280,'height':400})
+    expect(wide).to_have_css('width','160px')
+    assert box('LastCard')['y'] == box('HiddenCard')['y'] + box('HiddenCard')['height']
+    assert draft.evaluate('el => el===window.__cardInput && document.activeElement===el && el.selectionStart===2 && el.selectionEnd===7')
+    control(page,'ToggleCard').click()
+    expect(control(page,'HiddenCard')).to_be_hidden()
+    assert box('LastCard')['y'] == 220 and box('LastCard')['width'] == 280
+    assert box('FooterCard')['y'] == 360
+    control(page,'FooterAction').click()
+    expect(control(page,'CapturedDraft')).to_have_text('Draft survives resizing')
+    assert control(page,'CardCanvas').evaluate('el => el.scrollTop > 0 && el.scrollWidth === el.clientWidth')
+    expect(draft).to_have_value('Draft survives resizing')
+    expect(control(page,'BoundedTitle')).to_have_css('overflow','hidden')
+    expect(control(page,'BoundedTitle')).to_have_css('white-space','nowrap')
+    scrollable = control(page,'ScrollableText')
+    expect(scrollable).to_have_css('overflow','auto')
+    assert scrollable.evaluate('el => {el.scrollTop=el.scrollHeight; return el.scrollTop > 0}')
+    page.screenshot(path=str(OUT / 'card-layout/scrolled-form.png'))
+
+
 def check_views(page, backend):
     expect(control(page, 'SelectedProject')).to_have_text('')
     expect(control(page, 'ViewRows')).to_have_text('Third project, First project')
@@ -572,6 +634,8 @@ def main():
     cases.append(("responsive-canvas", REPO / "tests/fixtures/fixtureCanvas.msapp", check_canvas))
     cases.append(("scaled-canvas", REPO / "tests/fixtures/fixtureScaledCanvas.msapp", check_scaled_canvas))
     cases.append(("navigation-context", REPO / "tests/fixtures/fixtureNavigation.msapp", check_navigation))
+    cases.append(('card-layout', REPO / 'tests/fixtures/fixtureCardLayout.msapp', check_card_layout))
+    cases.append(('collection-aliases', REPO / 'tests/fixtures/fixtureCollectionAliases.msapp', check_collection_aliases))
     cases.append(("saved-views", REPO / "tests/fixtures/fixtureViews.msapp", check_views,
                   False, None, None, REPO / 'tests/fixtures/fixtureViews.solution.zip'))
     helpdesk = REPO / "samples/real/helpdesk.msapp"

@@ -429,11 +429,10 @@ def _static_style(ctrl: ControlNode, in_flex: bool, rules: list[str]) -> str:
     vwrap_y = raw("LayoutOverflowY")
     if vwrap_y == "Overflow":
         css.append("overflow-y:auto")
-    ov = raw("Overflow")
-    if ov == "Overflow":
-        css.append("overflow:visible")
-    elif ov in {"Hide", "Scrollbar"}:
-        css.append("overflow:hidden")
+    overflow = mapped("Overflow", {"Overflow":"visible", "Hide":"hidden", "Hidden":"hidden",
+                                   "Scroll":"auto", "Scrollbar":"auto"})
+    if overflow:
+        css.append(f"overflow:{overflow}")
     wrap = boolean("Wrap")
     if wrap is False:
         css.append("white-space:nowrap")
@@ -669,7 +668,9 @@ def _render_control(
     elif ctrl.type == "Image":
         extra += ' class="fx-image"'
     elif ctrl.type == "Form":
-        extra += ' class="fx-form"'
+        extra += ' class="fx-form fx-card-layout"'
+    elif ctrl.type == "FluidGrid":
+        extra += ' class="fx-card-layout"'
     elif ctrl.type == "DataCard":
         extra += ' class="fx-data-card"'
 
@@ -961,6 +962,12 @@ def render_app_js(ir: AppIR) -> str:
             values = {_snake(option["name"]): option["value"] for option in ds.option_values}
             for name in dict.fromkeys([ds.name, *ds.aliases]):
                 lines.append(f"  state[{name!r}] = {json.dumps(values)};")
+    collection_contracts = {ds.name: {'aliases':ds.metadata.get('columnAliases', {}),
+                            'error':ds.metadata.get('collectionContractError')}
+                           for ds in ir.data_sources if ds.origin == 'collection'
+                           and ds.metadata.get('columnAliases')}
+    if collection_contracts:
+        lines.append('  FX.collections.configureContracts(state, ' + json.dumps(collection_contracts).replace('<', '\\u003c') + ');')
     external_sources = [ds.name for ds in external_tables(ir.data_sources)]
     if external_sources:
         calls = ", ".join(f"refreshData({name!r})" for name in external_sources)
@@ -1351,6 +1358,30 @@ def render_app_js(ir: AppIR) -> str:
                     lines.append(f"    return {expr.js};")
                     lines.append(f"  }}, {unit!r}, {parent_names.get(ctrl.name)!r});")
                 mark_emission(expr)
+    # Cards use row/order coordinates instead of ordinary pixel coordinates.
+    # Register after ordinary bindings so layout can consume dynamic child
+    # heights; the runtime settles geometry without replacing edited nodes.
+    for screen in ir.screens:
+        for host in screen.walk_controls():
+            if host.type not in {"Form", "FluidGrid"} or host.name in gallery_children:
+                continue
+            cards = [child for child in host.children if child.type == "DataCard"]
+            if not cards:
+                continue
+            lines.append(f"  FXRuntime.registerCardLayout({host.name!r}, [")
+            for card in cards:
+                lines.append(f"    {{name: {card.name!r}, properties: {{")
+                for prop in ("X", "Y", "Width", "Height", "Visible", "WidthFit"):
+                    expr = card.properties.get(prop)
+                    if expr and expr.js and "await " not in expr.js:
+                        lines.append(f"      {prop!r}: function (val, selfRef, parentRef) {{ return {expr.js}; }},")
+                        mark_emission(expr, "emitted", "card layout uses source row/order coordinates and minimum dimensions")
+                lines.append("    }},")
+            columns = host.properties.get("NumberOfColumns")
+            column_js = columns.js if columns and columns.js and "await " not in columns.js else '1'
+            lines.append(f"  ], function (val, selfRef, parentRef) {{ return {column_js}; }}, {parent_names.get(host.name)!r});")
+            if columns and column_js == columns.js:
+                mark_emission(columns, "emitted", "sets default card width when no Width formula is exported")
     # Bootstrap: reveal the start screen after APP_MAIN runs. APP_MAIN is
     # invoked on DOMContentLoaded (gas-runtime), and APP_MAIN closes with this
     # navigation so the first paint matches Power Apps' start screen.
@@ -1375,6 +1406,8 @@ INDEX_CSS = """
     .fx-component > [data-control] { position: absolute; box-sizing: border-box; }
     .fx-manual-container, .fx-data-card { position: relative; }
     .fx-manual-container > [data-control], .fx-data-card > [data-control] { position: absolute; }
+    .fx-card-layout { position: relative; overflow: auto; }
+    .fx-card-layout > .fx-data-card { position: absolute; }
     .fx-rows { display: block; }
     .fx-row { display: block; position: relative; border-bottom: 1px solid #eee; padding: 4px 0; }
     .fx-row > [data-control] { position: absolute; box-sizing: border-box; }

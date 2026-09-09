@@ -66,6 +66,7 @@ TEMPLATE_ALIASES = {
     "infobutton": "InfoButton",
     "typeddatacard": "DataCard",
     "datacard": "DataCard",
+    "fluidgrid": "FluidGrid",
     "datatable": "DataTable",
     "datatablecolumn": "DataCard",
     "dropdowndatafield": "DataCard",

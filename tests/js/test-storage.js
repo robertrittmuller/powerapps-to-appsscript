@@ -15,6 +15,7 @@ function session(saved = new Map(), appId = 'app-one', user = 'user-one') {
       ? {textContent: JSON.stringify({appId, user})} : null},
   });
   context.window = context;
+  vm.runInContext(fs.readFileSync(require.resolve('../../static/fx-stdlib.js'), 'utf8'), context);
   vm.runInContext(runtime, context);
   return {saved, storage, context, rt: context.FXRuntime, run: code => vm.runInContext(code, context)};
 }

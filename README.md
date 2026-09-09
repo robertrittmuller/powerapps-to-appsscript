@@ -153,17 +153,19 @@ first actions for Milestones, Employee Ideas and Inspection in Chromium,
 retaining delayed connector errors and unreadable primary controls as failures.
 These are partial workflow checks; complete usability remains unproven.
 `./pfx2gas browser scripts/assess_employee_workflow.py` adds explicitly authored
-campaign/user records through generated Code.gs before startup. Campaign
-filtering, ordering, search, selection and opening the idea screen pass. The
-probe currently fails because the idea fields extend outside the mobile
-viewport; submitting/voting/reopening an idea remains unassessed.
+campaign/user records through generated Code.gs before startup. Its 23 checks
+pass: campaign filtering/order/search/selection, mobile field layout and labels,
+required-title validation, submission, persistence, reload and reopening.
+The unsupported Teams post follows the source warning/recovery path. Voting,
+attachments, custom questions and complete app usability remain unassessed.
 The normal `./pfx2gas soak` enforces the existing
 required regression corpus, including failed required journeys and missing apps.
 
 `./pfx2gas browser` tests generated forms, charts, record scopes, editable
 galleries, timer lifecycles, launch parameters, local drafts, Dataverse record
 contracts, complete source timestamp/URL-validation formulas, responsive and
-scaled canvases in Chromium, plus HelpDesk
+scaled canvases, card grids, typed collection aliases and conditional draft
+updates in Chromium, plus HelpDesk
 when its local export is present. It runs
 generated `doGet`/client/server code against a Sheets test double to check save,
 validation, failure, delete and reload behavior, including safe request templating.
@@ -206,8 +208,14 @@ Converted apps aim to match the original visually and behaviorally:
   and screen fill formulas are available during startup and on hidden screens.
   Browser tests cover minimum-width scrolling, uniform scaling, breakpoint
   boundaries and unsaved input/focus retention on resize. Device orientation
-  locking, full AutoHeight dependency handling and native form/card grids remain
+  locking and full AutoHeight dependency handling remain
   unverified; retaining an exported setting is not proof of complete support.
+- **Card layouts** — Form and native FluidGrid cards use source row/order
+  coordinates, minimum widths, wrapping, WidthFit expansion and row heights.
+  Hidden cards leave the flow; children read the resulting card dimensions.
+  Narrow-screen tests retain input nodes, text, focus and caret while wrapping
+  and scrolling. Nested gallery card layouts remain unverified. Source
+  Overflow.Hidden and Overflow.Scroll retain clipping and scroll access.
 - **Screen lifecycle** — navigation runs the departing screen's `OnHidden`
   before the destination's `OnVisible`, with each screen's own `Self` reference.
   Failed exit behavior is surfaced, and superseded navigation cannot run a
@@ -279,6 +287,14 @@ Converted apps aim to match the original visually and behaviorally:
   nested rows for aggregation and filtering, including nested ForAll results.
   Two-argument `IfError` can recover from an awaited save; nested saves expose
   fields for the generated Sheet schema and receive stable row IDs when absent.
+- **Typed local collections** — explicit Collect/ClearCollect lineage from an
+  exported table carries its logical/display aliases into local records.
+  Collect, Patch, Remove, UpdateIf and cache restoration preserve those aliases;
+  conflicting alias values fail before changing records. UpdateIf applies the
+  first matching condition/change pair with the correct row scope. External
+  UpdateIf and asynchronous conditions/change records remain unsupported.
+  IsError defers synchronous/async failures so source warning paths can recover;
+  complete Power Fx error-value propagation remains unimplemented.
 - **Dataverse data contracts** — native exports retain their field types,
   logical/display aliases, primary keys, choice codes/labels and relationship
   metadata. Option sets initialize client constants; services and views do not

@@ -10,9 +10,9 @@ from pfx2gas.fx import transpile
 REPO = Path(__file__).resolve().parents[1]
 
 
-def evaluate(formula, state=None, item=None, behavior=False, tail=""):
+def evaluate(formula, state=None, item=None, behavior=False, tail="", collections=None):
     result = transpile(formula, behavior=behavior, control_names=set(),
-                       global_names=set(state or {}))
+                       global_names=set(state or {}), collections=set(collections or []))
     assert not result.unmapped, result.unmapped
     script = """
 const fs = require('node:fs');
@@ -78,6 +78,37 @@ def test_lookup_projection_addcolumns_and_quoted_table_names():
 def test_removeif_preserves_outer_scope_and_filters_correct_records():
     assert evaluate("With({cutoff: 3}, RemoveIf(Rows, Amount > cutoff))", {"Rows": [{"amount": 2}, {"amount": 5}]},
                     behavior=True, tail="return state.Rows;") == [{"amount": 2}]
+
+
+def test_updateif_keeps_outer_gallery_item_inner_row_scope_and_first_matching_change():
+    state = {'Rows': [{'id':1, 'amount':2}, {'id':2, 'amount':5}], 'increment':3}
+    assert evaluate('UpdateIf(Rows As candidate, ThisItem.ID = candidate.ID, '
+                    '{Amount: candidate.Amount + increment}, false, {Amount: 99}); Set(done, true)',
+                    state, item={'id':2}, behavior=True, collections={'Rows'}, tail='return state;') == {
+        'Rows':[{'id':1,'amount':2},{'id':2,'amount':8}], 'increment':3, 'done':True}
+    assert evaluate('UpdateIf(Rows, Amount >= 0, {Amount: Amount + 1}, true, {Amount: 99})',
+                    state, behavior=True, collections={'Rows'}, tail='return state.Rows;') == [
+        {'id':1,'amount':3},{'id':2,'amount':6}]
+
+
+@pytest.mark.parametrize('formula,behavior', [
+    ('UpdateIf(Rows, true)', True), ('UpdateIf(Rows, true, {}, false)', True),
+    ('UpdateIf(Rows, true, {})', False),
+    ('UpdateIf(Rows, true, Patch(Tasks, Defaults(Tasks), {Name: "async"}))', True),
+])
+def test_updateif_rejects_incomplete_value_and_async_mutations(formula, behavior):
+    from pfx2gas.fx.lexer import FxSyntaxError
+    with pytest.raises(FxSyntaxError, match='UpdateIf'):
+        transpile(formula, behavior=behavior, collections={'Rows'})
+
+
+def test_iserror_defers_sync_and_async_failures_and_distinguishes_blank():
+    assert evaluate('IsError(Find("x", "text", 0))') is True
+    assert evaluate('IsError(Blank())') is False
+    for formula in ['IsError(1 / 0)', 'IsError(0 / 0)', 'IsBlankOrError(1 / 0)']:
+        assert evaluate(formula) is True
+    assert evaluate('Set(failed, IsError(Patch(Tasks, Defaults(Tasks), {Name: "x"}))); Set(after, failed)',
+                    behavior=True, tail='return state;') == {'failed':True,'after':True}
 
 
 def test_async_iferror_and_with_await_failure_before_following_behavior():

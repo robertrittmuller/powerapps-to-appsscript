@@ -586,6 +586,41 @@ def dataverse_fixture_files() -> dict[str, str]:
         "References\\DataSources.json": json.dumps({"DataSources": sources})}
 
 
+def collection_alias_fixture_files() -> dict[str, str]:
+    files = dataverse_fixture_files()
+    def control(name, kind, props, children=None):
+        return {'Name':name, 'Template':{'Name':kind}, 'Rules':[
+            {'Property':key,'InvariantScript':str(value)} for key,value in props.items()], 'Children':children or []}
+    app = json.loads(files['Controls\\1.json'])
+    for rule in app['TopParent']['Rules']:
+        if rule['Property']=='OnStart':
+            rule['InvariantScript']='ClearCollect(Drafts, Filter(Projects, false)); Collect(Drafts, {msft_projectid:"project-one",msft_name:"Draft one",msft_budget:0,msft_active:false}, {msft_projectid:"project-two",msft_name:"Draft two",msft_budget:0,msft_active:true}); Set(draftStatus, "ready")'
+    files['Controls\\1.json']=json.dumps(app)
+    screen=json.loads(files['Controls\\2.json'])
+    screen['TopParent']['Children']=[
+        control('DraftSummary','label',{'X':20,'Y':20,'Width':700,'Height':40,
+            'Text':'Concat(Drafts, Name & ":" & Text(msft_budget), ", ")'}),
+        control('DraftStatus','label',{'X':20,'Y':70,'Width':500,'Height':40,'Text':'draftStatus'}),
+        control('DraftRows','gallery',{'X':20,'Y':130,'Width':600,'Height':200,'TemplateSize':80,'TemplatePadding':0,'Items':'Drafts'},[
+            control('DraftTemplate','gallerytemplate',{},[
+                control('DraftName','text',{'X':0,'Y':0,'Width':380,'Height':44,'Mode':'TextMode.SingleLine',
+                    'Default':'ThisItem.Name','AccessibleLabel':'"Draft name"',
+                    'OnChange':'UpdateIf(Drafts, ThisItem.Project = Project, {msft_name: Self.Text})'}),
+                control('SaveDraftRow','button',{'X':400,'Y':0,'Width':180,'Height':44,'Text':'"Save row and cache"',
+                    'OnSelect':'Patch(Projects, LookUp(Projects, Project = ThisItem.Project), {Name: DraftName.Text}); SaveData(Drafts, "draft-cache"); Set(draftStatus, "saved")'}),
+            ])]),
+        control('BumpDrafts','button',{'X':20,'Y':360,'Width':180,'Height':44,'Text':'"Increment budgets"',
+            'OnSelect':'UpdateIf(Drafts, Budget >= 0, {msft_budget:Budget + 1}, true, {Budget:99})'}),
+        control('RestoreDrafts','button',{'X':220,'Y':360,'Width':180,'Height':44,'Text':'"Restore cache"',
+            'OnSelect':'Clear(Drafts); LoadData(Drafts, "draft-cache")'}),
+        control('ConflictingDraft','button',{'X':420,'Y':360,'Width':200,'Height':44,'Text':'"Test invalid aliases"',
+            'OnSelect':'IfError(ClearCollect(Drafts, {Name:"A",msft_name:"B"}), Set(draftStatus, "conflict retained draft"))'}),
+    ]
+    files['Controls\\2.json']=json.dumps(screen)
+    files['Properties.json']=json.dumps({'Name':'FixtureCollectionAliases'})
+    return files
+
+
 def source_formula_fixture_files() -> dict[str, str]:
     """Complete MIT-licensed Microsoft formulas in a small UI test harness.
 
@@ -680,6 +715,47 @@ def canvas_fixture_files(scale_to_fit=False) -> dict[str, str]:
             control("ReturnCanvas", "Button", {"X": 20, "Y": 90, "Width": "Parent.Width - 40", "Height": 44,
                 "Text": '"Return"', "OnSelect": "Navigate('Responsive Screen')"}),
         ])),
+    }
+
+
+def card_layout_fixture_files() -> dict[str, str]:
+    def control(name, kind, props, children=None):
+        return {name:{'Control':kind, 'Properties':{key:'='+str(value) for key,value in props.items()},
+                      'Children':children or []}}
+    def card(name, x, y, width, height, fit, children=None, visible='true'):
+        return control(name,'DataCard',{'X':x,'Y':y,'Width':width,'Height':height,
+            'WidthFit':fit,'Visible':visible,'Fill':'ColorValue("#eef2f7")'},children)
+    cards = [
+        card('WideCard',400,0,'Parent.Width / 3',100,'true',[
+            control('WideDraft','TextInput',{'X':8,'Y':8,'Width':'Parent.Width - 16','Height':40,
+                'Default':'"Retain this draft"','AccessibleLabel':'"Card draft"'})]),
+        card('FirstCard',0,0,120,80,'false',[
+            control('FirstCaption','Label',{'X':8,'Y':8,'Width':104,'Height':40,'Text':'"First card"'})]),
+        card('FullCard',0,1,'Parent.Width',60,'false',[
+            control('BoundedTitle','Label',{'X':8,'Y':8,'Width':'Parent.Width - 16','Height':40,
+                'Wrap':'false','Overflow':'Overflow.Hidden','Text':'"A long source title stays inside its label instead of painting across adjacent controls"'})]),
+        card('LastCard',300,2,160,140,'true',[
+            control('ScrollableText','Label',{'X':8,'Y':8,'Width':'Parent.Width - 16','Height':40,
+                'Wrap':'true','Overflow':'Overflow.Scroll','Text':'"First line with enough words to wrap. Second line with enough words to wrap. Third line with more content to read. Final line is reachable by scrolling."'})]),
+        card('HiddenCard',0,2,160,60,'true',visible='!hideCard'),
+        card('FooterCard',0,5,'Parent.Width',90,'false',[
+            control('FooterAction','Button',{'X':8,'Y':8,'Width':'Parent.Width - 16','Height':44,
+                'Text':'"Read edited draft"','OnSelect':'Set(capturedDraft, WideDraft.Text)'}),
+            control('CapturedDraft','Label',{'X':8,'Y':54,'Width':'Parent.Width - 16','Height':32,
+                'Text':'capturedDraft'})]),
+    ]
+    return {
+        'Properties.json':json.dumps({'Name':'FixtureCardLayout','DocumentLayoutWidth':640,
+            'DocumentLayoutHeight':600,'DocumentLayoutScaleToFit':False}),
+        'CanvasManifest.json':json.dumps({'Name':'FixtureCardLayout','ScreenOrder':['Card Screen']}),
+        'src/App.pa.yaml':json.dumps(control('App','AppHost',{
+            'MinScreenWidth':280,'MinScreenHeight':400,'OnStart':'Set(hideCard, false); Set(capturedDraft, "")'})),
+        'src/Card Screen.pa.yaml':json.dumps(control('Card Screen','Screen',{
+            'Width':'App.Width','Height':'App.Height'},[
+            control('ToggleCard','Button',{'X':8,'Y':8,'Width':240,'Height':44,'Text':'"Toggle optional card"',
+                'OnSelect':'Set(hideCard, !hideCard)'}),
+            control('CardCanvas','fluidGrid',{'X':0,'Y':60,'Width':'Parent.Width','Height':'Parent.Height-60',
+                'NumberOfColumns':2,'SnapToColumns':'false'},cards)])),
     }
 
 
@@ -861,6 +937,8 @@ def build_fixtures() -> None:
     _write_msapp(FIXTURE_DIR / "fixtureCanvas.msapp", canvas_fixture_files())
     _write_msapp(FIXTURE_DIR / "fixtureScaledCanvas.msapp", canvas_fixture_files(True))
     _write_msapp(FIXTURE_DIR / "fixtureNavigation.msapp", navigation_fixture_files())
+    _write_msapp(FIXTURE_DIR / 'fixtureCardLayout.msapp', card_layout_fixture_files())
+    _write_msapp(FIXTURE_DIR / 'fixtureCollectionAliases.msapp', collection_alias_fixture_files())
     _write_msapp(FIXTURE_DIR / 'fixtureViews.msapp', view_fixture_files())
     _write_msapp(FIXTURE_DIR / 'fixtureViews.solution.zip', {'customizations.xml':
         f'<ImportExportXml><Entities><Entity><savedqueries><savedquery><savedqueryid>{{{VIEW_ID}}}</savedqueryid><fetchxml>{VIEW_QUERY}</fetchxml></savedquery></savedqueries></Entity></Entities></ImportExportXml>'})

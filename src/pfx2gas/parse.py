@@ -30,6 +30,7 @@ _CONTROL_ALIASES = {
     "moderncard": "GroupContainer",
     "dropdowndatafield": "Dropdown",
     "moderntablecontrol": "DataTable",
+    "fluidgrid": "FluidGrid",
 }
 
 

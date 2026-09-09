@@ -17,8 +17,24 @@ global.document = {
 global.window = global;
 
 require('../../static/fx-charts.js');
+require('../../static/fx-stdlib.js');
 require('../../static/gas-runtime.js');
 const RT = global.FXRuntime;
+
+test('gallery template dimensions exist before the first Items binding mounts rows', () => {
+  const vm = require('node:vm'), fs = require('node:fs');
+  const gallery = {tagName:'DIV',style:{width:'390px'},textContent:'',
+    getAttribute:name=>({'data-template-size':'182','data-template-padding':'8'}[name] ?? null)};
+  const ctx = vm.createContext({document:{...global.document,querySelector:()=>gallery}});
+  ctx.window=ctx;
+  vm.runInContext(fs.readFileSync(require.resolve('../../static/gas-runtime.js'),'utf8'),ctx);
+  const ref=ctx.val('Responses');
+  assert.strictEqual(ref.template_height,182);
+  assert.strictEqual(ref.template_size,182);
+  assert.strictEqual(ref.template_padding,8);
+  assert.strictEqual(ref.template_width,390);
+  assert.strictEqual(2*(ref.template_height+ref.template_padding),380);
+});
 
 test('startup waits for session identity before source OnStart snapshots User()', async () => {
   const vm = require('node:vm'), fs = require('node:fs');

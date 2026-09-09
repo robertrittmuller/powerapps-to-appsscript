@@ -54,8 +54,8 @@ mobile routing and contrast themes in the real exports. Manual layout takes
 precedence over dormant LayoutDirection settings; nested container and DataCard
 children use local coordinates. Two additional Chromium fixtures cover manual
 and automatic layouts, narrow/minimum widths, scaled interactions and retained
-draft text/caret. Form/card grid placement, AutoHeight dependency ordering and
-device orientation locking still need implementation or verification.
+draft text/caret. AutoHeight dependency ordering and device orientation locking
+still need implementation or verification.
 Screen OnHidden is now wired and awaited before destination OnVisible. This
 restores Employee Ideas' source initialization of mobile width, padding and
 other values when leaving loading; its mobile first-action probe now passes.
@@ -86,17 +86,33 @@ source initialization. Template-stored legacy gallery actions now survive row
 flattening. A native Chromium fixture verifies filtering/search, saved changes,
 reload and selection through the original template action.
 
+Native FluidGrid and Form cards now interpret X/Y as order/row coordinates,
+wrap minimum widths, expand WidthFit cards and use row heights. A generated
+fixture verifies resize/hidden-card reflow, scrolling and retained input
+nodes/text/focus/caret. Gallery template dimensions exist before first-row
+binding. Exported Hidden/Scroll text overflow is preserved. Explicit table
+lineage carries logical/display aliases into local collections, including
+cache restoration; UpdateIf preserves inner-row scope and applies only the
+first matching change. Conflicting aliases fail before mutation. Deferred
+IsError restores the original source warning/recovery path around a failed post.
+External UpdateIf, asynchronous predicates/change records, complete error-value
+propagation and nested-gallery card layouts remain unsupported or unverified.
+
 Eleven pinned source exports are available here: five public regression apps
 and six Microsoft business apps. **All eleven generate valid code; six pass
 the short startup check. None has complete usability acceptance evidence.**
 The solution-aware checks expose previously silent relative-date view filters
 and missing identity mappings, so five Microsoft apps now fail short startup
 and all three default first-action probes fail. With one explicitly authored
-user and four campaigns, Employee Ideas passes active-view filtering/order,
-search, selected campaign detail and opening a new idea. Its response fields
-extend beyond the mobile viewport (x=420, width=350 in a 390px viewport), failing
-the new usability assertion. Submission/voting/reload remains unassessed.
-Eleven generated-fixture Chromium journeys pass. Fixtures are regression
+user and four campaigns, Employee Ideas now passes 23 checks covering active
+filtering/order/search, selected detail, mobile field geometry/labels,
+required-title validation, submission, persistence, reload and reopening.
+The source's failed Teams-post warning executes without aborting the save.
+Its title remains deliberately truncated under source Wrap=false/Overflow.Hidden.
+Voting, attachments, custom questions and complete usability remain unassessed.
+Milestones also exposes a nonfinite dtcSettings.Height dependency during startup;
+the new card layout gate surfaces it instead of silently accepting NaN geometry.
+Fourteen generated-fixture Chromium journeys pass. Fixtures are regression
 evidence, not additional real acceptance apps. The last recorded Google
 deployment remains HelpDesk @14.
 
@@ -151,17 +167,17 @@ the implementation order.
 
 | Evidence | Latest result | What remains unproven |
 |---|---|---|
-| Unit/runtime tests | 258 Python pass, 3 skip; 83 JS pass; bare globals, FX and FXRuntime emitter/runtime consistency passes | Complete deployed workflows and broader control semantics |
+| Unit/runtime tests | 269 Python pass, 3 skip; 88 JS pass; bare globals, FX, FXRuntime and FX.collections emitter/runtime consistency passes | Complete deployed workflows and broader control semantics |
 | Current real-app soak | 5/5 Bootable; 1,145 formulas, including previously dropped App/screen properties | Usability unassessed; the other five historical local exports are absent |
-| Current regression translation/wiring | 1,139 translated; 970 emitted, 13 approximated, 162 ignored/unsupported | Translation does not establish runtime behavior |
+| Current regression translation/wiring | 1,140 translated; 971 emitted, 13 approximated, 161 ignored/unsupported | Translation does not establish runtime behavior |
 | Historical ten-app corpus | Previously 10/10 Bootable; 23,746 formulas | Not reproduced in this workspace; those results did not establish usability |
 | HelpDesk generated-app journeys | HOME → NEW → HOME; dashboard row text, logo URI, pie and legend output pass | All-screen interactions, image decoding/layout in CI, persistence |
 | HelpDesk @14 live browser | Ticket cards, decoded 64×64 logos, pie/bar/legend SVGs, readable fonts/labels, HOME → NEW → HOME | Same-state original comparison, user name/avatar, complete workflow coverage |
 | Chromium: business form | Actual generated client + Code.gs: edit/create, required validation, write failure, delete and page reload pass against a persistent Sheets test double | Real Google authorization/Sheets writes and another user/session |
-| Chromium regression suite | 12/12 fixtures pass, including navigation context and saved views/template selection; the intentional screenshot-failure gate also retains its original journey failure | Real Google services, real-app critical workflows and original visual comparisons; HelpDesk is absent here |
+| Chromium regression suite | 14/14 fixtures pass, including native card reflow/overflow and typed draft aliases/UpdateIf; the intentional screenshot-failure gate also retains its original journey failure | Real Google services, real-app critical workflows and original visual comparisons; HelpDesk is absent here |
 | Microsoft generated-server initialization | Six exports: setup and reads across 124 tables and 302 choice fields pass in the Sheets test double | Tenant data migration, real Google writes, source defaults, calculations, relationships and permissions |
 | Microsoft business baseline | 6/6 convert and validate; 1/6 passes short startup (Employee Ideas) | Saved-view relative dates, migrated identities and Teams/Planner dependencies fail prerequisites |
-| Microsoft first actions | All three default probes fail with source views now enforced. Populated Employee Ideas passes campaign browsing/search/selection and opens a new idea, then fails the mobile field layout assertion | Complete business workflows, persistence, target identities and UI parity; partial success never promotes an app to Usable |
+| Microsoft first actions | All three default probes fail with source views now enforced. Populated Employee Ideas passes 23 checks through mobile validation, submission, persistence, reload and reopening, plus the source posting-warning path | Voting, custom questions, attachments, complete workflows, real Google persistence, target identities and UI parity; partial success never promotes an app to Usable |
 | CI configuration | Existing tests plus required-app/journey gates and new Chromium artifact job | Browser job configured and locally tested, not yet verified in remote CI; local HelpDesk remains optional |
 
 Evidence: `.artifacts/benchmark/benchmark-scorecard.json`,
@@ -439,9 +455,9 @@ full reactive row styling and broad responsive layout remain unverified.
 
 Extend this evidence to real business apps and concurrent row actions. Revisit horizontal
 galleries, WrapCount/template width and padding with browser geometry evidence.
-Viewport resize invalidation and manual nested-container positioning now have
-browser gates. Extend these to AutoHeight and forward-dependent positions,
-native form/card grids and real business workflows. Preserve the source
+Viewport resize invalidation, manual nested-container positioning and native
+form/card grids now have browser gates. Extend these to AutoHeight,
+forward-dependent positions, nested galleries and more real workflows. Preserve the source
 layout mode: a fixed canvas may scale or scroll, while a responsive source must
 reflow according to its formulas.
 

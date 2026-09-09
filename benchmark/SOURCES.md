@@ -53,8 +53,11 @@ the short startup check. Previously silent view filters now expose missing
 migrated identities and unsupported relative-date queries. All three default
 first-action probes fail. The separate populated Employee Ideas probe supplies
 one authored user and four authored campaign records through generated Code.gs:
-active filtering/order, search, campaign selection and opening a new idea pass;
-the mobile idea-field layout fails. Source app and solution bytes stay unchanged.
+23 checks pass for active filtering/order/search, campaign selection, mobile
+fields and labels, required-title validation, submission, persistence, reload
+and reopening. The source warning path handles the unsupported Teams post;
+voting, attachments and custom questions remain unassessed. Source app and
+solution bytes stay unchanged.
 The combined scorecard retains failures with matching source/converter/solution
 hashes. Authored record contents and a data hash accompany the populated probe.
 All six remain below complete usability acceptance. See `GAP_ASSESSMENT.md` for the fix

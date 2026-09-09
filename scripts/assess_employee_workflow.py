@@ -43,7 +43,7 @@ def main():
             steps.append({'id':name,'status':'fail','error':str(error)})
             raise
 
-    def journey(page, _backend):
+    def journey(page, backend):
         page.set_default_timeout(5000)
         check('source-mobile-startup', lambda: expect(page.locator(
             '[data-screen="Mobile Landing Screen"]')).to_be_visible(timeout=10000))
@@ -71,6 +71,41 @@ def main():
                     'failure':'idea field extends outside the mobile viewport', 'field':box, 'viewportWidth':width}
                 expect(field).to_be_editable()
         check('idea-fields-fit-mobile-viewport', usable_fields)
+        responses = control(page, 'galMobileIdeaResponses')
+        check('source-field-labels', lambda: expect(responses.locator(
+            '[data-control="lblMobileIdeaResponseRating_Instructions"]')).to_have_text(['Title','Description']))
+        submit = control(page, 'btnMobileCampaignIdeaControls_Submit')
+        check('empty-title-disables-submit', lambda: expect(submit).to_be_disabled())
+        fields = responses.locator('[data-control="txtMobileResponseText"]')
+        fields.nth(0).fill('Shorter meetings with written decisions')
+        fields.nth(0).press('Tab')
+        fields.nth(1).fill('Share an agenda, time-box discussion, and retain the decision notes.')
+        fields.nth(1).press('Tab')
+        check('valid-title-enables-submit', lambda: expect(submit).to_be_enabled())
+        check('submit-idea', lambda: submit.click())
+        check('submission-success-screen', lambda: expect(page.locator('[data-screen="Mobile Success Screen"]')).to_be_visible())
+        def saved_idea():
+            result = backend({'fn':'api','args':['Employee Ideas','list',{}]})
+            assert 'error' not in result, result
+            rows = result['result']
+            assert len(rows) == 1 and rows[0]['title'] == 'Shorter meetings with written decisions', rows
+            assert rows[0]['description'] == 'Share an agenda, time-box discussion, and retain the decision notes.', rows
+        check('generated-server-saved-idea', saved_idea)
+        check('source-posting-failure-warning', lambda: expect(page.locator('#fx-toast')).to_contain_text('Message was not posted'))
+        check('return-to-campaign', lambda: control(page,'btnMobileCampaignIdeaControls_Return').click())
+        ideas = control(page,'galMobileCampaignDetailsIdeas')
+        check('saved-idea-listed', lambda: expect(ideas).to_contain_text('Shorter meetings with written decisions'))
+        page.reload()
+        expect(page.locator('[data-screen="Mobile Landing Screen"]')).to_be_visible(timeout=10000)
+        control(page,'btnMobileBrowseCampaigns').click()
+        control(page,'galMobileCampaignSummary').locator('[data-control="btnMobileCampaignSummary_SelectBorder"]').first.click()
+        check('saved-idea-listed-after-reload', lambda: expect(ideas).to_contain_text('Shorter meetings with written decisions'))
+        check('reopen-saved-idea', lambda: ideas.locator('[data-control="btnMobileCampaignDetailIdeas_Select"]').first.click())
+        check('saved-idea-detail', lambda: expect(control(page,'lblMobileCampaignIdeaCard_Title')).to_have_text('Shorter meetings with written decisions'))
+        # The source deliberately exports Wrap=false and Overflow.Hidden.
+        # Retain that bounded title behavior; do not credit it as full-title visibility.
+        check('source-title-overflow-boundary', lambda: expect(control(page,'lblMobileCampaignIdeaCard_Title')).to_have_css('overflow','hidden'))
+        check('server-record-retained-after-reload', saved_idea)
 
     with sync_playwright() as p:
         browser = p.chromium.launch()
@@ -79,8 +114,9 @@ def main():
             solution=REPO / 'samples/microsoft/EmployeeIdeas.solution.zip', setup_backend=seed)
         browser.close()
     result.update(sourceAppId='employee-ideas', steps=steps,
-        assessmentScope='populated campaign browsing, selection and new-idea form access',
-        completeUsability='unassessed', mutationAndSubmission='unassessed')
+        assessmentScope='populated campaign browsing, selection, validation, idea submission, reload and reopening',
+        completeUsability='unassessed', mutationAndSubmission='assessed by individual steps',
+        externalPosting='unsupported; source warning/recovery path is exercised')
     (OUT / NAME / 'result.json').write_text(json.dumps(result, indent=2) + '\n')
     print(json.dumps({'status':result['status'], 'steps':steps}, indent=2))
     return int(result['status'] != 'pass')

@@ -64,6 +64,34 @@ def test_legacy_layout_and_screen_properties_are_preserved(tmp_path):
     assert ir.screens[0].properties['OnHidden'].emission_status == 'emitted'
 
 
+def test_generated_native_card_layout_boots_and_ledgers_card_coordinates(tmp_path):
+    ir = analyze(parse(unpack(FIXTURES / 'fixtureCardLayout.msapp')))
+    host = next(c for c in ir.screens[0].walk_controls() if c.name == 'CardCanvas')
+    assert host.type == 'FluidGrid'
+    project = synthesize(ir, tmp_path / 'cards')
+    result = simulate_project(project)
+    assert result['consoleErrors'] == [], result
+    assert result['visible'] == [ir.screens[0].name], result
+    for prop in ['X', 'Y', 'Width', 'Height', 'WidthFit']:
+        entry = next(row for row in ledger_rows(ir) if row['control'] == 'WideCard' and row['property'] == prop)
+        assert entry['emission'] == 'emitted', entry
+
+
+def test_legacy_fluidgrid_type_uses_card_layout_instead_of_pixel_positioned_generic_div(tmp_path):
+    source = tmp_path / 'legacy-grid.msapp'
+    def node(name, template, children=None):
+        return {'Name':name, 'Template':{'Name':template}, 'Children':children or [], 'Rules':[]}
+    with zipfile.ZipFile(source, 'w') as z:
+        z.writestr('Properties.json', json.dumps({'Name':'LegacyGrid'}))
+        z.writestr('Controls\\1.json', json.dumps({'TopParent':node('Screen', 'screen', [
+            node('ScrollingCanvas', 'fluidGrid', [node('Card', 'dataCard')])])}))
+    ir = analyze(parse(unpack(source)))
+    assert ir.screens[0].controls[0].type == 'FluidGrid'
+    project = synthesize(ir, tmp_path / 'legacy-cards')
+    result = simulate_project(project)
+    assert result['consoleErrors'] == [], result
+
+
 def test_screen_size_enum_comparisons_use_numbers_and_navigation_keeps_screen_identity():
     from pfx2gas.fx import transpile
     formula = transpile("If('Wide Screen'.Size >= ScreenSize.ExtraLarge, App.ActiveScreen.Width, App.MinScreenWidth)",

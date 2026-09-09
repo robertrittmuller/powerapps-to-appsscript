@@ -253,8 +253,8 @@ def infer_data_source_fields(ir: AppIR) -> None:
             ds = by_name.get(ds_name)
             if ds is None:
                 continue
-            if st.value in {"Patch", "Collect", "ClearCollect"}:
-                records = st.children[2:] if st.value == "Patch" else st.children[1:]
+            if st.value in {"Patch", "Collect", "ClearCollect", "UpdateIf"}:
+                records = st.children[2::2] if st.value == 'UpdateIf' else st.children[2:] if st.value == "Patch" else st.children[1:]
                 known = known_fields(ds)
                 for record in records:
                     for fname, ftype in record_fields_from(record):
@@ -308,6 +308,8 @@ def analyze(ir: AppIR, uncovered: list[dict] | None = None, solution=None) -> Ap
     ir.global_vars = collect_global_vars(ir)
     infer_local_collections(ir)
     infer_data_source_fields(ir)
+    from .collection_contracts import infer_collection_contracts
+    infer_collection_contracts(ir)
     from .views import resolve_views
     resolve_views(ir, solution)
 

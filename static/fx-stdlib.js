@@ -17,6 +17,9 @@
   function isBlank(v) {
     return v === null || v === undefined || v === '';
   }
+  function isNumericError(v) {
+    return typeof v === 'number' && !Number.isFinite(v);
+  }
   function toNum(v) {
     if (typeof v === 'number') return v;
     if (typeof v === 'boolean') return v ? 1 : 0;
@@ -219,10 +222,18 @@
       return (exact ? text : text.toLowerCase()).indexOf(exact ? part : part.toLowerCase()) >= 0;
     },
     isBlank: isBlank,
+    isError: function (value) {
+      try {
+        var result = typeof value === 'function' ? value() : value;
+        return result && typeof result.then === 'function'
+          ? result.then(isNumericError, function () { return true; }) : isNumericError(result);
+      } catch (error) { return true; }
+    },
     isBlankOrError: function (v) {
+      function check(value) { return isBlank(value) || isNumericError(value); }
       try {
         var value = typeof v === 'function' ? v() : v;
-        return value && typeof value.then === 'function' ? value.then(isBlank, function () { return true; }) : isBlank(value);
+        return value && typeof value.then === 'function' ? value.then(check, function () { return true; }) : check(value);
       } catch (error) { return true; }
     },
     isMatch: function (text, pattern, options) { return regexFor(pattern, options, true, false).test(String(text == null ? '' : text)); },
@@ -671,20 +682,76 @@
     return out;
   }
 
+  var collectionContracts = new WeakMap();
+  function attachCollectionAliases(st, name, record) {
+    var contract = (collectionContracts.get(st) || {})[name];
+    if (!contract) return record;
+    Object.keys(contract.aliases).forEach(function (alias) {
+      var canonical = contract.aliases[alias];
+      if (alias === canonical || !Object.prototype.hasOwnProperty.call(record, canonical)) return;
+      Object.defineProperty(record, alias, {enumerable:false, configurable:true,
+        get:function () { return record[canonical]; }, set:function (value) { record[canonical] = value; }});
+    });
+    return record;
+  }
+  function normalizeCollectionRecord(st, name, record) {
+    var contracts = collectionContracts.get(st) || {}, contract = contracts[name];
+    if (!contract) return record;
+    if (contract.error) throw new Error(contract.error);
+    if (!record || typeof record !== 'object' || Array.isArray(record))
+      throw new Error('Typed collection requires a record: ' + name);
+    var aliases = contract.aliases, result = {};
+    Object.keys(record).forEach(function (key) {
+      var canonical = Object.prototype.hasOwnProperty.call(aliases, key) ? aliases[key] : key;
+      if (Object.prototype.hasOwnProperty.call(result, canonical) && JSON.stringify(result[canonical]) !== JSON.stringify(record[key]))
+        throw new Error('Conflicting collection field aliases: ' + name + '.' + canonical);
+      Object.defineProperty(result, canonical, {value:record[key], writable:true, enumerable:true, configurable:true});
+    });
+    return attachCollectionAliases(st, name, result);
+  }
+  function prepareCollectionRecords(st, name, records) {
+    return records.map(function (record) { return normalizeCollectionRecord(st, name, record); });
+  }
   var FXCollections = {
+    configureContracts: function (st, contracts) { collectionContracts.set(st, contracts); },
+    prepare: prepareCollectionRecords,
+    updateIf: function (st, name, pairs) {
+      var table = st[name] = st[name] || [];
+      // Evaluate conditions/changes against original rows and validate aliases
+      // before mutating, retaining row identity and skipped branch laziness.
+      var updates = table.map(function (record) {
+        for (var i = 0; i < pairs.length; i++) {
+          var matched = pairs[i].condition(record);
+          if (matched && typeof matched.then === 'function') throw new Error('UpdateIf condition must be synchronous');
+          if (matched) {
+            var changes = pairs[i].changes(record);
+            if (!changes || typeof changes !== 'object' || Array.isArray(changes) || typeof changes.then === 'function')
+              throw new Error('UpdateIf changes must be a synchronous record');
+            return normalizeCollectionRecord(st, name, changes);
+          }
+        }
+        return null;
+      });
+      updates.forEach(function (changes, index) {
+        if (changes !== null) {
+          Object.assign(table[index], changes);
+          attachCollectionAliases(st, name, table[index]);
+        }
+      });
+      return table;
+    },
     /** Collect(coll, records...) — append records/tables to state[name]. */
     collect: function (st, name) {
+      var recs = prepareCollectionRecords(st, name, asRecords(Array.prototype.slice.call(arguments, 2)));
       var arr = st[name] = st[name] || [];
-      var recs = asRecords(Array.prototype.slice.call(arguments, 2));
       for (var i = 0; i < recs.length; i++) arr.push(recs[i]);
       return arr;
     },
     /** ClearCollect(coll, records...) — reset then append. */
     clearCollect: function (st, name) {
-      st[name] = [];
-      var args = Array.prototype.slice.call(arguments);
-      args[1] = name; args[0] = st;
-      return FXCollections.collect.apply(null, args);
+      var recs = prepareCollectionRecords(st, name, asRecords(Array.prototype.slice.call(arguments, 2)));
+      st[name] = recs;
+      return recs;
     },
     /** Clear(coll) — remove all rows. */
     clearCollection: function (st, name) {
@@ -703,6 +770,7 @@
       for (var i = 0; i < arr.length; i++) {
         if (arr[i] === rec) { arr.splice(i, 1); return arr; }
       }
+      rec = normalizeCollectionRecord(st, name, rec);
       for (var j = 0; j < arr.length; j++) {
         if (matchesBase(arr[j], rec)) { arr.splice(j, 1); return arr; }
       }
@@ -710,19 +778,21 @@
     },
     /** Patch(coll, base, changes) — merge into the matching row; no base = append. */
     patchCollection: function (st, name, base, changes) {
+      changes = normalizeCollectionRecord(st, name, changes || {});
       var arr = st[name] = st[name] || [];
       if (base && typeof base === 'object') {
         var target = null;
         for (var i = 0; i < arr.length; i++) { if (arr[i] === base) { target = arr[i]; break; } }
         if (!target) {
-          for (var j = 0; j < arr.length; j++) { if (matchesBase(arr[j], base)) { target = arr[j]; break; } }
+          var normalizedBase = normalizeCollectionRecord(st, name, base);
+          for (var j = 0; j < arr.length; j++) { if (matchesBase(arr[j], normalizedBase)) { target = arr[j]; break; } }
         }
-        if (target) { Object.assign(target, changes || {}); return target; }
-        var rec = Object.assign({}, base, changes || {});
+        if (target) { Object.assign(target, changes || {}); return attachCollectionAliases(st, name, target); }
+        var rec = normalizeCollectionRecord(st, name, Object.assign({}, normalizeCollectionRecord(st, name, base), changes || {}));
         arr.push(rec);
         return rec;
       }
-      var rec2 = Object.assign({}, changes || {});
+      var rec2 = normalizeCollectionRecord(st, name, Object.assign({}, changes || {}));
       arr.push(rec2);
       return rec2;
     },

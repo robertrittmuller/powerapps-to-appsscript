@@ -60,7 +60,7 @@ def fx_exports() -> set[str]:
     return {"FX"} | names
 
 
-def generated_fixture_bare_calls() -> tuple[list[str], Path, set[str], set[str]]:
+def generated_fixture_bare_calls() -> tuple[list[str], Path, set[str], set[str], set[str]]:
     """Convert navigation and form fixtures and collect generated bare calls."""
     import importlib.util
 
@@ -78,7 +78,7 @@ def generated_fixture_bare_calls() -> tuple[list[str], Path, set[str], set[str]]
     apps = []
     out = tmp / "FixtureA"
     fixture_build.build_fixtures()
-    for fixture_name in ("fixtureA.msapp", "fixtureForm.msapp", "fixtureCharts.msapp", "fixtureScopes.msapp", "fixtureGallery.msapp", "fixtureTimer.msapp", "fixtureStorage.msapp", "fixtureDataverse.msapp", "fixtureSourceFormulas.msapp", "fixtureCanvas.msapp", "fixtureScaledCanvas.msapp", "fixtureNavigation.msapp", "fixtureViews.msapp"):
+    for fixture_name in ("fixtureA.msapp", "fixtureForm.msapp", "fixtureCharts.msapp", "fixtureScopes.msapp", "fixtureGallery.msapp", "fixtureTimer.msapp", "fixtureStorage.msapp", "fixtureDataverse.msapp", "fixtureSourceFormulas.msapp", "fixtureCanvas.msapp", "fixtureScaledCanvas.msapp", "fixtureNavigation.msapp", "fixtureViews.msapp", "fixtureCardLayout.msapp", "fixtureCollectionAliases.msapp"):
         solution = fixture_build.FIXTURE_DIR / 'fixtureViews.solution.zip' if fixture_name == 'fixtureViews.msapp' else None
         ir = analyze(parse(unpack(fixture_build.FIXTURE_DIR / fixture_name)), solution=solution)
         out = synthesize(ir, tmp / fixture_name.removesuffix(".msapp"))
@@ -90,7 +90,8 @@ def generated_fixture_bare_calls() -> tuple[list[str], Path, set[str], set[str]]
     calls = set(re.findall(r"(?<![\w.$])([a-zA-Z_]\w*)\s*\(", app))
     runtime_calls = set(re.findall(r"\bFXRuntime\.(\w+)\s*\(", app))
     fx_calls = set(re.findall(r"\bFX\.(\w+)\s*\(", app))
-    return sorted(calls), out, runtime_calls, fx_calls
+    collection_calls = set(re.findall(r"\bFX\.collections\.(\w+)\s*\(", app))
+    return sorted(calls), out, runtime_calls, fx_calls, collection_calls
 
 
 def main() -> int:
@@ -113,7 +114,7 @@ def main() -> int:
             problems.append(f"{name}: takes {len(got)} args, emitter needs >= {min_args}")
 
     # 2. emitter <-> runtime export surface (real fixture conversion)
-    calls, _out, runtime_calls, fx_calls = generated_fixture_bare_calls()
+    calls, _out, runtime_calls, fx_calls, collection_calls = generated_fixture_bare_calls()
     fx = fx_exports()
     for call in calls:
         if call in KEYWORDS or call in fx:
@@ -129,7 +130,7 @@ def main() -> int:
         "require('./static/gas-runtime.js');"
         "const FX=require('./static/fx-stdlib.js');"
         "const functions=o=>Object.keys(o).filter(k=>typeof o[k]==='function');"
-        "process.stdout.write(JSON.stringify({runtime:functions(FXRuntime),fx:functions(FX)}));"],
+        "process.stdout.write(JSON.stringify({runtime:functions(FXRuntime),fx:functions(FX),collections:functions(FX.collections)}));"],
         cwd=REPO, text=True, capture_output=True, check=True)
     surfaces = json.loads(run.stdout)
     available = set(surfaces["runtime"])
@@ -143,6 +144,8 @@ def main() -> int:
             fx_calls.update(re.findall(r"\bFX\.(\w+)\s*\(", spec.js))
     for call in sorted(fx_calls - set(surfaces["fx"])):
         problems.append(f"emitter generates FX.{call}(...) but stdlib has no callable helper")
+    for call in sorted(collection_calls - set(surfaces['collections'])):
+        problems.append(f'emitter generates FX.collections.{call}(...) but stdlib has no callable helper')
 
     if problems:
         print("RUNTIME-EMITTER DRIFT DETECTED:")

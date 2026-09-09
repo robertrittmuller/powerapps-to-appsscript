@@ -272,12 +272,13 @@ class Emitter:
             options = self.match_constant(args[2], True) if len(args) == 3 else ""
             fn = {"IsMatch": "isMatch", "Match": "match", "MatchAll": "matchAll"}[name]
             return f"FX.{fn}({self.expr(args[0])}, {_q(pattern)}, {_q(options)})"
-        if name == "IsBlankOrError":
+        if name in {"IsBlankOrError", "IsError"}:
             if len(args) != 1:
-                raise lx.FxSyntaxError("IsBlankOrError requires one expression")
+                raise lx.FxSyntaxError(name + " requires one expression")
             value = self.expr(args[0])
             prefix = "async " if "await " in value else ""
-            call = f"FX.isBlankOrError({prefix}() => ({value}))"
+            helper = 'isError' if name == 'IsError' else 'isBlankOrError'
+            call = f"FX.{helper}({prefix}() => ({value}))"
             return f"await {call}" if prefix else call
         if name == "Set":
             return self.set_call(node)
@@ -353,7 +354,7 @@ class Emitter:
             if len(args) > 1:
                 raise lx.FxSyntaxError("ClearData accepts at most one storage name")
             return f"FXRuntime.clearData({self.expr(args[0]) if args else ''})"
-        if name in {"Patch", "Remove", "RemoveIf", "Collect", "ClearCollect", "Refresh"}:
+        if name in {"Patch", "Remove", "RemoveIf", "UpdateIf", "Collect", "ClearCollect", "Refresh"}:
             return self.data_call(name, node)
         if name == "Clear":
             target = args[0]
@@ -591,7 +592,7 @@ class Emitter:
         args = node.children
         if not args:
             raise lx.FxSyntaxError(f"{name} requires a data source")
-        row_scope = self.new_scope() if name == "RemoveIf" else "item"
+        row_scope = self.new_scope() if name in {"RemoveIf", "UpdateIf"} else "item"
         source, binding = self.scoped_source(args[0], row_scope)
         ds = self.source_name(source)
         if ds is None:
@@ -611,6 +612,10 @@ class Emitter:
         # instead of round-tripping through the Sheet API.
         if ds in self.collections:
             return self.collection_call(name, ds, node, ex, row_scope)
+
+        if name == 'UpdateIf':
+            self.res.unmapped.append('UpdateIf against an external data source')
+            return "FX.unsupported('UpdateIf against an external data source')"
 
         if name == "Patch":
             base = ex(1) if len(args) >= 3 else "null"
@@ -636,6 +641,16 @@ class Emitter:
     def collection_call(self, name: str, ds: str, node, ex, row_scope: str) -> str:
         """Transpile a data call against a collection (client-side array)."""
         args = node.children
+        if name == 'UpdateIf':
+            if not self.behavior or len(args) < 3 or len(args) % 2 != 1:
+                raise lx.FxSyntaxError('UpdateIf requires condition/change pairs in a behavior formula')
+            pairs = []
+            for index in range(1, len(args), 2):
+                condition, changes = ex(index, row_ctx=True), ex(index + 1, row_ctx=True)
+                if 'await ' in condition or 'await ' in changes:
+                    raise lx.FxSyntaxError('UpdateIf conditions and change records must be synchronous')
+                pairs.append(f'{{condition: ({row_scope}) => ({condition}), changes: ({row_scope}) => ({changes})}}')
+            return f"FX.collections.updateIf(state, {ds!r}, [{', '.join(pairs)}])"
         if name == "Patch":
             base = ex(1) if len(args) >= 3 else "null"
             rec = ex(2) if len(args) >= 3 else (ex(1) if len(args) == 2 else "{}")
