@@ -23,6 +23,8 @@ STATIC = REPO / "static"
 
 # (name, expected first params in the runtime definition, min arg count)
 EXPECTED = {
+    "go": (["name", "contextPatch"], 2),
+    "updateContext": (["screen", "patch"], 2),
     "powerapps_collect": (["st", "ds"], 2),
     "powerapps_clearCollect": (["st", "ds"], 2),
     "powerapps_remove": (["st", "ds", "record"], 2),
@@ -76,7 +78,7 @@ def generated_fixture_bare_calls() -> tuple[list[str], Path, set[str], set[str]]
     apps = []
     out = tmp / "FixtureA"
     fixture_build.build_fixtures()
-    for fixture_name in ("fixtureA.msapp", "fixtureForm.msapp", "fixtureCharts.msapp", "fixtureScopes.msapp", "fixtureGallery.msapp", "fixtureTimer.msapp", "fixtureStorage.msapp", "fixtureDataverse.msapp", "fixtureSourceFormulas.msapp", "fixtureCanvas.msapp", "fixtureScaledCanvas.msapp"):
+    for fixture_name in ("fixtureA.msapp", "fixtureForm.msapp", "fixtureCharts.msapp", "fixtureScopes.msapp", "fixtureGallery.msapp", "fixtureTimer.msapp", "fixtureStorage.msapp", "fixtureDataverse.msapp", "fixtureSourceFormulas.msapp", "fixtureCanvas.msapp", "fixtureScaledCanvas.msapp", "fixtureNavigation.msapp"):
         ir = analyze(parse(unpack(fixture_build.FIXTURE_DIR / fixture_name)))
         out = synthesize(ir, tmp / fixture_name.removesuffix(".msapp"))
         apps.append((out / "App.js.html").read_text())
@@ -97,7 +99,7 @@ def main() -> int:
 
     # 1. collection-helper signatures
     for name, (params, min_args) in EXPECTED.items():
-        m = re.search(rf"{name}\s*=\s*function\s*\(([^)]*)\)", src)
+        m = re.search(rf"(?:{name}\s*=\s*function|function\s+{name})\s*\(([^)]*)\)", src)
         if not m:
             problems.append(f"{name}: not defined in gas-runtime.js")
             continue
@@ -105,7 +107,7 @@ def main() -> int:
         if got[: len(params)] != params:
             problems.append(
                 f"{name}: runtime signature ({', '.join(got)}) does not start with "
-                f"({', '.join(params)}); emitter writes {name}(state, '<Name>', ...)")
+                f"({', '.join(params)}); emitter/runtime argument order differs")
         if len(got) < min_args:
             problems.append(f"{name}: takes {len(got)} args, emitter needs >= {min_args}")
 

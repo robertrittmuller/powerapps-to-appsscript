@@ -683,6 +683,51 @@ def canvas_fixture_files(scale_to_fit=False) -> dict[str, str]:
     }
 
 
+def navigation_fixture_files() -> dict[str, str]:
+    """Screen-local records, shadowing, and an awaited save after navigation."""
+    def control(name, kind, props, children=None):
+        node = {"Control": kind, "Properties": {k: "=" + str(v) for k, v in props.items()}}
+        if children:
+            node["Children"] = children
+        return {name: node}
+    def box(y, text, **props):
+        return {"X": 20, "Y": y, "Width": 420, "Height": 44, "Text": text, **props}
+    rows = control("NavigationRows", "Gallery", {
+        "X": 20, "Y": 90, "Width": 440, "Height": 160, "Items": "Contacts",
+        "TemplateSize": 64, "TemplatePadding": 0}, [
+        control("NavigationTemplate", "GalleryTemplate", {}, [
+            control("OpenContact", "Button", box(4, 'ThisItem.FirstName & " " & ThisItem.LastName',
+                OnSelect="Navigate('Detail Screen', ScreenTransition.None, {currentItem: ThisItem, draftLabel: \"detail\", CamelCase: 0, enabled: false, 'quoted key': \"quoted\"})"))])])
+    files = {
+        "CanvasManifest.json": json.dumps({"Name": "FixtureNavigation", "ScreenOrder": ["Browse Screen", "Detail Screen", "Other Screen"]}),
+        "src/App.pa.yaml": json.dumps(control("App", "AppHost", {"OnStart": 'Set(currentItem, "global"); Set(draftLabel, "global draft")'})),
+        "src/Browse Screen.pa.yaml": json.dumps(control("Browse Screen", "Screen", {
+            "OnVisible": 'UpdateContext({draftLabel: "browse"}); If(false, UpdateContext({currentItem: Blank()}))'}, [
+            control("BrowseScope", "Label", box(20, 'draftLabel & ":" & If(IsBlank(currentItem), "blank", "leaked") & ":" & [@currentItem]')),
+            rows,
+        ])),
+        "src/Detail Screen.pa.yaml": json.dumps(control("Detail Screen", "Screen", {
+            "OnVisible": 'Set(enteredName, currentItem.FirstName); UpdateContext({visits: Coalesce(visits, 0) + 1})'}, [
+            control("DetailTitle", "Label", box(20, 'currentItem.FirstName & " " & currentItem.LastName')),
+            control("DetailFirst", "TextInput", {"X": 20, "Y": 90, "Width": 420, "Height": 44,
+                "Default": "currentItem.FirstName", "AccessibleLabel": '"First name"'}),
+            control("DetailStatus", "Label", box(160, 'draftLabel & ":" & Text(camelcase) & ":" & If(enabled, "enabled", "disabled") & ":" & \'quoted key\'')),
+            control("SaveContact", "Button", box(230, '"Save contact"', OnSelect="Navigate('Other Screen'); UpdateContext({currentItem: Patch(Contacts, currentItem, {FirstName: DetailFirst.Text}), draftLabel: \"saved\"})")),
+            control("ClearDetail", "Button", box(300, '"Clear local selection"', OnSelect='UpdateContext({currentItem: Blank()})')),
+            control("DetailScope", "Label", box(370, 'If(IsBlank(currentItem), "blank", "selected") & ":" & [@currentItem] & ":" & Text(visits)')),
+            control("BrowseAgain", "Button", box(440, '"Browse contacts"', OnSelect="Navigate('Browse Screen')")),
+        ])),
+        "src/Other Screen.pa.yaml": json.dumps(control("Other Screen", "Screen", {
+            "OnVisible": 'UpdateContext({draftLabel: "other"})'}, [
+            control("OtherScope", "Label", box(20, 'draftLabel & ":" & [@currentItem]')),
+            control("HiddenDetail", "Label", box(90, 'DetailStatus.Text')),
+            control("ReturnDetail", "Button", box(160, '"Return to contact"', OnSelect="Back()")),
+        ])),
+    }
+    files["DataSources/Contacts.json"] = gallery_fixture_files()["DataSources/Contacts.json"]
+    return files
+
+
 def build_fixtures() -> None:
     # Fixture A: navigation + globals, all rule-transpilable
     _write_msapp(
@@ -761,6 +806,7 @@ def build_fixtures() -> None:
     _write_msapp(FIXTURE_DIR / "fixtureSourceFormulas.msapp", source_formula_fixture_files())
     _write_msapp(FIXTURE_DIR / "fixtureCanvas.msapp", canvas_fixture_files())
     _write_msapp(FIXTURE_DIR / "fixtureScaledCanvas.msapp", canvas_fixture_files(True))
+    _write_msapp(FIXTURE_DIR / "fixtureNavigation.msapp", navigation_fixture_files())
 
 
 if __name__ == "__main__":

@@ -158,7 +158,8 @@ def main(argv: list[str] | None = None) -> int:
 
 def _llm_fallback(ir, client) -> None:
     """Give the LLM one shot at every stubbed formula, in place."""
-    from .fx import transpile  # noqa: F401  (context import)
+    from .fidelity import iter_expressions
+    import json
 
     def try_fix(expr, context: str) -> None:
         if not expr.raw:
@@ -170,17 +171,17 @@ def _llm_fallback(ir, client) -> None:
         if result and result["js"]:
             expr.js = result["js"]
             expr.translation_status = "llm"
+            expr.fidelity_note = "LLM proposal passed syntax/structural checks; behavioral equivalence remains unverified"
             from .ir import SupportEntry
             ir.support_matrix.append(SupportEntry(
                 subject=expr.raw[:80], status="partial",
                 detail=f"LLM-translated (confidence {result['confidence']:.2f}): {result['notes'][:80]}",
             ))
 
-    if ir.on_start:
-        try_fix(ir.on_start, "App.OnStart")
-    for screen in ir.screens:
-        if screen.on_visible:
-            try_fix(screen.on_visible, f"{screen.name}.OnVisible")
-        for ctrl in screen.walk_controls():
-            for pname, expr in ctrl.properties.items():
-                try_fix(expr, f"{screen.name}.{ctrl.name}.{pname}")
+    screens = {screen.name: screen for screen in ir.screens}
+    for screen_name, control, property_name, expr in iter_expressions(ir):
+        screen = screens.get(screen_name)
+        scope = {"definingScreen": screen.name if screen else None,
+                 "localVariables": screen.context_vars if screen else [],
+                 "globalVariables": ir.global_vars}
+        try_fix(expr, f"{screen_name}.{control}.{property_name}\nScope: {json.dumps(scope)}")

@@ -67,7 +67,8 @@ class Emitter:
                  control_names: set[str] | None = None, collections: set[str] | None = None,
                  screen_names: set[str] | None = None, global_names: set[str] | None = None,
                  media_resources: dict[str, str] | None = None,
-                 row_alias: str | None = None):
+                 row_alias: str | None = None, screen_name: str | None = None,
+                 control_screens: dict[str, str] | None = None):
         self.res = res
         self.behavior = behavior
         self.row_fields = row_fields or set()
@@ -85,6 +86,8 @@ class Emitter:
         self.scopes: list[RecordScope] = []
         self.row_alias = row_alias
         self.scope_sequence = 0
+        self.screen_name = screen_name
+        self.control_screens = control_screens or {}
 
     def new_scope(self) -> str:
         self.scope_sequence += 1
@@ -207,6 +210,8 @@ class Emitter:
             control = True
         else:
             fallback = _q(base.lower()) if base in NAMED_COLORS else self.state_ref(base)
+            if self.screen_name is not None and not global_only and base not in NAMED_COLORS:
+                fallback = f"FXRuntime.variable({_q(self.screen_name)}, {_q(base)}, () => {fallback})"
             if self.scopes and not global_only:
                 access = (f"FX.scopeValue([{', '.join(scope.variable for scope in reversed(self.scopes))}], "
                           f"{_q(_snake(base))}, () => {fallback})")
@@ -275,13 +280,27 @@ class Emitter:
             fields = ", ".join(
                 f"{_q(str(field))}: {self.expr(value)}" for field, value in args[0].value
             )
-            return f"FXRuntime.setState({{{fields}}})"
+            owner = _q(self.screen_name) if self.screen_name is not None else "null"
+            return f"FXRuntime.updateContext({owner}, {{{fields}}})"
         if name == "Navigate":
+            if not 1 <= len(args) <= 3:
+                raise lx.FxSyntaxError("Navigate requires a destination, optional transition and context record")
             target = args[0]
-            if target.kind == "ident" and self.screen_names is None \
+            if self.source_name(target) in self.control_screens:
+                destination = _q(self.control_screens[self.source_name(target)])
+            elif target.kind == "ident" and self.screen_names is None \
                     and "." not in str(target.value):
-                return f"go({_q(str(target.value))})"
-            return f"go({self.expr(target)})"
+                destination = _q(str(target.value))
+            else:
+                destination = self.expr(target)
+            context = ""
+            if len(args) == 3:
+                if args[2].kind != "record":
+                    raise lx.FxSyntaxError("Navigate context must be a record with named variables")
+                # Context variable names are symbols, not data-source columns.
+                fields = ", ".join(f"{_q(str(key))}: {self.expr(value)}" for key, value in args[2].value)
+                context = f", {{{fields}}}"
+            return f"go({destination}{context})"
         if name == "Back":
             return "goBack()"
         if name == "Notify":

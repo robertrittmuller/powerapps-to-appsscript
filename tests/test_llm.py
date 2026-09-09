@@ -18,6 +18,9 @@ def test_js_acceptable_value_expression():
     assert _js_acceptable("await apiPatch('Tasks', item, {status: 'Done'});", behavior=True)
     assert _js_acceptable("({value: 1, name: 'Ready'})", behavior=False)
     assert _js_acceptable("FXRuntime.language()", behavior=False)
+    assert _js_acceptable("FX.sort(state.rows, item => item.amount, 'Ascending')", behavior=False)
+    assert _js_acceptable("FXRuntime.variable('Details', 'selected', () => state.selected)", behavior=False)
+    assert _js_acceptable("FXRuntime.updateContext('Details', {selected: null});", behavior=True)
 
 
 @pytest.mark.parametrize("js", [
@@ -26,6 +29,12 @@ def test_js_acceptable_value_expression():
     "FX.imaginaryHelper(state.x)", "FXRuntime.imaginaryHelper()",
     "fetch('https://example.test/')", "Function('return 1')()",
     "({}).constructor.constructor('return 1')()",
+    "FXRuntime.updateContext('Details', {selected: null})", "FXRuntime.setState({x: 1})",
+    "FXRuntime.configureContexts({Details: []})", "FXRuntime.saveData([], 'draft')",
+    "go('Details')", "(0, FXRuntime.setState)({x: 1})", "state.rows.push(1)",
+    "FX.collections.clear(state, 'Rows')", "window.localStorage.setItem('x', '1')",
+    "new Date().setFullYear(2020)",
+    "window['go']('Details')",
 ])
 def test_value_fallback_rejects_statement_escape_mutation_and_unknown_helpers(js):
     assert not _js_acceptable(js, behavior=False)
@@ -92,7 +101,7 @@ def test_translate_formula_accepts_good_js(tmp_path):
     # call log written
     log = (tmp_path / ".runs" / "llm-calls.jsonl").read_text()
     assert "TimeZoneOffset" in log
-    assert '"gateVersion": 2' in log
+    assert '"gateVersion": 3' in log
     assert '"formulaSha256"' in log
     assert "Formula kind: value" in client._client.chat.completions.last_kwargs["messages"][1]["content"]
 
@@ -132,3 +141,55 @@ def test_unavailable_client_short_circuits(tmp_path, monkeypatch):
     client = LlmClient(base_url=None, api_key=None, log_dir=tmp_path)
     assert not client.available
     assert client.translate_formula("X()", "ctx") is None
+
+
+def test_fallback_includes_screen_properties_and_explicit_scope(tmp_path):
+    from pfx2gas.analyze import analyze
+    from pfx2gas.cli import _llm_fallback
+    from pfx2gas.ir import AppIR, FxExpr, ScreenNode
+
+    ir = analyze(AppIR(name='Scope', screens=[ScreenNode(name='Details', properties={
+        'OnHidden': FxExpr(raw='UpdateContext({localName: "saved"}); UnknownHelper()', kind='behavior')})]))
+    client = _client_with(json.dumps({'js': "FXRuntime.updateContext('Details', {localName: 'saved'});",
+                                    'notes': 'requires behavioral check', 'confidence': 0.7}), tmp_path)
+    _llm_fallback(ir, client)
+    expr = ir.screens[0].properties['OnHidden']
+    assert expr.translation_status == 'llm'
+    assert 'unverified' in expr.fidelity_note
+    prompt = client._client.chat.completions.last_kwargs['messages'][1]['content']
+    assert 'Details.Details.OnHidden' in prompt
+    assert '"definingScreen": "Details"' in prompt and '"localVariables": ["localName"]' in prompt
+
+
+@pytest.mark.parametrize('sign,expected_status', [('', 'pass'), ('-', 'fail')])
+def test_llm_timezone_proposal_requires_behavioral_evidence(sign, expected_status, tmp_path, monkeypatch):
+    """A live model returned the wrong sign at 0.98 confidence. Syntax alone
+    cannot establish equivalence; replay both candidates without provider calls.
+    """
+    from pfx2gas.analyze import analyze
+    from pfx2gas.cli import _llm_fallback
+    from pfx2gas.ir import AppIR, ControlNode, FxExpr, ScreenNode
+    from pfx2gas.startup_sim import simulate_project
+    from pfx2gas.synth.build import synthesize
+    from pfx2gas.validate import validate_project
+
+    client = _client_with(json.dumps({'js': f'{sign}(new Date(2026, state.monthNumber - 1, 15)).getTimezoneOffset()',
+                                    'notes': 'candidate', 'confidence': 0.98}), tmp_path)
+    ir = analyze(AppIR(name='Timezone', on_start=FxExpr(raw='Set(monthNumber, 1)', kind='behavior'),
+        start_screen='Timezone', screens=[ScreenNode(name='Timezone', controls=[
+            ControlNode(name='Offset', type='Label', properties={'Text': FxExpr(raw='TimeZoneOffset(Date(2026, monthNumber, 15))')}),
+            ControlNode(name='Summer', type='Button', properties={'OnSelect': FxExpr(raw='Set(monthNumber, 7)', kind='behavior')})])]))
+    _llm_fallback(ir, client)
+    assert ir.screens[0].controls[0].properties['Text'].translation_status == 'llm'
+    project = synthesize(ir, tmp_path / 'project')
+    assert validate_project(project)['ok']
+    for zone, winter, summer in [('UTC', 0, 0), ('America/New_York', 300, 240),
+                                 ('Europe/Berlin', -60, -120), ('Asia/Kolkata', -330, -330)]:
+        monkeypatch.setenv('TZ', zone)
+        verdict = simulate_project(project, [{'id': zone, 'steps': [
+            {'action': 'expectText', 'control': 'Offset', 'equals': str(winter)},
+            {'action': 'click', 'control': 'Summer'},
+            {'action': 'expectText', 'control': 'Offset', 'equals': str(summer)},
+        ]}])
+        assert not verdict['allConsoleErrors']
+        assert verdict['journeyResults'][0]['status'] == ('pass' if zone == 'UTC' else expected_status), verdict

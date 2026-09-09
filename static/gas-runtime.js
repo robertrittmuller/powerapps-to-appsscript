@@ -9,6 +9,7 @@
   'use strict';
 
   var state = {};
+  var screenContexts = Object.create(null);
   var evaluators = [];   // { fn, apply } — re-run on state change
   var handlers = {};     // controlName -> { event: fn }
   var controlValues = {}; // control name -> evaluated properties used by dependents
@@ -213,16 +214,61 @@
     return state;
   }
 
-  function go(name) {
+  function configureContexts(definitions) {
+    screenContexts = Object.create(null);
+    Object.keys(definitions || {}).forEach(function (screen) {
+      var context = screenContexts[screen] = Object.create(null);
+      definitions[screen].forEach(function (name) { context[String(name).toLowerCase()] = null; });
+    });
+  }
+
+  function variable(screen, key, fallback) {
+    var context = screenContexts[screen], name = String(key).toLowerCase();
+    return context && Object.prototype.hasOwnProperty.call(context, name) ? context[name]
+      : typeof fallback === 'function' ? fallback() : null;
+  }
+
+  function applyContext(screen, patch) {
+    if (!screen) throw new Error('UpdateContext requires a screen');
+    if (!patch || typeof patch !== 'object' || Array.isArray(patch) || patch instanceof Date)
+      throw new Error('Screen context must be a record');
+    var context = screenContexts[screen] || (screenContexts[screen] = Object.create(null));
+    Object.keys(patch).forEach(function (name) { context[name.toLowerCase()] = patch[name]; });
+  }
+
+  function updateContext(screen, patch) {
+    applyContext(screen || CURRENT_SCREEN, patch);
+    updateBindings();
+    return null;
+  }
+
+  function navigationTarget(target) {
+    if (target && typeof target === 'object') {
+      var el = target.el;
+      var screen = el && typeof el.closest === 'function' && el.closest('[data-screen]');
+      target = screen ? screen.getAttribute('data-screen') : target.name;
+    }
+    if (typeof target !== 'string' || !target) return null;
+    if (Object.keys(canvas.screens).length && !Object.prototype.hasOwnProperty.call(canvas.screens, target)) return null;
+    return target;
+  }
+
+  function go(name, contextPatch) {
+    name = navigationTarget(name);
+    if (!name) return false;
+    // Evaluate the source record at the call site, then update only the target
+    // screen before any target bindings or OnVisible handler can read it.
+    if (contextPatch !== undefined) applyContext(name, contextPatch);
     if (CURRENT_SCREEN) screenStack.push(CURRENT_SCREEN);
     showScreen(name);
+    return true;
   }
 
   function goBack() {
     var prev = screenStack.pop();
-    showScreen(prev || (document.querySelector('[data-screen]') || {}).getAttribute
-      ? (prev || (document.querySelector('[data-screen]') || { getAttribute: function () { return null; } }).getAttribute('data-screen'))
-      : null);
+    if (!prev) return false;
+    showScreen(prev);
+    return true;
   }
 
   function showScreen(name) {
@@ -1267,6 +1313,9 @@
     bind: bind,
     val: val,
     configureCanvas: configureCanvas,
+    configureContexts: configureContexts,
+    variable: variable,
+    updateContext: updateContext,
     registerForm: registerForm,
     submitForm: submitForm,
     refreshData: refreshData,

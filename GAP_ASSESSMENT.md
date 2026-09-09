@@ -60,18 +60,35 @@ Screen OnHidden is now wired and awaited before destination OnVisible. This
 restores Employee Ideas' source initialization of mobile width, padding and
 other values when leaving loading; its mobile first-action probe now passes.
 
+Navigation now preserves literal context records and separates screen-local
+variables from globals. A generated edit/save/reload journey proves the selected
+second record is retained, an awaited handler updates its defining screen after
+navigation, and hidden-screen references, Blank shadowing, zero/false and
+case-insensitive names behave correctly. Milestones' first-run dialog now
+appears because its source Navigate context survives. Arbitrary context-record
+expressions remain unsupported; dynamic destination declarations are deferred
+until first navigation and warned. Transition animations remain missing.
+
+One live OpenRouter request verified the configured connection but failed
+behavioral equivalence: its accepted timezone formula reversed the offset sign
+at 0.98 model confidence, failing three of four timezone journeys. Offline
+regressions retain that failure. The v3 static gate also rejects behavior
+helpers and known mutating methods in value formulas; it is not an equivalence
+proof or a JavaScript sandbox. Fallback receives screen/local metadata and now
+includes App and screen properties, with unverified equivalence ledgered.
+
 Eleven pinned source exports are available here: five public regression apps
 and six Microsoft business apps. **All eleven generate valid code; eight pass
 the short startup check. None has complete usability acceptance evidence.**
 Milestones, Employee Ideas and Inspection now leave their loading screen in a
-real browser. Milestones reaches its desktop Add Project screen but
+real browser. Milestones completes both restored onboarding dialogs and reaches its desktop Add Project screen but
 Office365Users.UserProfileV2 fails; Inspection reaches Items while a delayed
 Planner.ListMyPlansV2 error surfaces. These failures are attached to the combined
 Microsoft scorecard. Employee Ideas opens the desktop campaign summary and its
 explicit iOS entry passes readable Browse campaigns → Mobile Campaign Summary.
 Five Microsoft apps fail usability prerequisites; Employee Ideas remains
 unassessed for complete usability.
-Ten generated-fixture Chromium journeys pass. Fixtures are regression
+Eleven generated-fixture Chromium journeys pass. Fixtures are regression
 evidence, not additional real acceptance apps. The last recorded Google
 deployment remains HelpDesk @14.
 
@@ -126,7 +143,7 @@ the implementation order.
 
 | Evidence | Latest result | What remains unproven |
 |---|---|---|
-| Unit/runtime tests | 216 Python pass, 3 skip; 79 JS pass; bare globals, FX and FXRuntime emitter/runtime consistency passes | Complete deployed workflows and broader control semantics |
+| Unit/runtime tests | 233 Python pass, 3 skip; 80 JS pass; bare globals, FX and FXRuntime emitter/runtime consistency passes | Complete deployed workflows and broader control semantics |
 | Current real-app soak | 5/5 Bootable; 1,145 formulas, including previously dropped App/screen properties | Usability unassessed; the other five historical local exports are absent |
 | Current regression translation/wiring | 1,139 translated; 970 emitted, 13 approximated, 162 ignored/unsupported | Translation does not establish runtime behavior |
 | Historical ten-app corpus | Previously 10/10 Bootable; 23,746 formulas | Not reproduced in this workspace; those results did not establish usability |

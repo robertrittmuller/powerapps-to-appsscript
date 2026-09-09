@@ -933,6 +933,8 @@ def render_app_js(ir: AppIR) -> str:
     ]
     parent_names = _control_parents(ir)
     referenced_props = _referenced_control_properties(ir, parent_names)
+    contexts = {screen.name: screen.context_vars for screen in ir.screens}
+    lines.append(f"  FXRuntime.configureContexts({json.dumps(contexts)});")
     lines.append(f"  FXRuntime.configureCanvas({json.dumps(ir.layout)}, {{")
     def canvas_properties(properties, supported):
         for name in supported:

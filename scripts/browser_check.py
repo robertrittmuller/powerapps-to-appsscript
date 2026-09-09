@@ -489,6 +489,39 @@ def check_scaled_canvas(page, _backend):
     page.screenshot(path=str(OUT / 'scaled-canvas/letterboxed.png'))
 
 
+def check_navigation(page, backend):
+    expect(control(page, 'BrowseScope')).to_have_text('browse:blank:global')
+    contacts = control(page, 'NavigationRows').locator('[data-control="OpenContact"]')
+    expect(contacts).to_have_text(['Ada Lovelace', 'Grace Hopper'])
+    contacts.nth(1).click()
+    expect(control(page, 'DetailFirst')).to_have_value('Grace')
+    expect(control(page, 'DetailStatus')).to_have_text('detail:0:disabled:quoted')
+    expect(control(page, 'DetailScope')).to_have_text('selected:global:1')
+    assert page.evaluate('state.enteredName') == 'Grace'
+    control(page, 'DetailFirst').fill('Amazing Grace')
+    control(page, 'SaveContact').click()
+    expect(control(page, 'OtherScope')).to_have_text('other:global')
+    expect(control(page, 'HiddenDetail')).to_have_text('saved:0:disabled:quoted')
+    saved = backend({'fn': 'api', 'args': ['Contacts', 'list', {}]})['result']
+    assert [(r['id'], r['first_name']) for r in saved] == [('one', 'Ada'), ('two', 'Amazing Grace')], saved
+    control(page, 'ReturnDetail').click()
+    expect(control(page, 'DetailTitle')).to_have_text('Amazing Grace Hopper')
+    expect(control(page, 'DetailScope')).to_have_text('selected:global:2')
+    control(page, 'ClearDetail').click()
+    expect(control(page, 'DetailScope')).to_have_text('blank:global:2')
+    control(page, 'BrowseAgain').click()
+    expect(control(page, 'BrowseScope')).to_have_text('browse:blank:global')
+    contacts.nth(0).click()
+    expect(control(page, 'DetailTitle')).to_have_text('Ada Lovelace')
+    expect(control(page, 'DetailFirst')).to_have_value('Ada')
+    page.reload()
+    expect(contacts).to_have_text(['Ada Lovelace', 'Amazing Grace Hopper'])
+    contacts.nth(1).click()
+    expect(control(page, 'DetailTitle')).to_have_text('Amazing Grace Hopper')
+    expect(control(page, 'DetailScope')).to_have_text('selected:global:1')
+    page.screenshot(path=str(OUT / 'navigation-context/persisted-contact.png'))
+
+
 def main():
     subprocess.run([sys.executable, str(REPO / "tests/fixtures/build.py")], check=True, capture_output=True)
     cases = [("business-form", REPO / "tests/fixtures/fixtureForm.msapp", check_form),
@@ -501,6 +534,7 @@ def main():
     cases.append(("source-formulas", REPO / "tests/fixtures/fixtureSourceFormulas.msapp", check_source_formulas))
     cases.append(("responsive-canvas", REPO / "tests/fixtures/fixtureCanvas.msapp", check_canvas))
     cases.append(("scaled-canvas", REPO / "tests/fixtures/fixtureScaledCanvas.msapp", check_scaled_canvas))
+    cases.append(("navigation-context", REPO / "tests/fixtures/fixtureNavigation.msapp", check_navigation))
     helpdesk = REPO / "samples/real/helpdesk.msapp"
     if helpdesk.exists():
         cases.append(("helpdesk", helpdesk, check_helpdesk))

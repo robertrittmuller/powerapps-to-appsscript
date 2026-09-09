@@ -206,6 +206,15 @@ Converted apps aim to match the original visually and behaviorally:
   before the destination's `OnVisible`, with each screen's own `Self` reference.
   Failed exit behavior is surfaced, and superseded navigation cannot run a
   delayed entry handler for an obsolete destination.
+- **Navigation context** — `Navigate` passes a literal context record before
+  destination bindings and `OnVisible` execute. `UpdateContext` updates only its
+  defining screen, including after an awaited save or navigation. Context names
+  are case-insensitive and preserve Blank, zero, false and selected records;
+  locals shadow globals, `[@name]` reads the global, and `Set` writes the global.
+  A generated browser journey verifies second-record edit/save/reload, retained
+  locals, and hidden-screen references. Arbitrary context-record expressions
+  remain unsupported; dynamic destinations defer local declarations until the
+  first navigation and are warned. Transition animations remain unimplemented.
 - **Auto-layout** — modern containers render as CSS flexbox: `LayoutDirection`,
   `LayoutAlignItems`, `LayoutJustifyContent`, `LayoutWrap`, `LayoutGap`,
   `FillPortions` (flex), `LayoutMinWidth/Height`, `LayoutOverflowX/Y`.
@@ -358,8 +367,11 @@ per formula, and its JS is accepted only if it passes `node --check` (value
 formulas must be single expressions; behavior formulas may be statements).
 The response schema is checked without coercion and confidence must be finite
 and between zero and one. A pinned JavaScript parser also verifies the
-single-expression/event-handler boundary, rejects explicit mutations in value
-formulas, and checks FX/FXRuntime helper names. It rejects dynamic evaluation,
+single-expression/event-handler boundary, rejects explicit mutations, behavior
+helpers and known mutating methods in value formulas, and checks FX/FXRuntime
+helper names. Scope metadata includes the formula's defining screen and its
+declared locals; App and screen properties participate in fallback as well as
+control properties. It rejects dynamic evaluation,
 imports and selected direct-network/prototype operations without executing the
 proposal. These static checks do not prove behavioral equivalence or constitute
 a general JavaScript security sandbox; fallback formulas remain partial and
@@ -370,6 +382,21 @@ It may refuse when translation is genuinely impossible — the formula then
 stays a documented stub. All calls are logged to `.runs/llm-calls.jsonl`
 with confidence and notes; LLM-touched formulas appear in the report as
 *partial* with their confidence so you know what to review first.
+
+An opt-in live smoke test makes one provider request, with a 30-second timeout
+and no retries, then boots the generated candidate app for winter/summer dates
+in four timezones:
+
+```bash
+./pfx2gas test '/app/.venv/bin/python scripts/check_llm_live.py'
+```
+
+The September 9 OpenRouter check connected successfully, but the proposal
+reversed TimeZoneOffset's sign at 0.98 model confidence. It passed the static
+gate and failed three timezone journeys. The failure is retained in
+`.artifacts/llm-live/`; offline regressions reproduce the semantic failure
+without credentials or provider calls. A successful API request is not a
+successful conversion, and ordinary tests never invoke the provider.
 
 ## Supported Power Fx surface (v1)
 

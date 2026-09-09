@@ -47,7 +47,7 @@ def named_target(node) -> str | None:
 
 
 def collect_global_vars(ir: AppIR) -> list[str]:
-    """All identifiers assigned via Set/UpdateContext/Collect in behavior formulas."""
+    """App-wide identifiers assigned via Set/Collect, excluding screen locals."""
     names: set[str] = set()
 
     def add_from(formula: FxExpr) -> None:
@@ -58,11 +58,7 @@ def collect_global_vars(ir: AppIR) -> list[str]:
         except lx.FxSyntaxError:
             return
         for st in (node for root in stmts for node in walk_formula(root)):
-            if st.kind == "call" and st.value == "UpdateContext" and st.children:
-                record = st.children[0]
-                if record.kind == "record":
-                    names.update(str(name) for name, _value in record.value)
-            elif st.kind == "call" and st.value in {"Set", "Collect", "ClearCollect"}:
+            if st.kind == "call" and st.value in {"Set", "Collect", "ClearCollect"}:
                 t = st.children[0] if st.children else None
                 name = named_target(t) if t is not None else None
                 if name is not None:
@@ -71,6 +67,47 @@ def collect_global_vars(ir: AppIR) -> list[str]:
     for expr in behavior_formulas(ir):
         add_from(expr)
     return sorted(names)
+
+
+def collect_context_vars(ir: AppIR, control_screens: dict[str, str]) -> None:
+    """Declare local symbols even before their first assignment (initial Blank)."""
+    by_name = {screen.name: screen for screen in ir.screens}
+    names = {name: set() for name in by_name}
+    def scan(expr, owner):
+        if not expr or not expr.raw:
+            return
+        try:
+            roots = lx.parse_formula(expr.raw)
+        except lx.FxSyntaxError:
+            return
+        for node in (node for root in roots for node in walk_formula(root)):
+            if node.kind != 'call':
+                continue
+            record, destination = None, owner
+            if node.value == 'UpdateContext' and node.children:
+                record = node.children[0]
+            elif node.value == 'Navigate' and len(node.children) == 3:
+                target = named_target(node.children[0])
+                destination = target if target in by_name else control_screens.get(target)
+                record = node.children[2]
+                if destination is None:
+                    warning = 'Dynamic Navigate context declarations are deferred until the destination is known at runtime'
+                    if warning not in ir.warnings:
+                        ir.warnings.append(warning)
+            if destination in names and record is not None and record.kind == 'record':
+                names[destination].update(str(key) for key, _value in record.value)
+    scan(ir.on_start, None)
+    for expr in ir.properties.values():
+        scan(expr, None)
+    for screen in ir.screens:
+        scan(screen.on_visible, screen.name)
+        for expr in screen.properties.values():
+            scan(expr, screen.name)
+        for control in screen.walk_controls():
+            for expr in control.properties.values():
+                scan(expr, screen.name)
+    for name, screen in by_name.items():
+        screen.context_vars = sorted(names[name])
 
 
 def infer_local_collections(ir: AppIR) -> None:
@@ -273,11 +310,13 @@ def analyze(ir: AppIR, uncovered: list[dict] | None = None) -> AppIR:
     infer_data_source_fields(ir)
 
     control_names = {c.name for s in ir.screens for c in s.walk_controls()}
+    control_screens = {c.name: s.name for s in ir.screens for c in s.walk_controls()}
+    collect_context_vars(ir, control_screens)
     screen_names = {s.name for s in ir.screens}
     row_fields = collect_row_fields(ir)
     collections = {ds.name for ds in ir.data_sources if ds.origin == "collection"}
 
-    def convert_formula(expr: FxExpr, row_alias: str | None = None) -> None:
+    def convert_formula(expr: FxExpr, row_alias: str | None = None, screen_name: str | None = None) -> None:
         if not expr.raw:
             return
         try:
@@ -285,7 +324,8 @@ def analyze(ir: AppIR, uncovered: list[dict] | None = None) -> AppIR:
                             row_fields=row_fields, control_names=control_names,
                             collections=collections, screen_names=screen_names,
                             global_names=set(ir.global_vars) | {ds.name for ds in ir.data_sources},
-                            media_resources=ir.media_resources, row_alias=row_alias)
+                            media_resources=ir.media_resources, row_alias=row_alias,
+                            screen_name=screen_name, control_screens=control_screens)
             expr.js = res.js
             expr.translation_status = "stubbed" if res.unmapped else "rule"
             if res.unmapped:
@@ -307,7 +347,7 @@ def analyze(ir: AppIR, uncovered: list[dict] | None = None) -> AppIR:
     for expr in ir.properties.values():
         convert_formula(expr)
 
-    def convert_control(ctrl: ControlNode, row_alias: str | None = None) -> None:
+    def convert_control(ctrl: ControlNode, row_alias: str | None = None, screen_name: str | None = None) -> None:
         child_alias = row_alias
         if ctrl.type in {"Gallery", "DataTable"}:
             child_alias = None
@@ -323,17 +363,17 @@ def analyze(ir: AppIR, uncovered: list[dict] | None = None) -> AppIR:
             # Gallery OnSelect runs with its selected row; other gallery
             # properties (including Items) run outside that row's scope.
             alias = child_alias if ctrl.type == "Gallery" and name == "OnSelect" else row_alias
-            convert_formula(prop, alias)
+            convert_formula(prop, alias, screen_name)
         for child in ctrl.children:
-            convert_control(child, child_alias)
+            convert_control(child, child_alias, screen_name)
 
     for screen in ir.screens:
         if screen.on_visible:
-            convert_formula(screen.on_visible)
+            convert_formula(screen.on_visible, screen_name=screen.name)
         for expr in screen.properties.values():
-            convert_formula(expr)
+            convert_formula(expr, screen_name=screen.name)
         for ctrl in screen.controls:
-            convert_control(ctrl)
+            convert_control(ctrl, screen_name=screen.name)
 
     # Collect Choices('DS'.Field) references for the generated Choices table.
     choice_refs: set[str] = set()

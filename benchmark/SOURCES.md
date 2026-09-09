@@ -47,7 +47,9 @@ The September 9 assessment exits **1**: all six generate syntactically valid
 projects; three fail startup. Employee Ideas, Inspection and Milestones pass
 the short startup check and leave loading in Chromium. Employee Ideas passes
 its desktop entry and explicit iOS Browse campaigns path after restoring the
-source loading-screen OnHidden initialization. Milestones and Inspection fail
+source loading-screen OnHidden initialization. Navigation-context preservation
+restores Milestones' two onboarding dialogs; both dismiss through their source
+buttons before New project reaches Add Project. Milestones and Inspection fail
 their first-action probes on delayed connector calls. The combined scorecard
 retains these results with matching source/converter hashes.
 All six remain below complete usability acceptance. See `GAP_ASSESSMENT.md` for the fix

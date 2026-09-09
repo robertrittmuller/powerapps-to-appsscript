@@ -90,8 +90,45 @@ test('apiChoices bridges the emitted client call to Apps Script', async () => {
 });
 
 test('goBack without history is a no-op, not a crash', () => {
-  RT.goBack();
-  assert.ok(true);
+  assert.strictEqual(RT.goBack(), false);
+});
+
+test('navigation contexts preserve Blank, false, zero, scope and history', async () => {
+  const vm = require('node:vm'), fs = require('node:fs');
+  const ctx = vm.createContext({document: {...global.document}, console});
+  ctx.window = ctx;
+  vm.runInContext(fs.readFileSync(require.resolve('../../static/gas-runtime.js'), 'utf8'), ctx);
+  const rt = ctx.FXRuntime;
+  assert.strictEqual(ctx.go.length, 2);
+  assert.strictEqual(rt.updateContext.length, 2);
+  rt.configureCanvas({}, {}, {Browse: {}, Detail: {}});
+  rt.configureContexts({Browse:['selected', 'shared'], Detail:['selected', 'shared', 'CamelCase']});
+  let fallbacks = 0;
+  const fallback = () => { fallbacks++; return 'global'; };
+  assert.strictEqual(rt.variable('Detail', 'selected', fallback), null);
+  assert.strictEqual(fallbacks, 0);
+  assert.strictEqual(rt.variable('Detail', 'undeclared', fallback), 'global');
+  assert.strictEqual(ctx.goBack(), false);
+  ctx.go('Browse', {shared:'browse'});
+  const record = {id:'two', first_name:'Grace'};
+  let entered;
+  rt.registerScreenHandler('Detail', () => { entered = rt.variable('Detail','selected'); });
+  assert.strictEqual(ctx.go('Detail', {selected:record, shared:false, CamelCase:0}), true);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.strictEqual(entered, record);
+  assert.strictEqual(rt.variable('Detail', 'SHARED', fallback), false);
+  assert.strictEqual(rt.variable('Detail', 'camelcase', fallback), 0);
+  assert.strictEqual(rt.variable('Browse', 'shared'), 'browse');
+  assert.strictEqual(ctx.go('missing', {shared:'lost'}), false);
+  assert.strictEqual(ctx.val('App').active_screen, 'Detail');
+  assert.strictEqual(ctx.goBack(), true);
+  assert.strictEqual(ctx.val('App').active_screen, 'Browse');
+  // An awaited old-screen handler explicitly retains its defining screen.
+  rt.updateContext('Detail', {selected:null});
+  assert.strictEqual(rt.variable('Detail', 'selected', fallback), null);
+  assert.strictEqual(rt.variable('Browse', 'selected', fallback), null);
+  assert.strictEqual(rt.variable('Detail', 'shared'), false);
+  assert.strictEqual(ctx.goBack(), false);
 });
 
 test('setState immediately re-evaluates reactive bindings', () => {

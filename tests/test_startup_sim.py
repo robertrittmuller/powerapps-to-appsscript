@@ -339,6 +339,42 @@ def test_shared_simulator_runs_declarative_critical_journey(tmp_path):
     }]
 
 
+def test_generated_navigation_passes_records_and_keeps_async_context_owner(tmp_path):
+    from pfx2gas.analyze import analyze
+    from pfx2gas.parse import parse
+    from pfx2gas.startup_sim import simulate_project
+    from pfx2gas.synth.build import synthesize
+    from pfx2gas.unpack import unpack
+
+    ir = analyze(parse(unpack(FIXTURES / 'fixtureNavigation.msapp')))
+    assert set(ir.global_vars) == {'currentItem', 'draftLabel', 'enteredName'}
+    locals_by_screen = {screen.name: set(screen.context_vars) for screen in ir.screens}
+    assert locals_by_screen['Browse Screen'] == {'currentItem', 'draftLabel'}
+    assert locals_by_screen['Detail Screen'] == {'currentItem', 'draftLabel', 'CamelCase', 'enabled', 'quoted key', 'visits'}
+    out = synthesize(ir, tmp_path / 'Navigation')
+    verdict = simulate_project(out, [{'id': 'save-selected-contact', 'steps': [
+        {'action': 'expectText', 'control': 'BrowseScope', 'equals': 'browse:blank:global'},
+        {'action': 'click', 'gallery': 'NavigationRows', 'row': 1, 'control': 'OpenContact'},
+        {'action': 'expectText', 'control': 'DetailTitle', 'equals': 'Grace Hopper'},
+        {'action': 'expectState', 'key': 'enteredName', 'equals': 'Grace'},
+        {'action': 'setValue', 'control': 'DetailFirst', 'value': 'Amazing Grace'},
+        {'action': 'click', 'control': 'SaveContact'},
+        {'action': 'expectScreen', 'screen': 'Other Screen'},
+        {'action': 'expectText', 'control': 'OtherScope', 'equals': 'other:global'},
+        {'action': 'expectText', 'control': 'HiddenDetail', 'equals': 'saved:0:disabled:quoted'},
+        {'action': 'expectDataRow', 'source': 'Contacts', 'where': {'id': 'two', 'first_name': 'Amazing Grace'}},
+        {'action': 'expectDataRow', 'source': 'Contacts', 'where': {'id': 'one', 'first_name': 'Ada'}},
+        {'action': 'click', 'control': 'ReturnDetail'},
+        {'action': 'expectText', 'control': 'DetailScope', 'equals': 'selected:global:2'},
+        {'action': 'click', 'control': 'ClearDetail'},
+        {'action': 'expectText', 'control': 'DetailScope', 'equals': 'blank:global:2'},
+        {'action': 'click', 'control': 'BrowseAgain'},
+        {'action': 'expectText', 'control': 'BrowseScope', 'equals': 'browse:blank:global'},
+    ]}])
+    assert verdict['allConsoleErrors'] == [], verdict
+    assert verdict['journeyResults'][0]['status'] == 'pass', verdict
+
+
 def test_generated_form_create_validate_reset_and_last_submit(tmp_path):
     """Boot and exercise the generated Form/DataCard path end to end."""
     from pfx2gas.analyze import analyze

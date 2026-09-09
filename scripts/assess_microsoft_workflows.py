@@ -45,6 +45,15 @@ def main():
                 check('source-loading-transition', lambda: expect(
                     page.locator(f'[data-screen="{loaded_screen}"]')).to_be_visible(timeout=10000))
                 page.screenshot(path=str(OUT / name / 'loaded.png'), full_page=True)
+                if app == 'milestones':
+                    # Loading.Navigate passes locShowFirstRun to Projects.
+                    # Preserve and exercise this onboarding instead of clicking
+                    # through its modal overlay or injecting a dismissed state.
+                    check('source-first-run-welcome', lambda: expect(control(page, 'conDialogFirstRun')).to_be_visible())
+                    check('source-first-run-continue', lambda: control(page, 'btnCustomize_Continue').click(timeout=5000))
+                    check('source-platform-introduction', lambda: expect(control(page, 'conDialogSplash_PowerApps')).to_be_visible())
+                    check('source-platform-introduction-dismiss', lambda: control(page, 'btnSplashPowerApps_Proceed').click(timeout=5000))
+                    check('source-first-run-dismissed', lambda: expect(control(page, 'conDialogWelcome')).to_be_hidden())
                 button = control(page, primary)
                 def readable():
                     expect(button).to_be_visible()
