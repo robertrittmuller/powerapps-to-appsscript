@@ -282,6 +282,21 @@ class Emitter:
             prefix = "async " if is_async else ""
             call = f"FX.ifError({prefix}() => ({attempt}), {prefix}() => ({fallback}))"
             return f"await {call}" if is_async else call
+        if name in {"SaveData", "LoadData"}:
+            if len(args) not in ({2} if name == "SaveData" else {2, 3}):
+                raise lx.FxSyntaxError(f"{name} requires a collection and a storage name")
+            collection = self.source_name(args[0])
+            if collection is None or collection not in self.collections:
+                raise lx.FxSyntaxError(f"{name} target must be a local collection")
+            storage_name = self.expr(args[1])
+            if name == "SaveData":
+                return f"FXRuntime.saveData({self.state_ref(collection)}, {storage_name})"
+            ignore_missing = self.expr(args[2]) if len(args) == 3 else "false"
+            return f"FXRuntime.loadData({_q(collection)}, {storage_name}, {ignore_missing})"
+        if name == "ClearData":
+            if len(args) > 1:
+                raise lx.FxSyntaxError("ClearData accepts at most one storage name")
+            return f"FXRuntime.clearData({self.expr(args[0]) if args else ''})"
         if name in {"Patch", "Remove", "RemoveIf", "Collect", "ClearCollect", "Refresh"}:
             return self.data_call(name, node)
         if name == "Clear":

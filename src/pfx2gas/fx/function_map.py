@@ -83,6 +83,9 @@ FUNCTION_MAP: dict[str, FnSpec] = {
     "User": FnSpec("FXUser()"),
     "Param": FnSpec("FXRuntime.param({a0})", "case-sensitive text from the web app launch request"),
     "Language": FnSpec("FXRuntime.language()", "browser language tag; en-US when unavailable"),
+    "SaveData": FnSpec("FXRuntime.saveData({a0}, {a1})", "special-cased local collection; browser storage"),
+    "LoadData": FnSpec("FXRuntime.loadData({a0}, {a1}, {a2})", "special-cased local collection; append saved rows"),
+    "ClearData": FnSpec("FXRuntime.clearData({args})", "special-cased app storage names"),
     # date/time
     "Today": FnSpec("FX.today()"),
     "Now": FnSpec("FX.now()"),

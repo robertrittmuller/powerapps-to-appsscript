@@ -77,9 +77,19 @@ global.document = {
     return el;
   },
   body: makeEl('body', {}),
-  getElementById: () => null,
+  getElementById: id => id === 'fx-storage-context'
+    ? {textContent: JSON.stringify({appId: 'simulated-script', user: 'simulated-user'})} : null,
 };
 global.window = global;
+// Functional browser-storage test double; a new simulator process starts with
+// a clean profile. Cross-page reload persistence is covered by Chromium.
+const savedCache = new Map();
+global.localStorage = {
+  get length() {return savedCache.size;}, key: i => [...savedCache.keys()][i] ?? null,
+  getItem: key => savedCache.has(key) ? savedCache.get(key) : null,
+  setItem: (key, value) => savedCache.set(key, String(value)),
+  removeItem: key => savedCache.delete(key),
+};
 global.console.error = (...a) => { consoleErrors.push(a.map(String).join(' ').slice(0, 240)); };
 global.console.warn = () => {};
 // Stable randomness makes startup evidence repeatable. Apps still exercise the

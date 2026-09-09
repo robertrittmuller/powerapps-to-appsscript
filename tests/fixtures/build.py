@@ -487,6 +487,43 @@ def timer_fixture_files() -> dict[str, str]:
     return files
 
 
+def storage_fixture_files() -> dict[str, str]:
+    """Inspection's local draft cache lifecycle, isolated from its connectors."""
+    def control(name, kind, props):
+        return {name: {"Control": kind, "Properties": {k: "=" + str(v) for k, v in props.items()}}}
+    children = [
+        control("DraftNote", "TextInput", {"X": 20, "Y": 20, "Width": 360, "Height": 44,
+            "Default": 'Coalesce(First(Drafts).Note, "")', "AccessibleLabel": '"Inspection note"'}),
+        control("DraftDate", "DatePicker", {"X": 450, "Y": 20, "Width": 220, "Height": 44,
+            "DefaultDate": "First(Drafts).LoggedAt", "AccessibleLabel": '"Inspection date"'}),
+        control("DraftDone", "CheckBox", {"X": 450, "Y": 80, "Width": 28, "Height": 28,
+            "Default": "First(Drafts).Done", "AccessibleLabel": '"Inspection complete"'}),
+        control("CacheStatus", "Label", {"X": 20, "Y": 80, "Width": 360, "Height": 40, "Text": "cacheStatus"}),
+        control("DraftCount", "Label", {"X": 20, "Y": 130, "Width": 360, "Height": 40, "Text": "Text(CountRows(Drafts))"}),
+        control("SaveDraft", "Button", {"X": 20, "Y": 190, "Width": 180, "Height": 44,
+            "DisplayMode": "If(IsBlank(DraftNote.Text), DisplayMode.Disabled, DisplayMode.Edit)",
+            "Text": '"Save draft"', "OnSelect": 'ClearCollect(Drafts, {Note: DraftNote.Text, Done: false, Count: 0, LoggedAt: Date(2026, 9, 9), Detail: {Code: "inspection"}}); IfError(SaveData(Drafts, "inspection-draft"); Set(cacheStatus, "saved"), Set(cacheStatus, "save failed"))'}),
+        control("AppendDraft", "Button", {"X": 220, "Y": 190, "Width": 180, "Height": 44,
+            "Text": '"Append saved draft"', "OnSelect": 'IfError(LoadData(Drafts, "inspection-draft"); Set(cacheStatus, "loaded"), Set(cacheStatus, "load failed"))'}),
+        control("SaveBackup", "Button", {"X": 20, "Y": 250, "Width": 180, "Height": 44,
+            "Text": '"Save backup"', "OnSelect": 'SaveData(Drafts, "backup"); Set(cacheStatus, "backup saved")'}),
+        control("ClearDraft", "Button", {"X": 220, "Y": 250, "Width": 180, "Height": 44,
+            "Text": '"Clear saved draft"', "OnSelect": 'ClearData("inspection-draft"); Set(cacheStatus, "draft cleared")'}),
+        control("ClearAppCache", "Button", {"X": 20, "Y": 310, "Width": 380, "Height": 44,
+            "Text": '"Clear all saved drafts"', "OnSelect": 'ClearData(); Set(cacheStatus, "cache cleared")'}),
+        control("DraftReset", "Button", {"X": 20, "Y": 370, "Width": 180, "Height": 44,
+            "Text": '"Reset note"', "OnSelect": 'Reset(DraftNote)'}),
+        control("DraftUnrelated", "Button", {"X": 220, "Y": 370, "Width": 180, "Height": 44,
+            "Text": '"Update status"', "OnSelect": 'Set(cacheStatus, "editing")'}),
+    ]
+    return {
+        "CanvasManifest.json": json.dumps({"Name": "FixtureStorage", "ScreenOrder": ["DraftScreen"]}),
+        "src/App.pa.yaml": json.dumps({"App": {"Control": "AppHost", "Properties": {
+            "OnStart": '=ClearCollect(Drafts, Table()); IfError(LoadData(Drafts, "inspection-draft", true); Set(cacheStatus, "ready"), Set(cacheStatus, "load failed"))'}}}),
+        "src/DraftScreen.pa.yaml": json.dumps({"DraftScreen": {"Control": "Screen", "Children": children}}),
+    }
+
+
 def build_fixtures() -> None:
     # Fixture A: navigation + globals, all rule-transpilable
     _write_msapp(
@@ -560,6 +597,7 @@ def build_fixtures() -> None:
     _write_msapp(FIXTURE_DIR / "fixtureScopes.msapp", scope_fixture_files())
     _write_msapp(FIXTURE_DIR / "fixtureGallery.msapp", gallery_fixture_files())
     _write_msapp(FIXTURE_DIR / "fixtureTimer.msapp", timer_fixture_files())
+    _write_msapp(FIXTURE_DIR / "fixtureStorage.msapp", storage_fixture_files())
 
 
 if __name__ == "__main__":

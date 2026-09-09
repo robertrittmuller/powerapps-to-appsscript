@@ -21,14 +21,24 @@ targeted row removal, and persisted edits through aliased gallery records.
 Multi-condition If now retains all branches and its fallback; Switch evaluates
 its subject once. Both preserve selected async action order.
 
+The local-draft slice implements SaveData/LoadData/ClearData with typed browser
+storage, append-on-load semantics, scoped clearing and explicit quota/corruption
+failures. Chromium exposed a separate missing dynamic-input-default binding;
+standalone input defaults now populate after reload and preserve unsaved edits
+through unrelated updates. Native input/button DisplayMode formulas reevaluate
+while typing. Form/DataCard record application continues to own form field
+defaults. Storage is browser-local, plaintext, and limited to 1 MB
+per encoded entry; it does not make the remote Apps Script app available offline.
+
 Eleven pinned source exports are available here: five public regression apps
 and six Microsoft business apps. **All eleven generate valid code; the five
-regression apps and Employee Ideas currently pass startup. None has complete ten-app usability
-acceptance evidence.** The previous two clean Microsoft startup results hid
+regression apps, Employee Ideas and Inspection currently pass startup. None has
+complete usability acceptance evidence.** The previous two clean Microsoft startup results hid
 initialization formulas that were never emitted; restoring those formulas now
-exposes LoadData, TimeValue, IsMatch and connector dependencies. GroupBy no longer
-blocks Employee Ideas, but its loading-to-business workflow is still unassessed. Five generated-fixture
-Chromium journeys pass. These fixtures are regression evidence, not additional
+exposes TimeValue, IsMatch and connector dependencies. GroupBy and LoadData no longer
+block Employee Ideas and Inspection, but their loading-to-business workflows
+remain unassessed. Six generated-fixture Chromium journeys pass. These fixtures
+are regression evidence, not additional
 real acceptance apps. The last recorded Google deployment remains HelpDesk @14.
 
 ## Acceptance goal: faithful business-app conversion
@@ -82,15 +92,15 @@ the implementation order.
 
 | Evidence | Latest result | What remains unproven |
 |---|---|---|
-| Unit/runtime tests | 191 Python pass, 3 skip; 66 JS pass; bare globals, FX and FXRuntime emitter/runtime consistency passes | Complete deployed workflows and broader control semantics |
+| Unit/runtime tests | 194 Python pass, 3 skip; 71 JS pass; bare globals, FX and FXRuntime emitter/runtime consistency passes | Complete deployed workflows and broader control semantics |
 | Current real-app soak | 5/5 Bootable; 1,120 formulas | Usability unassessed; the other five historical local exports are absent |
-| Current regression translation/wiring | 1,114 translated; 964 emitted, 13 approximated, 143 ignored/unsupported | Translation does not establish runtime behavior |
+| Current regression translation/wiring | 1,114 translated; 969 emitted, 13 approximated, 138 ignored/unsupported | Translation does not establish runtime behavior |
 | Historical ten-app corpus | Previously 10/10 Bootable; 23,746 formulas | Not reproduced in this workspace; those results did not establish usability |
 | HelpDesk generated-app journeys | HOME → NEW → HOME; dashboard row text, logo URI, pie and legend output pass | All-screen interactions, image decoding/layout in CI, persistence |
 | HelpDesk @14 live browser | Ticket cards, decoded 64×64 logos, pie/bar/legend SVGs, readable fonts/labels, HOME → NEW → HOME | Same-state original comparison, user name/avatar, complete workflow coverage |
 | Chromium: business form | Actual generated client + Code.gs: edit/create, required validation, write failure, delete and page reload pass against a persistent Sheets test double | Real Google authorization/Sheets writes and another user/session |
-| Chromium regression suite | 5/5 fixtures pass: form, charts, record scopes/launch parameters, editable gallery, timer lifecycle; generated client and server code | Real Google services, real-app critical workflows and original visual comparisons; HelpDesk is absent here |
-| Microsoft business baseline | 6/6 convert and validate; 1/6 passes startup (Employee Ideas) | Startup alone does not prove leaving loading or completing business actions; all business workflows remain unverified |
+| Chromium regression suite | 6/6 fixtures pass: form, charts, record scopes/launch parameters, editable gallery, timer lifecycle, local draft persistence; generated client and server code | Real Google services, real-app critical workflows and original visual comparisons; HelpDesk is absent here |
+| Microsoft business baseline | 6/6 convert and validate; 2/6 pass startup (Employee Ideas, Inspection) | Startup alone does not prove leaving loading or completing business actions; all business workflows remain unverified |
 | CI configuration | Existing tests plus required-app/journey gates and new Chromium artifact job | Browser job configured and locally tested, not yet verified in remote CI; local HelpDesk remains optional |
 
 Evidence: `.artifacts/benchmark/benchmark-scorecard.json`,
@@ -182,7 +192,7 @@ with `./pfx2gas browser scripts/assess_microsoft_samples.py`.
 
 Milestones supplies the first project/task lifecycle target; Employee Ideas and
 Inspection verify that fixes generalize. The Microsoft baseline still exits 1
-with five startup failures; Employee Ideas is Usable/High fidelity unassessed,
+with four startup failures; Employee Ideas and Inspection are Usable/High fidelity unassessed,
 not passing business apps. None of R1–R5 is fully complete under its original
 acceptance criteria.
 
@@ -219,7 +229,7 @@ full dependency list:
 |---|---|---|
 | Employee Ideas | No error in the startup window; leaving Loading Screen remains unverified | Teams channel posting and Dataverse campaign/idea data |
 | Employee Ideas Manager | `MicrosoftTeams.GetAllTeams` | Loading/focus timers; team/channel lookup and posting |
-| Inspection | `LoadData`; still on Landing Screen | Browser persistence contract; Planner plans/tasks/buckets and task creation; Office365 user/profile/photo; Teams posting |
+| Inspection | No error in the startup window; leaving Landing Screen remains unverified | Browser draft persistence implemented and tested independently; full inspection submission, Planner tasks, Office365 identity and Teams posting remain |
 | Inspection Manager | Teams lookup, `Planner.ListMyPlansV2`, `IsMatch` | Loading/focus timers; plan/bucket/task/group-plan lookups and settings validation |
 | Milestones | `TimeValue` | Loading/focus timers; Office365 user/profile/photo and relational project/task data |
 | Review Inspections | `Planner.ListMyPlansV2` | Loading/focus timers and inspection data |
@@ -228,6 +238,14 @@ Next acceptance evidence must demonstrate leaving the loading state through
 the source-defined flow, with real mapped data, then completing a business
 journey. Follow that immediately with editable-gallery focus/selection tests
 and original-versus-converted UI comparisons in the same data state.
+
+The exports already contain detailed `NativeCDSDataSourceInfo.TableDefinition`
+metadata: entity attributes and primary keys, relationships, views and option
+sets, plus logical/display-name mappings. The legacy adapter currently ignores
+this data while reading only the older `Schema` string. Decode these embedded
+contracts next; missing target schemas are a converter gap, not missing export
+evidence. Also retain `OptionSetInfo` constants rather than treating them as
+empty external tables. Source inspection artifacts are under `.artifacts/`.
 
 ### R1 — P0: make regression evidence enforceable and reproducible
 

@@ -199,6 +199,13 @@ def test_generated_record_scopes_startup_clean():
     assert verdict["totalConsoleErrors"] == 0, verdict
 
 
+def test_generated_local_draft_cache_loads_missing_cache_without_errors():
+    verdict = _simulate(FIXTURES / "fixtureStorage.msapp")
+    assert verdict["refErrors"] == [], verdict
+    assert verdict["visible"] == ["DraftScreen"], verdict
+    assert verdict["totalConsoleErrors"] == 0, verdict
+
+
 def test_generated_gallery_edits_second_row_and_queues_parent_once(tmp_path):
     from pfx2gas.analyze import analyze
     from pfx2gas.parse import parse

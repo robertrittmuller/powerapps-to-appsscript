@@ -965,9 +965,27 @@ def render_app_js(ir: AppIR) -> str:
         gallery_children = {c.name for s in ir.screens for ctrl in s.walk_controls()
                             if ctrl.type in row_scoped
                             for child in ctrl.children for c in child.walk()}
+        form_children = {child.name for form in screen.walk_controls() if form.type == "Form"
+                         for child in _descendants(form)}
         for ctrl in screen.walk_controls():
             if ctrl.name in gallery_children:
                 continue
+            if ctrl.type in {"TextInput", "TextArea", "CheckBox", "DatePicker", "Slider", "Button"}:
+                inputs = [("DisplayMode", "disabled"), ("Reset", "reset")]
+                # Form/DataCard record application already owns their defaults.
+                # Standalone inputs need the same reactive default contract as
+                # gallery rows, including defaults populated by LoadData.
+                if ctrl.name not in form_children and ctrl.type != "Button":
+                    inputs.insert(0, ("DefaultDate" if ctrl.type == "DatePicker" else "Default", "default"))
+                properties = [(key, ctrl.properties[prop]) for prop, key in inputs
+                              if prop in ctrl.properties and ctrl.properties[prop].js
+                              and "await " not in ctrl.properties[prop].js]
+                if properties:
+                    lines.append(f"  FXRuntime.inputControl({ctrl.name!r}, {parent_names.get(ctrl.name)!r}, {{")
+                    for key, expr in properties:
+                        lines.append(f"    {key!r}: function (val, selfRef, parentRef) {{ return {expr.js}; }},")
+                        mark_emission(expr)
+                    lines.append("  });")
             wanted_props = set(referenced_props.get(ctrl.name, set()))
             wanted_props.update(ctrl.component_inputs)
             if wanted_props:
@@ -1343,6 +1361,7 @@ def render_index_html(ir: AppIR, screens_html: str) -> str:
 <body>
 <?!= include('Screens.html'); ?>
 <script type="application/json" id="fx-launch-parameters"><?!= launchParametersJSON ?></script>
+<script type="application/json" id="fx-storage-context"><?!= storageContextJSON ?></script>
 <script>
 <?!= include('gas-runtime.js.html'); ?>
 <?!= include('fx-stdlib.js.html'); ?>

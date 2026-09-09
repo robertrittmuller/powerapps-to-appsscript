@@ -43,6 +43,7 @@ const workbook = {
 };
 const properties = new Map();
 let sequence = 0, failNext = false;
+let storageAppId = 'test-script:' + process.argv[2], storageUser = 'business.tester@example.test';
 const context = vm.createContext({
   HtmlService: {
     createHtmlOutputFromFile(name) {
@@ -52,6 +53,7 @@ const context = vm.createContext({
       const template = {
         evaluate() {
           context.launchParametersJSON = template.launchParametersJSON;
+          context.storageContextJSON = template.storageContextJSON;
           const content = fs.readFileSync(path.join(process.argv[2], name + '.html'), 'utf8')
             .replace(/<\?!=([\s\S]*?)\?>/g, (_match, expression) =>
               vm.runInContext(expression, context, {timeout: 10000}));
@@ -66,7 +68,8 @@ const context = vm.createContext({
   }) },
   SpreadsheetApp: { create: () => workbook, openById: () => workbook },
   Utilities: { getUuid: () => 'test-record-' + (++sequence) },
-  Session: { getActiveUser: () => ({ getEmail: () => 'business.tester@example.test' }) },
+  Session: { getActiveUser: () => ({ getEmail: () => storageUser }) },
+  ScriptApp: { getScriptId: () => storageAppId },
 });
 for (const file of ['Code.gs', 'DataInit.gs']) {
   vm.runInContext(fs.readFileSync(path.join(process.argv[2], file), 'utf8'), context, {timeout: 10000});
@@ -76,6 +79,10 @@ readline.createInterface({input: process.stdin}).on('line', line => {
   try {
     const request = JSON.parse(line);
     if (request.fn === '__failNextMutation') { failNext = true; process.stdout.write('{"result":true}\n'); return; }
+    if (request.fn === '__setStorageIdentity') {
+      [storageAppId, storageUser] = request.args;
+      process.stdout.write('{"result":true}\n'); return;
+    }
     if (!['api', 'apiChoices', 'whoami', 'doGet'].includes(request.fn)) throw new Error('unknown test endpoint');
     if (failNext && request.fn === 'api' && request.args[1] !== 'list') {
       failNext = false; throw new Error('Simulated Sheets write failure');

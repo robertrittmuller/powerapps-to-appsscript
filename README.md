@@ -151,7 +151,7 @@ business apps are usable yet. The normal `./pfx2gas soak` enforces the existing
 required regression corpus, including failed required journeys and missing apps.
 
 `./pfx2gas browser` tests generated forms, charts, record scopes, editable
-galleries, timer lifecycles and launch parameters in Chromium, plus HelpDesk
+galleries, timer lifecycles, launch parameters and local draft storage in Chromium, plus HelpDesk
 when its local export is present. It runs
 generated `doGet`/client/server code against a Sheets test double to check save,
 validation, failure, delete and reload behavior, including safe request templating.
@@ -214,6 +214,10 @@ Converted apps aim to match the original visually and behaviorally:
 - **Selectors** — Dropdown, ComboBox, and ListBox options preserve their source
   records for `Selected`/`SelectedItems`; `DisplayFields`, default selections,
   and multi-select are wired into native selects.
+- **Input defaults and disabled states** — standalone text, date, checkbox and
+  slider defaults react to loaded records while preserving edits through
+  unrelated state updates. Reset restores the current default. Native inputs
+  and buttons reevaluate source DisplayMode formulas as the user types.
 - **Legacy canvas components** — definitions in `Components/*.json` are inlined
   per instance with namespaced children and reactive custom inputs. This covers
   the corpus's MENU, TILES/BUSCADOR, and progress-bar components; static
@@ -241,6 +245,14 @@ Converted apps aim to match the original visually and behaviorally:
   `Switch` evaluates its subject once. Selected async results are awaited.
   Sort/SortByColumns preserve normalized column names, ascending/descending
   directions and multiple column/order pairs.
+- **Local drafts** — SaveData/LoadData/ClearData use browser storage for local
+  collections. LoadData appends saved rows; its optional flag suppresses only
+  missing entries. Nested records/tables, dates, blanks, zero and false survive
+  reloads. Cache names are scoped to the deployed script and identified user.
+  When Google supplies no user identity, sessions share that app's cache in
+  the browser profile. Storage is plaintext, limited to 1 MB per encoded entry,
+  and can be unavailable or removed by browser settings. This does not make
+  the Apps Script page or remote data services available offline.
 - **Timers** — Duration, Start, AutoStart, AutoPause, Repeat, Reset,
   OnTimerStart and OnTimerEnd are wired to browser scheduling, with elapsed
   Value and SetFocus support. Browser timer precision is approximate; timers

@@ -284,6 +284,83 @@ def run_case(browser, name, source, journey, clock=False):
     return result
 
 
+def check_storage(page, backend):
+    note, status, count = (control(page, name) for name in ("DraftNote", "CacheStatus", "DraftCount"))
+    expect(status).to_have_text("ready")
+    expect(count).to_have_text("0")
+    expect(control(page, "SaveDraft")).to_be_disabled()
+    identity = page.evaluate("JSON.parse(document.getElementById('fx-storage-context').textContent)")
+    note.fill("Inspect north entrance")
+    expect(control(page, "SaveDraft")).to_be_enabled()
+    control(page, "SaveDraft").click()
+    expect(status).to_have_text("saved")
+    page.reload()
+    expect(note).to_have_value("Inspect north entrance")
+    expect(count).to_have_text("1")
+    expect(control(page, "DraftDate")).to_have_value("2026-09-09")
+    expect(control(page, "DraftDone")).not_to_be_checked()
+    assert page.evaluate("state.Drafts[0].logged_at instanceof Date && state.Drafts[0].done === false && state.Drafts[0].count === 0 && state.Drafts[0].detail.code === 'inspection'")
+    note.fill("Unsaved note")
+    note.focus()
+    page.evaluate("document.querySelector('[data-control=DraftNote]').setSelectionRange(2, 6)")
+    # Keyboard activation changes unrelated state without moving input focus.
+    page.evaluate("document.querySelector('[data-control=DraftUnrelated]').click()")
+    expect(status).to_have_text("editing")
+    expect(note).to_have_value("Unsaved note")
+    assert page.evaluate("document.activeElement.dataset.control === 'DraftNote' && document.activeElement.selectionStart === 2 && document.activeElement.selectionEnd === 6")
+    control(page, "DraftReset").click()
+    expect(note).to_have_value("Inspect north entrance")
+    page.screenshot(path=str(OUT / "local-draft-storage/saved-and-reloaded.png"))
+    control(page, "AppendDraft").click()
+    expect(count).to_have_text("2")
+    control(page, "SaveBackup").click()
+    expect(status).to_have_text("backup saved")
+
+    # A browser quota failure is handled by the source's IfError and leaves
+    # the existing persistent draft available after a reload.
+    page.evaluate("() => { Storage.prototype.setItem = function(){throw new DOMException('quota full', 'QuotaExceededError')}; }")
+    note.fill("Must not replace saved draft")
+    control(page, "SaveDraft").click()
+    expect(status).to_have_text("save failed")
+    page.reload()
+    expect(note).to_have_value("Inspect north entrance")
+    expect(count).to_have_text("1")
+
+    page.evaluate("localStorage.setItem(Object.keys(localStorage).find(k => k.endsWith(':inspection-draft')), '{corrupt')")
+    page.reload()
+    expect(status).to_have_text("load failed")
+    expect(count).to_have_text("0")
+    control(page, "ClearDraft").click()
+    expect(status).to_have_text("draft cleared")
+    assert page.evaluate("Object.keys(localStorage).some(k => k.endsWith(':backup'))")
+    note.fill("Restored draft")
+    control(page, "SaveDraft").click()
+    expect(status).to_have_text("saved")
+
+    backend({"fn": "__setStorageIdentity", "args": ["another-script", identity["user"]]})
+    page.reload()
+    expect(note).to_have_value("")
+    note.fill("Other app draft")
+    control(page, "SaveDraft").click()
+    expect(status).to_have_text("saved")
+    backend({"fn": "__setStorageIdentity", "args": [identity["appId"], "another-user@example.test"]})
+    page.reload()
+    expect(note).to_have_value("")
+    note.fill("Other user draft")
+    control(page, "SaveDraft").click()
+    expect(status).to_have_text("saved")
+    backend({"fn": "__setStorageIdentity", "args": [identity["appId"], identity["user"]]})
+    page.goto("https://converted.test/?appId=another-script&user=another-user@example.test")
+    expect(note).to_have_value("Restored draft")
+    page.evaluate("localStorage.setItem('unrelated-app-storage', 'keep')")
+    control(page, "ClearAppCache").click()
+    expect(status).to_have_text("cache cleared")
+    assert page.evaluate("localStorage.length === 3 && localStorage.getItem('unrelated-app-storage') === 'keep'")
+    page.reload()
+    expect(note).to_have_value("")
+    expect(count).to_have_text("0")
+
+
 def main():
     subprocess.run([sys.executable, str(REPO / "tests/fixtures/build.py")], check=True, capture_output=True)
     cases = [("business-form", REPO / "tests/fixtures/fixtureForm.msapp", check_form),
@@ -291,6 +368,7 @@ def main():
              ("record-scopes", REPO / "tests/fixtures/fixtureScopes.msapp", check_scopes)]
     cases.append(("editable-gallery", REPO / "tests/fixtures/fixtureGallery.msapp", check_gallery))
     cases.append(("timer-lifecycle", REPO / "tests/fixtures/fixtureTimer.msapp", check_timers, True))
+    cases.append(("local-draft-storage", REPO / "tests/fixtures/fixtureStorage.msapp", check_storage))
     helpdesk = REPO / "samples/real/helpdesk.msapp"
     if helpdesk.exists():
         cases.append(("helpdesk", helpdesk, check_helpdesk))

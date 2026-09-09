@@ -30,6 +30,14 @@ function launchParametersJSON_(event) {{
 function doGet(event) {{
   var template = HtmlService.createTemplateFromFile('Index');
   template.launchParametersJSON = launchParametersJSON_(event);
+  // Cache keys belong to this deployed script, independent of launch params.
+  // Identified users have separate caches; unidentified sessions share this
+  // app's cache within a browser profile, as documented for web storage.
+  var email = '';
+  try {{ email = Session.getActiveUser().getEmail() || ''; }} catch (err) {{}}
+  template.storageContextJSON = JSON.stringify({{
+    appId: ScriptApp.getScriptId(), user: email
+  }}).replace(/</g, '\\\\u003c');
   return template.evaluate()
     .setTitle({app_name!r})
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');

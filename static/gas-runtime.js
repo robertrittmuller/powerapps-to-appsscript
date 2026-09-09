@@ -17,15 +17,122 @@
   var screenStack = [];
   var CURRENT_SCREEN = null;
   var launchParameters = {};
+  var storageContext = null;
   if (typeof document !== 'undefined') {
     var parameterElement = document.getElementById('fx-launch-parameters');
     if (parameterElement) launchParameters = JSON.parse(parameterElement.textContent || '{}');
+    var storageElement = document.getElementById('fx-storage-context');
+    if (storageElement) storageContext = JSON.parse(storageElement.textContent || '{}');
   }
 
   function param(name) {
     var key = String(name == null ? '' : name);
     return Object.prototype.hasOwnProperty.call(launchParameters, key)
       ? String(launchParameters[key]) : null;
+  }
+
+  function cacheAccess() {
+    if (!storageContext || typeof storageContext.appId !== 'string' || !storageContext.appId)
+      throw new Error('App storage identity is unavailable; open the deployed app to use SaveData/LoadData');
+    var storage;
+    try { storage = global.localStorage; } catch (err) {
+      throw new Error('Browser storage is unavailable: ' + err.message);
+    }
+    if (!storage) throw new Error('Browser storage is unavailable');
+    return {storage: storage, prefix: 'pfx2gas:cache:v1:' +
+      encodeURIComponent(JSON.stringify([storageContext.appId, storageContext.user || ''])) + ':'};
+  }
+
+  function cacheName(name) {
+    if (typeof name !== 'string' || !name || /[*".?:\\<>|/]/.test(name))
+      throw new Error('SaveData/LoadData storage name is empty or contains a forbidden character');
+    return encodeURIComponent(name);
+  }
+
+  // Tagged values preserve nested records/tables, dates, and Blank without
+  // guessing whether ordinary strings happen to look like dates or type tags.
+  function packCache(value, ancestors) {
+    if (value == null) return ['blank'];
+    if (value instanceof Date) {
+      if (!isFinite(value.getTime())) throw new Error('Cannot save an invalid date');
+      return ['date', value.toISOString()];
+    }
+    if (typeof value === 'number' && !isFinite(value)) throw new Error('Cannot save a non-finite number');
+    if (['string', 'number', 'boolean'].indexOf(typeof value) >= 0) return [typeof value, value];
+    if (typeof value !== 'object') throw new Error('Cannot save this value type');
+    if (ancestors.indexOf(value) >= 0) throw new Error('Cannot save circular data');
+    var path = ancestors.concat([value]);
+    if (Array.isArray(value)) return ['table', value.map(function (item) { return packCache(item, path); })];
+    return ['record', Object.keys(value).map(function (key) { return [key, packCache(value[key], path)]; })];
+  }
+
+  function unpackCache(value) {
+    if (!Array.isArray(value)) throw new Error('Invalid cached value');
+    var type = value[0], data = value[1];
+    if (type === 'blank' && value.length === 1) return null;
+    if (value.length !== 2) throw new Error('Invalid cached value');
+    if (['string', 'number', 'boolean'].indexOf(type) >= 0 && typeof data === type) {
+      if (type === 'number' && !isFinite(data)) throw new Error('Invalid cached number');
+      return data;
+    }
+    if (type === 'date' && typeof data === 'string' && isFinite(new Date(data).getTime())) return new Date(data);
+    if (type === 'table' && Array.isArray(data)) return data.map(unpackCache);
+    if (type === 'record' && Array.isArray(data)) {
+      var record = {};
+      data.forEach(function (field) {
+        if (!Array.isArray(field) || field.length !== 2 || typeof field[0] !== 'string' ||
+            Object.prototype.hasOwnProperty.call(record, field[0])) throw new Error('Invalid cached field');
+        Object.defineProperty(record, field[0], {value: unpackCache(field[1]), enumerable: true, writable: true, configurable: true});
+      });
+      return record;
+    }
+    throw new Error('Invalid cached value type');
+  }
+
+  function saveData(collection, name) {
+    var cache = cacheAccess(), key = cache.prefix + cacheName(name);
+    if (!Array.isArray(collection)) throw new Error('SaveData requires a collection');
+    var text = JSON.stringify({version: 1, rows: packCache(collection, [])});
+    if (new TextEncoder().encode(text).length > 1048576)
+      throw new Error('SaveData exceeds the 1 MB browser cache limit');
+    cache.storage.setItem(key, text); // quota/access failures must reach IfError
+    return null;
+  }
+
+  function loadData(collectionName, name, ignoreMissing) {
+    var cache = cacheAccess(), key = cache.prefix + cacheName(name);
+    var text = cache.storage.getItem(key);
+    if (text === null) {
+      if (!ignoreMissing) throw new Error('No saved data named ' + name);
+      return null;
+    }
+    var saved;
+    try {
+      var envelope = JSON.parse(text);
+      if (!envelope || envelope.version !== 1) throw new Error('Unknown cache version');
+      saved = unpackCache(envelope.rows);
+      if (!Array.isArray(saved)) throw new Error('Cached data is not a collection');
+    } catch (err) { throw new Error('Saved data is corrupt or incompatible: ' + name + ' (' + err.message + ')'); }
+    var current = state[collectionName];
+    if (current != null && !Array.isArray(current)) throw new Error('LoadData requires a collection');
+    var update = {};
+    Object.defineProperty(update, collectionName, {value: (current || []).concat(saved), enumerable: true});
+    setState(update); // append atomically only after all cached values validate
+    return null;
+  }
+
+  function clearData(name) {
+    var cache = cacheAccess();
+    if (arguments.length) cache.storage.removeItem(cache.prefix + cacheName(name));
+    else {
+      var keys = [];
+      for (var i = 0; i < cache.storage.length; i++) {
+        var key = cache.storage.key(i);
+        if (key && key.indexOf(cache.prefix) === 0) keys.push(key);
+      }
+      keys.forEach(function (key) { cache.storage.removeItem(key); });
+    }
+    return null;
   }
 
   function serverRun(fn) {
@@ -390,6 +497,9 @@
           var signature = JSON.stringify(value == null ? '' : value);
           if (el.__fxDefaultSignature !== signature) {
             el.__fxDefaultSignature = signature;
+            if (el.type === 'date' && value instanceof Date) {
+              value = value.getFullYear() + '-' + String(value.getMonth() + 1).padStart(2, '0') + '-' + String(value.getDate()).padStart(2, '0');
+            }
             el.setAttribute('data-fx-default', value == null ? '' : String(value));
             if (el.type === 'checkbox') el.checked = !!value;
             else if (el.tagName === 'SELECT') applyDefaultSelection(el, value);
@@ -881,6 +991,18 @@
     return value;
   }
 
+  function inputControl(name, parentName, propertyFns) {
+    var evaluator = {apply: function () { rowControl(document, name, parentName, propertyFns); }};
+    var el = document.querySelector('[data-control="' + name + '"]');
+    if (el && !el.__fxInputUpdates) {
+      el.__fxInputUpdates = true;
+      el.addEventListener('input', updateBindings);
+      el.addEventListener('change', updateBindings);
+    }
+    evaluators.push(evaluator);
+    evaluator.apply();
+  }
+
   function setFormMode(name, mode) {
     var normalized = formMode(mode);
     var form = forms[name];
@@ -1010,6 +1132,10 @@
 
   global.FXRuntime = {
     param: param,
+    saveData: saveData,
+    loadData: loadData,
+    clearData: clearData,
+    inputControl: inputControl,
     language: function () { return global.navigator && global.navigator.language || 'en-US'; },
     state: state,
     serverRun: serverRun,
