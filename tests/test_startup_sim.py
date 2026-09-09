@@ -265,7 +265,7 @@ def test_generated_timers_initialize_data_and_leave_loading_screen(tmp_path):
     assert verdict["journeyResults"][0]["status"] == "pass", verdict
 
 
-@pytest.mark.parametrize("target", ["startup", "screen", "button", "timer"])
+@pytest.mark.parametrize("target", ["startup", "screen", "hidden", "button", "timer"])
 def test_untranslatable_behavior_cannot_silently_pass_runtime_checks(tmp_path, target):
     from pfx2gas.analyze import analyze
     from pfx2gas.ir import AppIR, ControlNode, ScreenNode, FxExpr
@@ -280,6 +280,12 @@ def test_untranslatable_behavior_cannot_silently_pass_runtime_checks(tmp_path, t
         ir.on_start = broken
     elif target == "screen":
         screen.on_visible = broken
+    elif target == "hidden":
+        screen.properties['OnHidden'] = broken
+        ir.screens.append(ScreenNode(name='Other'))
+        screen.controls = [ControlNode(name='LeaveScreen', type='Button', properties={
+            'OnSelect': FxExpr(raw='Navigate(Other)', kind='behavior')})]
+        steps = [{'action': 'click', 'control': 'LeaveScreen'}]
     elif target == "button":
         screen.controls = [ControlNode(name="BrokenButton", type="Button", properties={"OnSelect": broken})]
         steps = [{"action": "click", "control": "BrokenButton"}]
@@ -289,7 +295,7 @@ def test_untranslatable_behavior_cannot_silently_pass_runtime_checks(tmp_path, t
         steps = [{"action": "wait", "milliseconds": 250}]
     verdict = simulate_project(synthesize(analyze(ir), tmp_path / "Broken"), [{"id": "observe-failure", "steps": steps}])
     assert any("formula could not be translated" in error for error in verdict["allConsoleErrors"]), verdict
-    if target in {"button", "timer"}:
+    if target in {"button", "timer", "hidden"}:
         assert verdict["journeyResults"][0]["status"] == "fail", verdict
 
 

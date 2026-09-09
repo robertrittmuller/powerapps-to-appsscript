@@ -37,7 +37,7 @@ ENUM_TYPES = {"Color", "Icon", "Font", "FontWeight", "Align", "Image",
               "LayoutDirection", "LayoutAlignItems", "LayoutJustifyContent",
               "LayoutWrap", "VerticalAlign", "FillPortions", "Overflow",
               "ImagePosition", "ImageRotation", "TextPosition", "FontWeight2",
-              "BorderStyle", "TextRole", "Live", "DateTimeFormat"}
+              "BorderStyle", "TextRole", "Live", "DateTimeFormat", "Layout"}
 
 MATCH_PATTERNS = {"Any": ".", "Comma": ",", "Digit": r"\d", "Hyphen": r"\-",
                   "LeftParen": r"\(", "RightParen": r"\)", "Period": r"\.", "Tab": r"\t",
@@ -177,6 +177,8 @@ class Emitter:
         control = False
         if not members and base in {"Ascending", "Descending"}:
             return _q(base)
+        if base == "ScreenSize" and len(members) == 1 and members[0] in {"Small", "Medium", "Large", "ExtraLarge"}:
+            return str({"Small": 1, "Medium": 2, "Large": 3, "ExtraLarge": 4}[members[0]])
         if base in ENUM_TYPES and members:
             return _q(".".join(members))
         if alias is not None and not global_only:
@@ -188,8 +190,15 @@ class Emitter:
         elif base in {"Parent", "Self"}:
             access = "parentRef" if base == "Parent" else "selfRef"
             control = True
+        elif base == "App":
+            access = "val('App')"
+            control = True
+            if members[:1] == ["ActiveScreen"] and len(members) > 1:
+                access = "val(val('App').active_screen)"
+                members = members[1:]
         elif self.screen_names is not None and base in self.screen_names:
-            access = _q(base)
+            access = f"val({_q(base)})" if members else _q(base)
+            control = bool(members)
         elif base in self.media_resources:
             access = _q(self.media_resources[base])
         elif base in self.control_names or (members and not self.known_controls

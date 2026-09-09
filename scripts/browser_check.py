@@ -226,7 +226,7 @@ def check_timers(page, _backend):
     page.screenshot(path=str(OUT / "timer-lifecycle/ready.png"))
 
 
-def run_case(browser, name, source, journey, clock=False):
+def run_case(browser, name, source, journey, clock=False, launch_parameters=None, viewport=None):
     project = synthesize(analyze(parse(unpack(source))), OUT / name / "project")
     validation = validate_project(project)
     assert validation["ok"], validation["problems"]
@@ -239,7 +239,7 @@ def run_case(browser, name, source, journey, clock=False):
         if not line:
             raise RuntimeError("generated server test process stopped")
         return json.loads(line)
-    context = browser.new_context(viewport={"width": 1440, "height": 900}, locale="en-US")
+    context = browser.new_context(viewport=viewport or {"width": 1440, "height": 900}, locale="en-US")
     context.expose_function("__gasCall", backend)
     context.add_init_script(path=str(REPO / "tests/browser/bridge.js"))
     # No app-generated external requests are permitted in this local test.
@@ -265,7 +265,7 @@ def run_case(browser, name, source, journey, clock=False):
               "inputSha256": hashlib.sha256(source.read_bytes()).hexdigest(),
               "converterSourceSha256": converter_fingerprint(), "browserVersion": browser.version}
     try:
-        page.goto("https://converted.test/")
+        page.goto("https://converted.test/?" + urlencode(launch_parameters or {}))
         journey(page, backend)
         assert not errors, errors
     except Exception as error:
@@ -429,6 +429,66 @@ def check_source_formulas(page, _backend):
     page.screenshot(path=str(OUT / "source-formulas/validated-formulas.png"))
 
 
+def check_canvas(page, _backend):
+    expect(control(page, "CanvasTitle")).to_have_text("1440 / 5")
+    assert page.evaluate("state.initialWidth === 1440 && state.initialToggle === false")
+    expect(control(page, "ThemeCaption")).to_have_text("Light theme")
+    assert page.evaluate("val('Details Screen').width === 1440")
+    draft, button = control(page, 'Draft'), control(page, 'OpenDetails')
+    panel = control(page, 'ManualPanel')
+    def geometry():
+        a, b, c = panel.bounding_box(), draft.bounding_box(), button.bounding_box()
+        assert b['x'] == a['x'] + 20 and b['y'] == a['y'] + 20, (a, b)
+        assert c['y'] == a['y'] + 100 and b['width'] == a['width'] - 40, (a, b, c)
+        assert c['y'] >= b['y'] + b['height'], (b, c)
+        assert button.evaluate('el => el.scrollWidth <= el.clientWidth && el.scrollHeight <= el.clientHeight')
+        first, second = control(page, 'AutoFirst').bounding_box(), control(page, 'AutoSecond').bounding_box()
+        assert second['x'] == first['x'] + first['width'] + 8 and first['y'] == second['y'], (first, second)
+    geometry()
+    draft.fill('Unsaved mobile draft')
+    draft.focus()
+    draft.evaluate('el => { window.__draft = el; el.setSelectionRange(2, 5); }')
+    for width, logical, size in [(900, 900, 2), (390, 390, 1), (280, 320, 1), (1201, 1201, 4)]:
+        page.set_viewport_size({'width': width, 'height': 700})
+        expect(control(page, 'CanvasTitle')).to_have_text(f'{logical} / {size}')
+        geometry()
+        expect(draft).to_have_value('Unsaved mobile draft')
+        assert draft.evaluate('el => el === window.__draft && document.activeElement === el && el.selectionStart === 2 && el.selectionEnd === 5')
+    page.set_viewport_size({'width': 390, 'height': 700})
+    expect(control(page, 'CanvasTitle')).to_have_text('390 / 1')
+    page.screenshot(path=str(OUT / 'responsive-canvas/narrow.png'))
+    button.click()
+    expect(control(page, 'DetailsTitle')).to_have_text('Light details')
+    page.wait_for_function("state.exitCount === 1 && state.enteredAfterExit === true")
+    assert page.evaluate("state.exitScreenWidth === 390 && state.exitDraft === 'Unsaved mobile draft'")
+    control(page, 'ReturnCanvas').click()
+    control(page, 'ThemeToggle').check()
+    expect(control(page, 'ThemeCaption')).to_have_text('Blue theme')
+    expect(page.locator('[data-screen="Responsive Screen"]')).to_have_css('background-color', 'rgb(221, 238, 255)')
+    button.click()
+    expect(control(page, 'DetailsTitle')).to_have_text('Blue details')
+    page.wait_for_function('state.exitCount === 2')
+    control(page, 'ReturnCanvas').click()
+    expect(draft).to_have_value('Unsaved mobile draft')
+    expect(control(page, 'CaptionReference')).to_have_text('Open details: Unsaved mobile draft')
+
+
+def check_scaled_canvas(page, _backend):
+    expect(control(page, 'CanvasTitle')).to_have_text('1200 / 3')
+    assert page.evaluate("state.initialWidth === 1200 && state.initialToggle === false")
+    for width, height in [(600, 500), (1500, 400)]:
+        page.set_viewport_size({'width': width, 'height': height})
+        scale = min(width / 1200, height / 800)
+        expect(page.locator('[data-screen="Responsive Screen"]')).to_have_css('transform', f'matrix({scale}, 0, 0, {scale}, 0, 0)')
+        assert page.evaluate("val('App').width === 1200 && val('App').height === 800")
+        rect = control(page, 'ManualPanel').bounding_box()
+        assert abs(rect['width'] - 1160 * scale) < 1, rect
+        control(page, 'OpenDetails').click()
+        expect(control(page, 'DetailsTitle')).to_have_text('Light details')
+        control(page, 'ReturnCanvas').click()
+    page.screenshot(path=str(OUT / 'scaled-canvas/letterboxed.png'))
+
+
 def main():
     subprocess.run([sys.executable, str(REPO / "tests/fixtures/build.py")], check=True, capture_output=True)
     cases = [("business-form", REPO / "tests/fixtures/fixtureForm.msapp", check_form),
@@ -439,6 +499,8 @@ def main():
     cases.append(("local-draft-storage", REPO / "tests/fixtures/fixtureStorage.msapp", check_storage))
     cases.append(("dataverse-contract", REPO / "tests/fixtures/fixtureDataverse.msapp", check_dataverse))
     cases.append(("source-formulas", REPO / "tests/fixtures/fixtureSourceFormulas.msapp", check_source_formulas))
+    cases.append(("responsive-canvas", REPO / "tests/fixtures/fixtureCanvas.msapp", check_canvas))
+    cases.append(("scaled-canvas", REPO / "tests/fixtures/fixtureScaledCanvas.msapp", check_scaled_canvas))
     helpdesk = REPO / "samples/real/helpdesk.msapp"
     if helpdesk.exists():
         cases.append(("helpdesk", helpdesk, check_helpdesk))

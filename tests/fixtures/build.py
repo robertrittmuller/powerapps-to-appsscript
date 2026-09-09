@@ -621,6 +621,68 @@ def source_formula_fixture_files() -> dict[str, str]:
     }
 
 
+def canvas_fixture_files(scale_to_fit=False) -> dict[str, str]:
+    """Responsive and fixed canvases with source formulas and manual containers."""
+    def control(name, kind, props, children=None, variant=None):
+        node = {"Control": kind, "Properties": {k: "=" + str(v) for k, v in props.items()}}
+        if children is not None:
+            node["Children"] = children
+        if variant:
+            node["Variant"] = variant
+        return {name: node}
+    screen_props = {
+        "Width": "Max(App.Width, App.MinScreenWidth)",
+        "Height": "Max(App.Height, App.MinScreenHeight)",
+        "Size": "1 + CountRows(App.SizeBreakpoints) - CountIf(App.SizeBreakpoints, Value >= Self.Width)",
+        "Orientation": "If(Self.Width < Self.Height, Layout.Vertical, Layout.Horizontal)",
+        "Fill": 'If(ThemeToggle.Value, ColorValue("#ddeeff"), ColorValue("#f4f4f4"))',
+    }
+    nested = control("ManualPanel", "GroupContainer", {
+        "X": 20, "Y": 160, "Width": "Parent.Width - 40", "Height": 180,
+        "LayoutMode": "LayoutMode.Manual", "LayoutDirection": "LayoutDirection.Horizontal",
+        "Fill": 'ColorValue("#ffffff")',
+    }, [control("CanvasCard", "DataCard", {"X": 0, "Y": 0, "Width": "Parent.Width", "Height": "Parent.Height"}, [
+        control("Draft", "TextInput", {"X": 20, "Y": 20, "Width": "Parent.Width - 40", "Height": 44,
+            "Default": '"Keep this draft"', "AccessibleLabel": '"Draft text"'}),
+        control("OpenDetails", "Button", {"X": 20, "Y": 100, "Width": "Parent.Width - 40", "Height": 44,
+            "Text": '"Open details"', "OnSelect": "Set(chosenTheme, ThemeToggle.Value); Navigate('Details Screen')"}),
+    ])])
+    props = {"Name": "FixtureCanvas", "DocumentLayoutWidth": 1200, "DocumentLayoutHeight": 800,
+             "DocumentLayoutScaleToFit": scale_to_fit, "DocumentLayoutMaintainAspectRatio": True,
+             "DocumentLayoutLockOrientation": False, "DocumentLayoutOrientation": "landscape"}
+    return {
+        "Properties.json": json.dumps(props),
+        "CanvasManifest.json": json.dumps({"Name": "FixtureCanvas", "ScreenOrder": ["Responsive Screen", "Details Screen"]}),
+        "src/App.pa.yaml": json.dumps({"App": {"Control": "AppHost", "Properties": {
+            "MinScreenWidth": "=320", "MinScreenHeight": "=400", "SizeBreakpoints": "=[600, 900, 1200, 1400]",
+            "OnStart": "=Set(initialWidth, App.Width); Set(initialToggle, ThemeToggle.Value); Set(exitCount, 0)"}}}),
+        "src/Responsive Screen.pa.yaml": json.dumps(control("Responsive Screen", "Screen", {
+            **screen_props, "OnHidden": 'Set(exitCount, exitCount + 1); Set(exitScreenWidth, Self.Width); Set(exitDraft, Draft.Text)'}, [
+            control("CanvasTitle", "Label", {"X": 20, "Y": 20, "Width": "Parent.Width - 40", "Height": 40,
+                "Text": "Text(App.ActiveScreen.Width) & \" / \" & Text('Responsive Screen'.Size)"}),
+            control("ThemeToggle", "Toggle", {"X": 20, "Y": 90, "Width": 44, "Height": 44, "Default": "false",
+                "AccessibleLabel": '"Blue theme"'}),
+            control("ThemeCaption", "Label", {"X": 80, "Y": 90, "Width": 200, "Height": 44,
+                "Text": 'If(ThemeToggle.Value, "Blue theme", "Light theme")'}),
+            nested,
+            control("CaptionReference", "Label", {"X": 20, "Y": 360, "Width": "Parent.Width - 40", "Height": 40,
+                "Text": 'OpenDetails.Text & ": " & Draft.Text'}),
+            control("AutoPanel", "GroupContainer", {"X": 20, "Y": 430, "Width": "Parent.Width - 40", "Height": 48,
+                "LayoutMode": "LayoutMode.Auto", "LayoutDirection": "LayoutDirection.Horizontal", "LayoutGap": 8}, [
+                control("AutoFirst", "Label", {"X": 999, "Y": 999, "Width": 80, "Height": 40, "Text": '"Automatic"'}),
+                control("AutoSecond", "Label", {"X": 999, "Y": 999, "Width": 80, "Height": 40, "Text": '"layout"'}),
+            ]),
+        ])),
+        "src/Details Screen.pa.yaml": json.dumps(control("Details Screen", "Screen", {
+            **screen_props, "OnVisible": 'Set(enteredAfterExit, exitCount > 0)'}, [
+            control("DetailsTitle", "Label", {"X": 20, "Y": 20, "Width": "Parent.Width - 40", "Height": 44,
+                "Text": 'If(chosenTheme, "Blue details", "Light details")'}),
+            control("ReturnCanvas", "Button", {"X": 20, "Y": 90, "Width": "Parent.Width - 40", "Height": 44,
+                "Text": '"Return"', "OnSelect": "Navigate('Responsive Screen')"}),
+        ])),
+    }
+
+
 def build_fixtures() -> None:
     # Fixture A: navigation + globals, all rule-transpilable
     _write_msapp(
@@ -697,6 +759,8 @@ def build_fixtures() -> None:
     _write_msapp(FIXTURE_DIR / "fixtureStorage.msapp", storage_fixture_files())
     _write_msapp(FIXTURE_DIR / "fixtureDataverse.msapp", dataverse_fixture_files())
     _write_msapp(FIXTURE_DIR / "fixtureSourceFormulas.msapp", source_formula_fixture_files())
+    _write_msapp(FIXTURE_DIR / "fixtureCanvas.msapp", canvas_fixture_files())
+    _write_msapp(FIXTURE_DIR / "fixtureScaledCanvas.msapp", canvas_fixture_files(True))
 
 
 if __name__ == "__main__":

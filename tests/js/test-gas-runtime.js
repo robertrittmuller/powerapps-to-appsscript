@@ -128,6 +128,40 @@ test('App.ActiveScreen reflects navigation for component menu inputs', () => {
   assert.equal(val('App').active_screen, 'DETAIL');
 });
 
+test('checkbox Value is boolean, slider Value is numeric, and button Text is its caption', () => {
+  const checkbox = {tagName:'INPUT',type:'checkbox',value:'on',checked:false,style:{}};
+  assert.strictEqual(val('Toggle', checkbox).value, false);
+  checkbox.checked = true;
+  assert.strictEqual(val('Toggle', checkbox).value, true);
+  assert.strictEqual(val('Slider', {tagName:'INPUT',type:'range',value:'42',style:{}}).value, 42);
+  assert.strictEqual(val('Button', {tagName:'BUTTON',value:'',textContent:'Continue',style:{}}).text, 'Continue');
+});
+
+test('canvas dimensions are available before navigation and update on viewport resize', () => {
+  const vm = require('node:vm'), fs = require('node:fs');
+  const events = {};
+  const screen = {style:{}};
+  const context = vm.createContext({innerWidth:1000,innerHeight:700,
+    addEventListener:(name,fn)=>{events[name]=fn;},
+    document:{...global.document,querySelector:()=>screen},console});
+  context.window = context;
+  vm.runInContext(fs.readFileSync(require.resolve('../../static/gas-runtime.js'),'utf8'),context);
+  context.FXRuntime.configureCanvas({designWidth:1366,designHeight:768,scaleToFit:false}, {
+    min_screen_width:()=>320, min_screen_height:()=>320, size_breakpoints:()=>[600,900,1200,1400],
+  }, {'Home':{width:read=>Math.max(read('App').width,read('App').min_screen_width)}});
+  assert.strictEqual(context.val('App').width,1000);
+  assert.strictEqual(context.val('Home').width,1000);
+  assert.strictEqual(context.val('Home').size,3);
+  assert.strictEqual(context.val('Home').orientation,'Horizontal');
+  context.innerWidth=300; context.innerHeight=700; events.resize();
+  assert.strictEqual(context.val('App').width,300);
+  assert.strictEqual(context.val('Home').width,320);
+  assert.strictEqual(context.val('Home').orientation,'Vertical');
+  assert.strictEqual(screen.style.width,'320px');
+  context.innerWidth=1500; events.resize();
+  assert.strictEqual(context.val('Home').size,5);
+});
+
 test('dependent evaluators receive Parent control properties', () => {
   const original = global.document.querySelector;
   const parent = { tagName: 'DIV', textContent: '', style: {}, selectedOptions: [] };
@@ -397,4 +431,31 @@ test('registerScreenHandler + showScreen invokes handler', async () => {
   RT.showScreen('S1');
   await new Promise((r) => setTimeout(r, 0));
   assert.ok(called);
+});
+
+test('screen exit awaits its work before entry and runs only on an actual exit', async () => {
+  const events = [];
+  RT.configureCanvas({}, {}, {ExitA: {}, ExitB: {}, ExitC: {}});
+  RT.registerScreenHiddenHandler('ExitA', async (read, self) => {
+    events.push('hide:' + self.name);
+    await Promise.resolve();
+    events.push('saved');
+  });
+  RT.registerScreenHandler('ExitB', (read, self) => events.push('show:' + self.name));
+  RT.showScreen('ExitA');
+  RT.showScreen('ExitA');
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.deepEqual(events, []);
+  RT.showScreen('ExitB');
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.deepEqual(events, ['hide:ExitA', 'saved', 'show:ExitB']);
+  let finish;
+  RT.registerScreenHiddenHandler('ExitB', () => new Promise(resolve => { finish = resolve; }));
+  RT.registerScreenHandler('ExitA', () => events.push('obsolete'));
+  RT.showScreen('ExitA');
+  await Promise.resolve();
+  RT.showScreen('ExitC');
+  finish();
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.ok(!events.includes('obsolete'));
 });

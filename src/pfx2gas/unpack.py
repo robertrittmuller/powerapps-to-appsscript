@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import base64
 import json
+import math
 import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -24,6 +25,7 @@ class UnpackError(Exception):
 @dataclass
 class UnpackedApp:
     app_name: str
+    layout: dict = field(default_factory=dict)
     app_yaml: dict = field(default_factory=dict)
     screens: dict[str, dict] = field(default_factory=dict)  # name -> yaml dict
     data_sources: list[dict] = field(default_factory=list)
@@ -152,6 +154,36 @@ def unpack(msapp_path: str | Path) -> UnpackedApp:
                 break
     app_name = app_name or path.stem
 
+    # Preserve only layout metadata; connection/author identifiers are not
+    # needed by the generated page. Both source formats use these settings.
+    layout = {}
+    layout_keys = {
+        "DocumentLayoutWidth": "designWidth", "DocumentLayoutHeight": "designHeight",
+        "DocumentLayoutScaleToFit": "scaleToFit",
+        "DocumentLayoutMaintainAspectRatio": "lockAspectRatio",
+        "DocumentLayoutLockOrientation": "lockOrientation",
+        "DocumentLayoutOrientation": "orientation",
+    }
+    for metadata_name in ("CanvasManifest.json", "Properties.json"):
+        try:
+            metadata = json.loads(read(metadata_name) or "{}")
+            if not isinstance(metadata, dict):
+                continue
+            for original, key in layout_keys.items():
+                if original in metadata:
+                    value = metadata[original]
+                    if key in {"designWidth", "designHeight"}:
+                        valid = type(value) in {int, float} and math.isfinite(value) and value > 0
+                    elif key == "orientation":
+                        valid = isinstance(value, str) and value.lower() in {"portrait", "landscape"}
+                    else:
+                        valid = isinstance(value, bool)
+                    if not valid:
+                        raise UnpackError(f"invalid canvas layout setting: {original}")
+                    layout[key] = value
+        except (json.JSONDecodeError, TypeError):
+            pass
+
     # --- source files: any .pa.yaml under a src/ folder (any casing) ---
     def is_src(n: str) -> bool:
         parts = n.lower().split("/")
@@ -176,6 +208,7 @@ def unpack(msapp_path: str | Path) -> UnpackedApp:
             legacy["media_resources"] = _extract_media_resources(
                 entries, raw_entries, legacy["warnings"]
             )
+            legacy["layout"] = layout
             return UnpackedApp(**legacy)
         if any(n.lower().endswith(".fx.yaml") for n in entries):
             raise UnpackError(
@@ -184,7 +217,7 @@ def unpack(msapp_path: str | Path) -> UnpackedApp:
             )
         raise UnpackError("no src/*.pa.yaml files found in the .msapp archive")
 
-    out = UnpackedApp(app_name=str(app_name))
+    out = UnpackedApp(app_name=str(app_name), layout=layout)
     out.media_resources = _extract_media_resources(entries, raw_entries, out.warnings)
     for name in src_files:
         base = name.rsplit("/", 1)[-1]

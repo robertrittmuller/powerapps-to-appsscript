@@ -156,7 +156,8 @@ required regression corpus, including failed required journeys and missing apps.
 
 `./pfx2gas browser` tests generated forms, charts, record scopes, editable
 galleries, timer lifecycles, launch parameters, local drafts, Dataverse record
-contracts and complete source timestamp/URL-validation formulas in Chromium, plus HelpDesk
+contracts, complete source timestamp/URL-validation formulas, responsive and
+scaled canvases in Chromium, plus HelpDesk
 when its local export is present. It runs
 generated `doGet`/client/server code against a Sheets test double to check save,
 validation, failure, delete and reload behavior, including safe request templating.
@@ -191,7 +192,20 @@ Converted apps aim to match the original visually and behaviorally:
 
 - **Layout** — static `X/Y/Width/Height/ZIndex` become absolutely-positioned
   inline styles; reactive ones (e.g. `X: =Parent.Width/2 - 40`) become
-  `styleControl` evaluators re-applied on every state change.
+  `styleControl` evaluators re-applied on state changes and viewport resize.
+  Manual containers and DataCard children retain their local coordinates;
+  an exported `LayoutMode.Manual` takes precedence over a dormant direction.
+- **Canvas dimensions** — exported design size, scaling and aspect settings
+  are retained. App/screen width, height, minimum size, breakpoints, orientation
+  and screen fill formulas are available during startup and on hidden screens.
+  Browser tests cover minimum-width scrolling, uniform scaling, breakpoint
+  boundaries and unsaved input/focus retention on resize. Device orientation
+  locking, full AutoHeight dependency handling and native form/card grids remain
+  unverified; retaining an exported setting is not proof of complete support.
+- **Screen lifecycle** — navigation runs the departing screen's `OnHidden`
+  before the destination's `OnVisible`, with each screen's own `Self` reference.
+  Failed exit behavior is surfaced, and superseded navigation cannot run a
+  delayed entry handler for an obsolete destination.
 - **Auto-layout** — modern containers render as CSS flexbox: `LayoutDirection`,
   `LayoutAlignItems`, `LayoutJustifyContent`, `LayoutWrap`, `LayoutGap`,
   `FillPortions` (flex), `LayoutMinWidth/Height`, `LayoutOverflowX/Y`.
@@ -227,6 +241,8 @@ Converted apps aim to match the original visually and behaviorally:
   slider defaults react to loaded records while preserving edits through
   unrelated state updates. Reset restores the current default. Native inputs
   and buttons reevaluate source DisplayMode formulas as the user types.
+  Toggle/checkbox `Value` is boolean; slider `Value` is numeric and button
+  `Text` reads its visible caption.
 - **Legacy canvas components** — definitions in `Components/*.json` are inlined
   per instance with namespaced children and reactive custom inputs. This covers
   the corpus's MENU, TILES/BUSCADOR, and progress-bar components; static

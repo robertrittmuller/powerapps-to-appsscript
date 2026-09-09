@@ -279,6 +279,13 @@ ACCESSIBILITY_ROLES = {
 
 
 def _is_flex_container(ctrl: ControlNode) -> bool:
+    # Studio exports include LayoutDirection even when LayoutMode is Manual.
+    mode = ctrl.properties.get("LayoutMode")
+    if mode and mode.raw.strip() in {"LayoutMode.Manual", "LayoutMode.Auto"}:
+        mark_emission(mode)
+        return mode.raw.strip() == "LayoutMode.Auto"
+    if ctrl.variant == "ManualLayout":
+        return False
     expr = ctrl.properties.get("LayoutDirection")
     return bool(expr and expr.js)
 
@@ -657,6 +664,8 @@ def _render_control(
     if ctrl.type == "CanvasComponent":
         template = html.escape(ctrl.component_template or "unknown", quote=True)
         extra += f' class="fx-component" data-component-template="{template}"'
+    elif ctrl.type == "GroupContainer" and not flex:
+        extra += ' class="fx-manual-container"'
     elif ctrl.type == "Image":
         extra += ' class="fx-image"'
     elif ctrl.type == "Form":
@@ -924,6 +933,23 @@ def render_app_js(ir: AppIR) -> str:
     ]
     parent_names = _control_parents(ir)
     referenced_props = _referenced_control_properties(ir, parent_names)
+    lines.append(f"  FXRuntime.configureCanvas({json.dumps(ir.layout)}, {{")
+    def canvas_properties(properties, supported):
+        for name in supported:
+            expr = properties.get(name)
+            if not expr or not expr.raw:
+                continue
+            js = expr.js if expr.js and "await " not in expr.js else (
+                f"FX.unsupported({json.dumps('canvas property ' + name)})")
+            lines.append(f"    {_snake(name)!r}: function (val, selfRef, parentRef) {{ return {js}; }},")
+            mark_emission(expr, "emitted" if expr.js and "await " not in expr.js else "unsupported")
+    canvas_properties(ir.properties, ("MinScreenWidth", "MinScreenHeight", "SizeBreakpoints"))
+    lines.append("  }, {")
+    for screen in ir.screens:
+        lines.append(f"  {screen.name!r}: {{")
+        canvas_properties(screen.properties, ("Width", "Height", "Size", "Orientation", "Fill"))
+        lines.append("  },")
+    lines.append("  });")
     # Collections are client-side state; declare them as empty arrays instead
     # of refreshing them from the server.
     for ds in ir.data_sources:
@@ -953,12 +979,17 @@ def render_app_js(ir: AppIR) -> str:
                 registered_forms.add(ctrl.name)
 
     for screen in ir.screens:
-        if screen.on_visible and screen.on_visible.raw:
-            lines.append(f"  FXRuntime.registerScreenHandler({screen.name!r}, async function () {{")
-            for stmt in _behavior_js(screen.on_visible, f"{screen.name}.OnVisible").splitlines():
+        for event, expr, helper in (
+            ("OnVisible", screen.on_visible, "registerScreenHandler"),
+            ("OnHidden", screen.properties.get("OnHidden"), "registerScreenHiddenHandler"),
+        ):
+            if not expr or not expr.raw:
+                continue
+            lines.append(f"  FXRuntime.{helper}({screen.name!r}, async function (val, selfRef, parentRef) {{")
+            for stmt in _behavior_js(expr, f"{screen.name}.{event}").splitlines():
                 lines.append(f"    {stmt}")
             lines.append("  });")
-            mark_emission(screen.on_visible)
+            mark_emission(expr)
 
     for screen in ir.screens:
         # Row-scoped container children (gallery rows, data-table rows) are
@@ -1322,7 +1353,8 @@ def render_app_js(ir: AppIR) -> str:
 INDEX_CSS = """
     html, body { margin: 0; padding: 0; }
     body { font-family: system-ui, sans-serif; overflow: auto; }
-    [data-screen] { max-width: 100%; margin: 0 auto; position: relative; min-height: 90vh; }
+    #fx-canvas { margin: 0 auto; position: relative; }
+    [data-screen] { position: relative; box-sizing: border-box; }
     [data-control] { box-sizing: border-box; }
     [data-screen] > [data-control] { position: absolute; }
     button { cursor: pointer; }
@@ -1330,6 +1362,8 @@ INDEX_CSS = """
     .fx-gallery { overflow: auto; }
     .fx-component { position: absolute; overflow: hidden; }
     .fx-component > [data-control] { position: absolute; box-sizing: border-box; }
+    .fx-manual-container, .fx-data-card { position: relative; }
+    .fx-manual-container > [data-control], .fx-data-card > [data-control] { position: absolute; }
     .fx-rows { display: block; }
     .fx-row { display: block; position: relative; border-bottom: 1px solid #eee; padding: 4px 0; }
     .fx-row > [data-control] { position: absolute; box-sizing: border-box; }
@@ -1359,12 +1393,15 @@ def render_index_html(ir: AppIR, screens_html: str) -> str:
 <html>
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{ir.name}</title>
   <style>{INDEX_CSS}</style>
   <base target="_top">
 </head>
 <body>
+<div id="fx-canvas">
 <?!= include('Screens.html'); ?>
+</div>
 <script type="application/json" id="fx-launch-parameters"><?!= launchParametersJSON ?></script>
 <script type="application/json" id="fx-storage-context"><?!= storageContextJSON ?></script>
 <script>

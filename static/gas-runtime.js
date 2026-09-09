@@ -16,8 +16,11 @@
   var timers = {};       // timer name -> resettable scheduling state
   var screenStack = [];
   var CURRENT_SCREEN = null;
+  var navigationRevision = 0;
   var launchParameters = {};
   var storageContext = null;
+  var canvas = {layout: {}, app: {}, screens: {}, refs: {}, resolving: []};
+  var resizeInstalled = false;
   if (typeof document !== 'undefined') {
     var parameterElement = document.getElementById('fx-launch-parameters');
     if (parameterElement) launchParameters = JSON.parse(parameterElement.textContent || '{}');
@@ -193,6 +196,7 @@
   }
 
   function updateBindings() {
+    updateCanvas();
     evaluators.forEach(function (e) {
       try {
         var result = e.apply();
@@ -223,13 +227,21 @@
 
   function showScreen(name) {
     if (!name) return;
+    var previous = CURRENT_SCREEN, revision = ++navigationRevision;
     document.querySelectorAll('[data-screen]').forEach(function (el) {
       el.style.display = el.getAttribute('data-screen') === name ? '' : 'none';
     });
     CURRENT_SCREEN = name;
-    var fn = handlers['__screen__' + name];
-    if (fn) {
-      Promise.resolve().then(fn).then(updateBindings).catch(function (e) {
+    var hidden = previous && previous !== name && handlers['__hidden__' + previous];
+    var visible = handlers['__screen__' + name];
+    if (hidden || visible) {
+      Promise.resolve().then(function () {
+        if (hidden) return hidden(val, val(previous), val('App'));
+      }).then(function () {
+        // A later navigation owns the visible screen. Never run an obsolete
+        // OnVisible after an earlier screen's awaited exit work completes.
+        if (visible && revision === navigationRevision) return visible(val, val(name), val('App'));
+      }).then(updateBindings).catch(function (e) {
         console.error(e);
         toast('Error: ' + (e && e.message ? e.message : e), true);
       });
@@ -298,8 +310,9 @@
 
   function val(name, element) {
     if (name === 'App') {
-      return { active_screen: CURRENT_SCREEN };
+      return canvasRef('App');
     }
+    if (!element && Object.prototype.hasOwnProperty.call(canvas.screens, name)) return canvasRef(name);
     var el = element || document.querySelector('[data-control="' + name + '"]')
       || document.querySelector('[data-screen="' + name + '"]');
     if (!el) return Object.assign(
@@ -319,8 +332,9 @@
       return Number.isFinite(fallback) ? fallback : 0;
     }
     var standard = {
-      text: 'value' in el ? el.value : (el.textContent || ''),
-      value: el.value !== undefined ? el.value : el.textContent,
+      text: ['INPUT', 'SELECT', 'TEXTAREA'].indexOf(el.tagName) >= 0 ? el.value : (el.textContent || ''),
+      value: el.type === 'checkbox' ? !!el.checked : el.type === 'range' ? Number(el.value)
+        : el.value !== undefined ? el.value : el.textContent,
       checked: !!el.checked,
       selected: selectedRows[0] || null,
       selected_items: selectedRows,
@@ -336,6 +350,88 @@
       el: el,
     };
     return Object.assign(standard, element ? (element.__fxValues || {}) : (controlValues[name] || {}));
+  }
+
+  // Source canvas properties are lazy so hidden screens and forward references
+  // have their logical dimensions even before CSS has been laid out. Getters
+  // also let Self.Width be read while evaluating that screen's Size formula.
+  function canvasRef(name) {
+    if (canvas.refs[name]) return canvas.refs[name];
+    var ref = {};
+    var defaults = name === 'App'
+      ? ['active_screen', 'width', 'height', 'design_width', 'design_height', 'min_screen_width', 'min_screen_height', 'size_breakpoints']
+      : ['name', 'width', 'height', 'size', 'orientation', 'fill', 'visible', 'el'];
+    var properties = name === 'App' ? canvas.app : canvas.screens[name] || {};
+    defaults.concat(Object.keys(properties)).forEach(function (key) {
+      if (Object.prototype.hasOwnProperty.call(ref, key)) return;
+      Object.defineProperty(ref, key, {enumerable: true, get: function () { return canvasProperty(name, key); }});
+    });
+    canvas.refs[name] = ref;
+    return ref;
+  }
+  function canvasProperty(name, key) {
+    var properties = name === 'App' ? canvas.app : canvas.screens[name] || {};
+    var token = name + '.' + key;
+    if (canvas.resolving.indexOf(token) >= 0) throw new Error('Circular canvas property: ' + token);
+    canvas.resolving.push(token);
+    try {
+      if (typeof properties[key] === 'function')
+        return properties[key](val, canvasRef(name), name === 'App' ? null : canvasRef('App'));
+      var layout = canvas.layout, app = canvasRef('App'), screen = name === 'App' ? null : canvasRef(name);
+      if (name === 'App') {
+        if (key === 'active_screen') return CURRENT_SCREEN;
+        if (key === 'design_width') return Number(layout.designWidth) || 1366;
+        if (key === 'design_height') return Number(layout.designHeight) || 768;
+        if (key === 'width') return layout.scaleToFit === true ? app.design_width : Number(global.innerWidth) || app.design_width;
+        if (key === 'height') return layout.scaleToFit === true ? app.design_height : Number(global.innerHeight) || app.design_height;
+        if (key === 'min_screen_width') return Number(layout.designWidth) || 0;
+        if (key === 'min_screen_height') return Number(layout.designHeight) || 0;
+        if (key === 'size_breakpoints') return [600, 900, 1200];
+      } else {
+        if (key === 'name') return name;
+        if (key === 'width') return Math.max(app.width, app.min_screen_width);
+        if (key === 'height') return Math.max(app.height, app.min_screen_height);
+        if (key === 'size') return 1 + app.size_breakpoints.filter(function (v) { return screen.width > Number(v && typeof v === 'object' ? v.value : v); }).length;
+        if (key === 'orientation') return screen.width > screen.height ? 'Horizontal' : 'Vertical';
+        if (key === 'fill') return 'transparent';
+        if (key === 'visible') return CURRENT_SCREEN === name;
+        if (key === 'el') return document.querySelector('[data-screen="' + name + '"]');
+      }
+      return null;
+    } finally { canvas.resolving.pop(); }
+  }
+  function updateCanvas() {
+    Object.keys(canvas.screens).forEach(function (name) {
+      try {
+        var screen = canvasRef(name), el = screen.el;
+        if (!el) return;
+        el.style.width = screen.width + 'px';
+        el.style.height = screen.height + 'px';
+        el.style.backgroundColor = screen.fill || '';
+        var layout = canvas.layout, app = canvasRef('App');
+        var sx = layout.scaleToFit === true ? (Number(global.innerWidth) || app.design_width) / app.design_width : 1;
+        var sy = layout.scaleToFit === true ? (Number(global.innerHeight) || app.design_height) / app.design_height : 1;
+        if (layout.lockAspectRatio === true) sx = sy = Math.min(sx, sy);
+        el.style.transformOrigin = 'top left';
+        el.style.transform = sx === 1 && sy === 1 ? '' : 'scale(' + sx + ',' + sy + ')';
+        if (name === CURRENT_SCREEN) {
+          var host = document.getElementById('fx-canvas');
+          if (host) {
+            host.style.width = screen.width * sx + 'px';
+            host.style.height = screen.height * sy + 'px';
+            host.style.overflow = layout.scaleToFit === true ? 'hidden' : 'visible';
+          }
+        }
+      } catch (error) { console.error('canvas layout error', name, error); }
+    });
+  }
+  function configureCanvas(layout, appProperties, screens) {
+    canvas = {layout: layout || {}, app: appProperties || {}, screens: screens || {}, refs: {}, resolving: []};
+    if (!resizeInstalled && typeof global.addEventListener === 'function') {
+      resizeInstalled = true;
+      global.addEventListener('resize', function () { updateBindings(); });
+    }
+    updateCanvas();
   }
 
   function optionRecord(row, displayFields) {
@@ -1170,6 +1266,7 @@
     showScreen: showScreen,
     bind: bind,
     val: val,
+    configureCanvas: configureCanvas,
     registerForm: registerForm,
     submitForm: submitForm,
     refreshData: refreshData,
@@ -1209,6 +1306,7 @@
       } catch (err) { console.error('binding error', err); }
     },
     registerScreenHandler: function (name, fn) { handlers['__screen__' + name] = fn; },
+    registerScreenHiddenHandler: function (name, fn) { handlers['__hidden__' + name] = fn; },
   };
   global.go = go;
   global.goBack = goBack;

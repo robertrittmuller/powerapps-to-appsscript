@@ -18,9 +18,11 @@ NON_LOGIC_PROPS = {"X", "Y", "Width", "Height", "ZIndex", "Text", "Default", "It
 def behavior_formulas(ir: AppIR):
     if ir.on_start:
         yield ir.on_start
+    yield from (expr for expr in ir.properties.values() if expr.kind == "behavior")
     for screen in ir.screens:
         if screen.on_visible:
             yield screen.on_visible
+        yield from (expr for expr in screen.properties.values() if expr.kind == "behavior")
         for ctrl in screen.walk_controls():
             yield from (expr for expr in ctrl.properties.values() if expr.kind == "behavior")
 
@@ -302,6 +304,8 @@ def analyze(ir: AppIR, uncovered: list[dict] | None = None) -> AppIR:
 
     if ir.on_start:
         convert_formula(ir.on_start)
+    for expr in ir.properties.values():
+        convert_formula(expr)
 
     def convert_control(ctrl: ControlNode, row_alias: str | None = None) -> None:
         child_alias = row_alias
@@ -326,6 +330,8 @@ def analyze(ir: AppIR, uncovered: list[dict] | None = None) -> AppIR:
     for screen in ir.screens:
         if screen.on_visible:
             convert_formula(screen.on_visible)
+        for expr in screen.properties.values():
+            convert_formula(expr)
         for ctrl in screen.controls:
             convert_control(ctrl)
 

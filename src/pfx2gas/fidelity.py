@@ -26,9 +26,15 @@ def iter_expressions(ir: AppIR):
     on_start = getattr(ir, "on_start", None)
     if on_start and on_start.raw:
         yield "App", "App", "OnStart", on_start
+    for name, expr in getattr(ir, 'properties', {}).items():
+        if expr.raw:
+            yield "App", "App", name, expr
     for screen in ir.screens:
         if screen.on_visible and screen.on_visible.raw:
             yield screen.name, screen.name, "OnVisible", screen.on_visible
+        for name, expr in getattr(screen, 'properties', {}).items():
+            if expr.raw:
+                yield screen.name, screen.name, name, expr
         for ctrl in screen.walk_controls():
             for prop_name, expr in ctrl.properties.items():
                 if expr.raw:

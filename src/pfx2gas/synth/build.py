@@ -37,6 +37,7 @@ def synthesize(ir: AppIR, out_dir: str | Path) -> Path:
     (out / "conversion-ledger.json").write_text(
         json.dumps({
             "app": ir.name,
+            "sourceLayout": ir.layout,
             "deployment": {
                 "access": ir.webapp_access,
                 "executeAs": ir.webapp_execute_as,

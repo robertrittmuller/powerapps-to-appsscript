@@ -158,12 +158,17 @@ function decodeAttr(value) {
 }
 function parseAttrs(source) {
   const attrs = {};
-  const attrRe = /([:\w-]+)="([^"]*)"/g;
+  const attrRe = /([:\w-]+)(?:="([^"]*)")?/g;
   let match;
-  while ((match = attrRe.exec(source)) !== null) attrs[match[1]] = decodeAttr(match[2]);
+  while ((match = attrRe.exec(source)) !== null) attrs[match[1]] = decodeAttr(match[2] || '');
   return attrs;
 }
 function hydrateInlineStyle(el) {
+  el.type = el.attrs.type || '';
+  if (el.tagName === 'INPUT') {
+    el.value = el.attrs.value === undefined ? (el.type === 'checkbox' ? 'on' : '') : el.attrs.value;
+    el.checked = Object.prototype.hasOwnProperty.call(el.attrs, 'checked');
+  }
   String(el.attrs.style || '').split(';').forEach(function (declaration) {
     const split = declaration.indexOf(':');
     if (split < 0) return;

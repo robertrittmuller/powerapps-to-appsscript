@@ -45,10 +45,12 @@ Reproduce with Docker:
 
 The September 9 assessment exits **1**: all six generate syntactically valid
 projects; three fail startup. Employee Ideas, Inspection and Milestones pass
-the short startup check and leave loading in Chromium. Their first-action
-probes fail on clipped controls or delayed connector calls; these failures are
-attached to the combined scorecard with matching source/converter hashes.
-All six remain below usability acceptance. See `GAP_ASSESSMENT.md` for the fix
+the short startup check and leave loading in Chromium. Employee Ideas passes
+its desktop entry and explicit iOS Browse campaigns path after restoring the
+source loading-screen OnHidden initialization. Milestones and Inspection fail
+their first-action probes on delayed connector calls. The combined scorecard
+retains these results with matching source/converter hashes.
+All six remain below complete usability acceptance. See `GAP_ASSESSMENT.md` for the fix
 sequence. This is a separate acceptance baseline, not a hidden allowance in
 the existing passing regression corpus.
 

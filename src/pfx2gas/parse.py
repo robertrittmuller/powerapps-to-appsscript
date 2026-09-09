@@ -22,6 +22,7 @@ def _make_expr(prop_value: str, prop_name: str) -> FxExpr:
 
 # Modern control names normalize onto classic equivalents (case-insensitive).
 _CONTROL_ALIASES = {
+    "toggle": "CheckBox",
     "dropdown": "Dropdown",
     "text": "Label",          # modern 'Text' control is a text block
     "textlabel": "Label",
@@ -123,12 +124,15 @@ def parse(unpacked: UnpackedApp) -> AppIR:
         name=unpacked.app_name,
         warnings=list(unpacked.warnings),
         media_resources=dict(unpacked.media_resources),
+        layout=dict(unpacked.layout),
     )
 
     # App-level OnStart
     app_props = ((unpacked.app_yaml or {}).get("App") or {}).get("Properties") or {}
     if app_props.get("OnStart"):
         ir.on_start = _make_expr(str(app_props["OnStart"]), "OnStart")
+    ir.properties = {name: _make_expr(value, name) for name, value in app_props.items()
+                     if name != "OnStart" and value is not None}
 
     for screen_name in sorted(unpacked.screens):
         screen_yaml = unpacked.screens[screen_name]
@@ -136,6 +140,10 @@ def parse(unpacked: UnpackedApp) -> AppIR:
             ScreenNode(
                 name=screen_name,
                 on_visible=_screen_on_visible(screen_yaml),
+                properties={name: _make_expr(value, name)
+                            for _, node in _screen_entries(screen_yaml)
+                            for name, value in (node.get("Properties") or {}).items()
+                            if name != "OnVisible" and value is not None},
                 controls=_controls_of(screen_yaml),
             )
         )

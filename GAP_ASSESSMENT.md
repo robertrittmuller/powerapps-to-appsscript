@@ -46,16 +46,32 @@ IsBlankOrError. Two complete Microsoft source formulas are retained with hashes
 and their MIT license; executed formula tests and an eighth generated Chromium
 fixture cover timestamps, localization and every URL-validation outcome.
 
+The canvas slice preserves source design/scaling settings and App/screen
+dimension formulas, including hidden-screen references, startup reads, minimum
+sizes, custom breakpoints and fill. Viewport resize reevaluates bindings without
+replacing edited inputs. Checkbox/toggle Value is boolean, correcting unintended
+mobile routing and contrast themes in the real exports. Manual layout takes
+precedence over dormant LayoutDirection settings; nested container and DataCard
+children use local coordinates. Two additional Chromium fixtures cover manual
+and automatic layouts, narrow/minimum widths, scaled interactions and retained
+draft text/caret. Form/card grid placement, AutoHeight dependency ordering and
+device orientation locking still need implementation or verification.
+Screen OnHidden is now wired and awaited before destination OnVisible. This
+restores Employee Ideas' source initialization of mobile width, padding and
+other values when leaving loading; its mobile first-action probe now passes.
+
 Eleven pinned source exports are available here: five public regression apps
 and six Microsoft business apps. **All eleven generate valid code; eight pass
 the short startup check. None has complete usability acceptance evidence.**
 Milestones, Employee Ideas and Inspection now leave their loading screen in a
-real browser. Their first-action probes all fail: Milestones' New project is
-blocked by Office365Users.UserProfileV2; Employee Ideas navigates to campaigns
-but its Browse button clips text; Inspection reaches Items while a delayed
+real browser. Milestones reaches its desktop Add Project screen but
+Office365Users.UserProfileV2 fails; Inspection reaches Items while a delayed
 Planner.ListMyPlansV2 error surfaces. These failures are attached to the combined
-Microsoft scorecard; all six Microsoft apps fail usability prerequisites.
-Eight generated-fixture Chromium journeys pass. Fixtures are regression
+Microsoft scorecard. Employee Ideas opens the desktop campaign summary and its
+explicit iOS entry passes readable Browse campaigns → Mobile Campaign Summary.
+Five Microsoft apps fail usability prerequisites; Employee Ideas remains
+unassessed for complete usability.
+Ten generated-fixture Chromium journeys pass. Fixtures are regression
 evidence, not additional real acceptance apps. The last recorded Google
 deployment remains HelpDesk @14.
 
@@ -110,17 +126,17 @@ the implementation order.
 
 | Evidence | Latest result | What remains unproven |
 |---|---|---|
-| Unit/runtime tests | 208 Python pass, 3 skip; 76 JS pass; bare globals, FX and FXRuntime emitter/runtime consistency passes | Complete deployed workflows and broader control semantics |
-| Current real-app soak | 5/5 Bootable; 1,120 formulas | Usability unassessed; the other five historical local exports are absent |
-| Current regression translation/wiring | 1,114 translated; 969 emitted, 13 approximated, 138 ignored/unsupported | Translation does not establish runtime behavior |
+| Unit/runtime tests | 216 Python pass, 3 skip; 79 JS pass; bare globals, FX and FXRuntime emitter/runtime consistency passes | Complete deployed workflows and broader control semantics |
+| Current real-app soak | 5/5 Bootable; 1,145 formulas, including previously dropped App/screen properties | Usability unassessed; the other five historical local exports are absent |
+| Current regression translation/wiring | 1,139 translated; 970 emitted, 13 approximated, 162 ignored/unsupported | Translation does not establish runtime behavior |
 | Historical ten-app corpus | Previously 10/10 Bootable; 23,746 formulas | Not reproduced in this workspace; those results did not establish usability |
 | HelpDesk generated-app journeys | HOME → NEW → HOME; dashboard row text, logo URI, pie and legend output pass | All-screen interactions, image decoding/layout in CI, persistence |
 | HelpDesk @14 live browser | Ticket cards, decoded 64×64 logos, pie/bar/legend SVGs, readable fonts/labels, HOME → NEW → HOME | Same-state original comparison, user name/avatar, complete workflow coverage |
 | Chromium: business form | Actual generated client + Code.gs: edit/create, required validation, write failure, delete and page reload pass against a persistent Sheets test double | Real Google authorization/Sheets writes and another user/session |
-| Chromium regression suite | 8/8 fixtures pass: form, charts, record scopes/launch parameters, editable gallery, timer lifecycle, local draft persistence, Dataverse contracts, complete source time/validation formulas; generated client and server code | Real Google services, real-app critical workflows and original visual comparisons; HelpDesk is absent here |
+| Chromium regression suite | 10/10 fixtures pass: form, charts, record scopes/launch parameters, editable gallery, timer lifecycle, local drafts, Dataverse contracts, source time/validation formulas, responsive canvas and scaled canvas; generated client and server code | Real Google services, real-app critical workflows and original visual comparisons; HelpDesk is absent here |
 | Microsoft generated-server initialization | Six exports: setup and reads across 124 tables and 302 choice fields pass in the Sheets test double | Tenant data migration, real Google writes, source defaults, calculations, relationships and permissions |
 | Microsoft business baseline | 6/6 convert and validate; 3/6 pass short startup (Employee Ideas, Inspection, Milestones) | Three other exports still fail startup on Teams/Planner dependencies |
-| Microsoft first actions | 3/3 leave loading; all three probes fail on a connector error or unreadable primary action. Employee Ideas and Inspection reach the source action destination; Milestones does not | Complete business workflows, persistence, target identities and UI parity; partial success never promotes an app to Usable |
+| Microsoft first actions | 3/3 leave loading; Employee Ideas passes desktop entry and readable mobile Browse campaigns navigation. Milestones reaches desktop Add Project and Inspection reaches Items before connector errors | Complete business workflows, persistence, target identities and UI parity; partial success never promotes an app to Usable |
 | CI configuration | Existing tests plus required-app/journey gates and new Chromium artifact job | Browser job configured and locally tested, not yet verified in remote CI; local HelpDesk remains optional |
 
 Evidence: `.artifacts/benchmark/benchmark-scorecard.json`,
@@ -393,8 +409,9 @@ full reactive row styling and broad responsive layout remain unverified.
 
 Extend this evidence to real business apps and concurrent row actions. Revisit horizontal
 galleries, WrapCount/template width and padding with browser geometry evidence.
-Add viewport resize invalidation and test AutoHeight/dependent positions in
-nested containers; current runtime has no resize listener. Preserve the source
+Viewport resize invalidation and manual nested-container positioning now have
+browser gates. Extend these to AutoHeight and forward-dependent positions,
+native form/card grids and real business workflows. Preserve the source
 layout mode: a fixed canvas may scale or scroll, while a responsive source must
 reflow according to its formulas.
 

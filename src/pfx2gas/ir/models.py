@@ -80,6 +80,7 @@ class ControlNode(BaseModel):
 class ScreenNode(BaseModel):
     name: str
     on_visible: FxExpr | None = None
+    properties: dict[str, FxExpr] = Field(default_factory=dict)
     controls: list[ControlNode] = Field(default_factory=list)
 
     def walk_controls(self):
@@ -90,6 +91,8 @@ class ScreenNode(BaseModel):
 class AppIR(BaseModel):
     name: str
     on_start: FxExpr | None = None
+    properties: dict[str, FxExpr] = Field(default_factory=dict)
+    layout: dict = Field(default_factory=dict)
     screens: list[ScreenNode] = Field(default_factory=list)
     data_sources: list[DataSource] = Field(default_factory=list)
     global_vars: list[str] = Field(default_factory=list)
