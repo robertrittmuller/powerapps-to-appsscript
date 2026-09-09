@@ -699,6 +699,102 @@ def check_views(page, backend):
     page.screenshot(path=str(OUT / 'saved-views/filtered-and-reloaded.png'))
 
 
+def check_relationships(page, backend):
+    names, count, reverse, status = [control(page,name) for name in ['RelatedNames','RelatedCount','InverseCount','RelatedStatus']]
+    expect(control(page,'RelatedProject')).to_have_text('Second project')
+    expect(control(page,'RelatedUser')).to_have_text('Grace')
+    expect(count).to_have_text('0')
+    expect(reverse).to_have_text('0')
+    before = {ds:backend({'fn':'api','args':[ds,'list',{}]})['result'] for ds in ['Projects','Users']}
+    backend({'fn':'__failNextMutation','args':[]})
+    control(page,'AddMember').click()
+    expect(status).to_have_text('link failed')
+    expect(count).to_have_text('0')
+    control(page,'AddMember').click()
+    expect(status).to_have_text('linked')
+    expect(names).to_have_text('Grace')
+    expect(reverse).to_have_text('0')
+    control(page,'RefreshUsers').click()
+    expect(reverse).to_have_text('1')
+    control(page,'ChooseFirstProject').click()
+    expect(count).to_have_text('0')
+    control(page,'AddMember').click()
+    expect(count).to_have_text('1')
+    control(page,'ChooseFirstUser').click()
+    control(page,'AddMember').click()
+    expect(count).to_have_text('2')
+    expect(names).to_have_text('Grace, Ada')
+    control(page,'AddMember').click()
+    page.wait_for_function('async () => await window.__waitForGasIdle()')
+    expect(count).to_have_text('2')
+    page.reload()
+    expect(names).to_have_text('Grace')
+    expect(reverse).to_have_text('2')
+    backend({'fn':'__failNextMutation','args':[]})
+    control(page,'RemoveMember').click()
+    expect(status).to_have_text('unlink failed')
+    expect(count).to_have_text('1')
+    control(page,'RemoveMember').click()
+    expect(status).to_have_text('unlinked')
+    expect(count).to_have_text('0')
+    expect(reverse).to_have_text('2')
+    control(page,'RefreshUsers').click()
+    expect(reverse).to_have_text('1')
+    control(page,'AddReverse').click()
+    expect(status).to_have_text('reverse linked')
+    expect(reverse).to_have_text('2')
+    expect(count).to_have_text('0')
+    control(page,'RefreshProjects').click()
+    expect(count).to_have_text('1')
+    control(page,'RemoveReverse').click()
+    expect(status).to_have_text('reverse unlinked')
+    expect(reverse).to_have_text('1')
+    page.reload()
+    expect(count).to_have_text('0')
+    expect(reverse).to_have_text('1')
+    control(page,'ChooseFirstProject').click()
+    expect(names).to_have_text('Grace, Ada')
+    for ds in before:
+        assert backend({'fn':'api','args':[ds,'list',{}]})['result'] == before[ds]
+    links = backend({'fn':'api','args':['Projects','links',{}]})['result']
+    assert len(links) == 2 and all(link[1] == 'project-one' for link in links), links
+    response = backend({'fn':'api','args':['Users','patch',{'base':{'id':'user-two'},'record':{'fullname':'Grace Hopper'}}]})
+    assert 'error' not in response, response
+    expect(names).to_have_text('Grace, Ada')
+    control(page,'RefreshProjects').click()
+    expect(names).to_have_text('Grace Hopper, Ada')
+    assert page.evaluate("state.Users.find(row=>row.id==='user-two').fullname") == 'Grace'
+    assigned = control(page,'AssignedCount')
+    expect(assigned).to_have_text('0')
+    control(page,'AssignProject').click()
+    expect(status).to_have_text('assigned')
+    expect(assigned).to_have_text('1')
+    assert page.evaluate('state.Projects[0].owner') is None
+    control(page,'ChooseFirstUser').click()
+    expect(assigned).to_have_text('0')
+    control(page,'AssignProject').click()
+    expect(assigned).to_have_text('1')
+    control(page,'ChooseSecondUser').click()
+    expect(assigned).to_have_text('0')
+    control(page,'UnassignProject').click()
+    expect(status).to_have_text('unassigned')
+    rows = backend({'fn':'api','args':['Projects','list',{}]})['result']
+    assert rows[0]['owner']['user'] == 'user-one' and rows[1]['owner'] is None
+    control(page,'ChooseFirstUser').click()
+    backend({'fn':'__failNextMutation','args':[]})
+    control(page,'UnassignProject').click()
+    expect(status).to_have_text('unassignment failed')
+    expect(assigned).to_have_text('1')
+    control(page,'UnassignProject').click()
+    expect(status).to_have_text('unassigned')
+    expect(assigned).to_have_text('0')
+    page.reload()
+    expect(assigned).to_have_text('0')
+    rows = backend({'fn':'api','args':['Projects','list',{}]})['result']
+    assert all(row['owner'] is None for row in rows), rows
+    page.screenshot(path=str(OUT / 'many-to-many-relationships/reloaded-memberships.png'))
+
+
 def main():
     subprocess.run([sys.executable, str(REPO / "tests/fixtures/build.py")], check=True, capture_output=True)
     cases = [("business-form", REPO / "tests/fixtures/fixtureForm.msapp", check_form),
@@ -708,6 +804,7 @@ def main():
     cases.append(("timer-lifecycle", REPO / "tests/fixtures/fixtureTimer.msapp", check_timers, True))
     cases.append(("local-draft-storage", REPO / "tests/fixtures/fixtureStorage.msapp", check_storage))
     cases.append(("dataverse-contract", REPO / "tests/fixtures/fixtureDataverse.msapp", check_dataverse))
+    cases.append(('many-to-many-relationships', REPO / 'tests/fixtures/fixtureRelationships.msapp', check_relationships))
     cases.append(("source-formulas", REPO / "tests/fixtures/fixtureSourceFormulas.msapp", check_source_formulas))
     cases.append(("responsive-canvas", REPO / "tests/fixtures/fixtureCanvas.msapp", check_canvas))
     cases.append(("scaled-canvas", REPO / "tests/fixtures/fixtureScaledCanvas.msapp", check_scaled_canvas))

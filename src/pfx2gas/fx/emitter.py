@@ -70,10 +70,12 @@ class Emitter:
                  screen_names: set[str] | None = None, global_names: set[str] | None = None,
                  media_resources: dict[str, str] | None = None,
                  row_alias: str | None = None, screen_name: str | None = None,
-                 control_screens: dict[str, str] | None = None, view_sets: dict | None = None):
+                 control_screens: dict[str, str] | None = None, view_sets: dict | None = None,
+                 relationship_keys: set[str] | None = None):
         self.res = res
         self.behavior = behavior
         self.view_sets = view_sets or {}
+        self.relationship_keys = relationship_keys or set()
         self.row_fields = row_fields or set()
         self.control_names = control_names or set()
         self.known_controls = control_names is not None
@@ -220,12 +222,14 @@ class Emitter:
             if self.screen_name is not None and not global_only and base not in NAMED_COLORS:
                 fallback = f"FXRuntime.variable({_q(self.screen_name)}, {_q(base)}, () => {fallback})"
             if self.scopes and not global_only:
+                self.mark_relationship(_snake(base))
                 access = (f"FX.scopeValue([{', '.join(scope.variable for scope in reversed(self.scopes))}], "
                           f"{_q(_snake(base))}, () => {fallback})")
             else:
                 access = fallback
         for i, member in enumerate(members):
             key = _snake(member)
+            self.mark_relationship(key)
             access = f"{access}.{key}" if control and i == 0 else f"FX.field({access}, {_q(key)})"
         return access
 
@@ -235,8 +239,13 @@ class Emitter:
             return self.ident(f"{target.value}.{node.value}")
         access = self.expr(target)
         for member in lx.reference_parts(str(node.value)):
+            self.mark_relationship(_snake(member))
             access = f"FX.field({access}, {_q(_snake(member))})"
         return access
+
+    def mark_relationship(self, key):
+        if key in self.relationship_keys:
+            self.res.approximations.append('Relationship reads use source keys, related-record snapshots, exported one-to-many lookups and many-to-many links; delegation, cascades and security require adapters')
 
     def binary(self, node) -> str:
         op = node.value
@@ -282,6 +291,11 @@ class Emitter:
             return f"await {call}" if prefix else call
         if name == "Set":
             return self.set_call(node)
+        if name in {"Relate", "Unrelate"}:
+            if not self.behavior or len(args) != 2:
+                raise lx.FxSyntaxError(name + ' requires two arguments in a behavior formula')
+            self.res.approximations.append('Relate/Unrelate supports exported one-to-many lookups and many-to-many links with idempotent target retries; unmatched Unrelate is a no-op, cascades and Dataverse permissions require adapters')
+            return f"await apiRelate({self.expr(args[0])}, {self.expr(args[1])}, {'true' if name == 'Unrelate' else 'false'})"
         if name == "UpdateContext":
             if not args or args[0].kind != "record":
                 raise lx.FxSyntaxError("UpdateContext requires a record")
@@ -336,6 +350,21 @@ class Emitter:
             self.res.approximations.append(
                 'Concurrent propagates errors; source error-management settings, branch dependency '
                 'validation and external side-effect ordering require review')
+            def relationship_actions(branch):
+                found, pending = [], [branch]
+                while pending:
+                    current = pending.pop()
+                    if current.kind == 'call' and current.value in {'Relate', 'Unrelate'} and len(current.children) == 2:
+                        found.append(current)
+                    pending.extend(current.children)
+                    if current.kind == 'record':
+                        pending.extend(value for _, value in current.value)
+                return found
+            actions = [relationship_actions(arg) for arg in args]
+            if any(left.value != right.value and left.children == right.children
+                   for i, group in enumerate(actions) for later in actions[i+1:]
+                   for left in group for right in later):
+                self.res.approximations.append('Concurrent may Relate and Unrelate the same relationship and record in different branches; source membership ordering requires review')
             branches = ', '.join(f'async () => ({self.expr(arg)})' for arg in args)
             return f'await FX.concurrent([{branches}])'
         if name == "IfError":

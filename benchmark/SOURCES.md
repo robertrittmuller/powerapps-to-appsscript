@@ -53,14 +53,15 @@ the short startup check. Previously silent view filters now expose missing
 migrated identities and unsupported relative-date queries. All three default
 first-action probes fail. The separate populated Employee Ideas probe supplies
 one authored user, four campaigns and three questions through generated Code.gs:
-27 checks pass for active filtering/order/search, campaign selection, mobile
+29 checks pass for active filtering/order/search, campaign selection, mobile
 fields and labels, required-title validation, single/multiline custom responses,
-submission, persistence, reload and reopening. The unrelated campaign question
+submission, persistence, reload, reopening and per-campaign idea counts. The unrelated campaign question
 is excluded. The source warning path handles the unsupported Teams post.
-The optional `--voting` probe now persists a count of one through the original
-keyed Patch, but still fails on unsupported Relate. The source Concurrent contains an
-unconditional Unrelate branch, retained for source review rather than silently
-changed. Ratings, attachments, manager workflows and complete usability remain
+The optional `--voting` probe persists a count of one and executes Relate/Unrelate,
+but fails its membership assertion. The source Concurrent contains an
+unconditional Unrelate branch that removes the voting-user link in this run;
+the ordering risk is ledgered and retained for source review.
+Ratings, attachments, manager workflows and complete usability remain
 unassessed. Source app and solution bytes stay unchanged.
 The combined scorecard retains failures with matching source/converter/solution
 hashes. Authored record contents and a data hash accompany the populated probe.

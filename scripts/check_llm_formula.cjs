@@ -19,7 +19,7 @@ function check({js, behavior}) {
   const readRuntime = new Set(['variable', 'param', 'language', 'state']);
   const behaviorGlobals = new Set(['go', 'goBack', 'toast', 'exitApp', 'bind',
     'refreshData', 'submitForm', 'resetForm', 'setFormMode', 'resetControl',
-    'selectControl', 'apiCreate', 'apiPatch', 'apiPatchRecord', 'apiRemove', 'apiRemoveIf',
+    'selectControl', 'apiCreate', 'apiPatch', 'apiPatchRecord', 'apiRelate', 'apiRemove', 'apiRemoveIf',
     'apiClearCollect', 'powerapps_collect', 'powerapps_clearCollect',
     'powerapps_remove', 'powerapps_removeIf', 'setTimeout', 'setInterval']);
   const mutators = new Set(['push', 'pop', 'shift', 'unshift', 'splice', 'sort',

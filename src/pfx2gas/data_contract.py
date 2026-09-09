@@ -127,6 +127,10 @@ def apply_source_contract(source: DataSource, raw: dict) -> None:
         "relationships": {key: entity.get(key, []) for key in
                           ("ManyToOneRelationships", "OneToManyRelationships", "ManyToManyRelationships")},
         "views": definition.get("Views"), "defaultPublicView": definition.get("DefaultPublicView")}
+    navigation_names = {r.get(key) for values in source.metadata['relationships'].values() for r in values
+                        for key in ('ReferencedEntityNavigationPropertyName', 'ReferencingEntityNavigationPropertyName',
+                                    'Entity1NavigationPropertyName', 'Entity2NavigationPropertyName') if r.get(key)}
+    source.metadata['relationshipNames'] = {key: value for key, value in mapping.items() if key in navigation_names}
 
 
 def field_aliases(field):

@@ -973,6 +973,8 @@ def render_app_js(ir: AppIR) -> str:
         lines.append('  FX.collections.configureContracts(state, ' + json.dumps(collection_contracts).replace('<', '\\u003c') + ');')
     external_sources = [ds.name for ds in external_tables(ir.data_sources)]
     if external_sources:
+        from ..relationships import relationship_contracts
+        lines.append('  FXRuntime.configureRelationships(' + json.dumps(relationship_contracts(ir)).replace('<', '\\u003c') + ');')
         calls = ", ".join(f"refreshData({name!r})" for name in external_sources)
         lines.append("  // Load external data before formulas/evaluators consume it.")
         lines.append(f"  await Promise.all([{calls}]);")

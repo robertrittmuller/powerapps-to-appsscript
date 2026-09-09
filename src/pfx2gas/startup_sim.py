@@ -113,6 +113,10 @@ const serverData = __SERVER_DATA__;
 // Sheets locking and writes are exercised by the separate generated-server gate.
 const serverModel = require('node:vm').createContext({Date,console});
 require('node:vm').runInContext(__SERVER_CODE__, serverModel);
+// A freshly initialized workbook has no migrated join rows. Mutation and
+// persistent relationship snapshots are tested against generated Code.gs.
+serverModel.listRelationshipLinks_ = () => [];
+serverModel.listRows = ds => serverData[ds] || [];
 let handlers = {};
 const runner = new Proxy({}, {
   get(_t, prop) {
@@ -132,6 +136,8 @@ const runner = new Proxy({}, {
           const ds = args[0], op = args[1], payload = args[2] || {};
           const rows = serverData[ds] || (serverData[ds] = []);
           if (op === 'list') { if (ok) ok(JSON.parse(JSON.stringify(rows))); return; }
+          if (op === 'links') { if (ok) ok([]); return; }
+          if (op === 'relationshipSnapshot') { if (ok) ok(JSON.parse(JSON.stringify(serverModel.relationshipSnapshot_(ds)))); return; }
           if (op === 'patchRecord') {
             serverModel.assertDataSource(ds);
             serverModel.assertRecord(payload.record, 'patch record');

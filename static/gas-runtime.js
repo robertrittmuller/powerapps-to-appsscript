@@ -1325,8 +1325,70 @@
     return _cachedUser;
   }
 
+  var relationshipContracts = {}, relationshipCache = {}, relationshipReferences = new WeakMap();
+  var relationshipRecords = new WeakMap();
+  function configureRelationships(contracts) {
+    relationshipContracts = contracts || {};
+    relationshipCache = {};
+    relationshipReferences = new WeakMap();
+    relationshipRecords = new WeakMap();
+  }
+  function tagRelationshipRecord(ds, record) {
+    if (record && typeof record === 'object' && !Array.isArray(record)) relationshipRecords.set(record, ds);
+    return record;
+  }
+  function relationshipIdentity(ds, record) {
+    var contract = relationshipContracts[ds];
+    if (!contract || !record || typeof record !== 'object' || Array.isArray(record)) return null;
+    var present = contract.keys.filter(function (key) { return record[key] != null && record[key] !== ''; });
+    if (!present.length) return null;
+    var id = record[present[0]];
+    if (typeof id !== 'string' || present.some(function (key) { return record[key] !== id; }))
+      throw new Error('conflicting or invalid relationship primary key: ' + ds);
+    return id;
+  }
+  function relationshipField(record, key) {
+    if (!record || typeof record !== 'object' || Array.isArray(record)) return;
+    var known = relationshipRecords.get(record);
+    var sources = (known ? [known] : Object.keys(relationshipContracts)).filter(function (ds) {
+      return Object.prototype.hasOwnProperty.call(relationshipContracts[ds].navigation, key) &&
+        relationshipIdentity(ds, record) !== null;
+    });
+    if (!sources.length) return;
+    if (sources.length !== 1) throw new Error('ambiguous relationship record: ' + key);
+    var ds = sources[0], spec = relationshipContracts[ds].navigation[key];
+    if (spec.error) throw new Error(spec.error + ': ' + ds + '.' + key);
+    var id = relationshipIdentity(ds, record), snapshot = relationshipCache[ds];
+    if (!snapshot || !Array.isArray(snapshot.links) || !Array.isArray(snapshot.targets[spec.target]))
+      throw new Error('relationship data has not loaded: ' + ds + '.' + key);
+    if ((state[ds] || []).filter(function (row) { return relationshipIdentity(ds, row) === id; }).length !== 1)
+      throw new Error('relationship source record is missing or ambiguous: ' + ds);
+    var related = spec.kind === 'one-to-many' ? snapshot.targets[spec.target].filter(function (row, index) {
+      return snapshot.parents[key][index] === id;
+    }) : snapshot.links.filter(function (link) { return link[0] === spec.schema && link[spec.side] === id; })
+      .map(function (link) {
+        var matches = snapshot.targets[spec.target].filter(function (row) {
+          return relationshipIdentity(spec.target, row) === link[3-spec.side];
+        });
+        if (matches.length !== 1) throw new Error('related record is missing or ambiguous: ' + spec.target);
+        return matches[0];
+      });
+    relationshipReferences.set(related, {source:ds, key:key, id:id});
+    return {value:related};
+  }
   function refreshData(ds) {
-    return serverRun('api', ds, 'list', {}).then(function (data) {
+    var contract = relationshipContracts[ds];
+    var needsLinks = contract && Object.keys(contract.navigation).some(function (key) {
+      var spec = contract.navigation[key]; return !spec.error;
+    });
+    return Promise.all([serverRun('api', ds, 'list', {}),
+      needsLinks ? serverRun('api', ds, 'relationshipSnapshot', {}) : Promise.resolve({links:[],targets:{}})]).then(function (results) {
+      var data = results[0];
+      if (Array.isArray(data)) data.forEach(function (row) { tagRelationshipRecord(ds, row); });
+      Object.keys(results[1].targets).forEach(function (target) {
+        results[1].targets[target].forEach(function (row) { tagRelationshipRecord(target, row); });
+      });
+      relationshipCache[ds] = results[1];
       state[ds] = data || [];
       updateBindings();
       return state[ds];
@@ -1334,14 +1396,22 @@
   }
 
   // server data API used by transpiled Patch/Remove/Collect calls
+  global.apiRelate = function (related, record, remove) {
+    var reference = related && relationshipReferences.get(related);
+    if (!reference) return Promise.reject(new Error('Relate/Unrelate requires a direct exported relationship table'));
+    var base = {}; base[relationshipContracts[reference.source].primaryKey] = reference.id;
+    return serverRun('api', reference.source, remove ? 'unrelate' : 'relate', {
+      relationship:reference.key, base:base, record:record,
+    }).then(function () { return refreshData(reference.source); }).then(function () { return null; });
+  };
   global.apiPatch = function (ds, base, record) {
     return serverRun('api', ds, 'patch', { base: base, record: record }).then(function (r) {
-      return refreshData(ds).then(function () { return r; });
+      return refreshData(ds).then(function () { return tagRelationshipRecord(ds, r); });
     });
   };
   global.apiPatchRecord = function (ds, record) {
     return serverRun('api', ds, 'patchRecord', {record: record}).then(function (saved) {
-      return refreshData(ds).then(function () { return saved; });
+      return refreshData(ds).then(function () { return tagRelationshipRecord(ds, saved); });
     });
   };
   global.apiRemove = function (ds, record) {
@@ -1368,7 +1438,7 @@
   };
   global.apiCreate = function (ds, record) {
     return serverRun('api', ds, 'create', { record: record }).then(function (r) {
-      return refreshData(ds).then(function () { return r; });
+      return refreshData(ds).then(function () { return tagRelationshipRecord(ds, r); });
     });
   };
   global.apiClearCollect = function (ds, record) {
@@ -1403,6 +1473,8 @@
   };
 
   global.FXRuntime = {
+    configureRelationships: configureRelationships,
+    relationshipField: relationshipField,
     param: param,
     saveData: saveData,
     loadData: loadData,

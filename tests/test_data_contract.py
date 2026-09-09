@@ -55,9 +55,11 @@ def run_backend(ir, tmp_path):
         line = server.stdout.readline()
         assert line, "generated server process stopped"
         return json.loads(line)
-    yield call
-    server.stdin.close()
-    server.wait(timeout=10)
+    try:
+        yield call
+    finally:
+        server.stdin.close()
+        server.wait(timeout=10)
 
 
 @pytest.fixture

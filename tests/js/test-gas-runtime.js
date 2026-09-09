@@ -123,6 +123,59 @@ test('apiPatchRecord sends the keyed overload and does not refresh state on fail
   assert.strictEqual(global.state.Keyed,before);
 });
 
+test('relationship projections refresh only the first side and require typed, unambiguous records', async () => {
+  const contracts = {
+    People:{primaryKey:'key',keys:['key'],navigation:{groups:{kind:'many-to-many',schema:'members',side:2,target:'Groups'}}},
+    Groups:{primaryKey:'key',keys:['key'],navigation:{people:{kind:'many-to-many',schema:'members',side:1,target:'People'},
+      unsupported:{error:'one-to-many adapter missing'}}},
+  };
+  const rows = {People:[{key:'p',name:'Ada'}],Groups:[{key:'g',name:'Group'}]};
+  let links = [], calls = [], failure = false, handlers = {};
+  const runner = new Proxy({}, {get(_target,name) {
+    if (name === 'withSuccessHandler') return cb=>{handlers.ok=cb;return runner;};
+    if (name === 'withFailureHandler') return cb=>{handlers.fail=cb;return runner;};
+    return (ds,op,payload)=>{
+      const captured=handlers; handlers={}; calls.push([ds,op,payload]);
+      queueMicrotask(()=>{
+        if (failure) {captured.fail(new Error('relationship service failed'));return;}
+        if (op === 'relate') links=[['members','g','p']];
+        if (op === 'unrelate') links=[];
+        captured.ok(JSON.parse(JSON.stringify(op==='list'?rows[ds]:op==='relationshipSnapshot'?{links,targets:rows}:null)));
+      });
+    };
+  }});
+  global.google={script:{run:runner}};
+  RT.configureRelationships(contracts);
+  try {
+    await Promise.all([global.refreshData('People'),global.refreshData('Groups')]);
+    assert.strictEqual(global.apiRelate.length,3);
+    const group=global.state.Groups[0], person=global.state.People[0];
+    assert.deepStrictEqual(FX.field(group,'people'),[]);
+    calls=[];
+    assert.strictEqual(await global.apiRelate(FX.field(group,'people'),person,false),null);
+    assert.deepStrictEqual(calls.map(c=>c.slice(0,2)),[['Groups','relate'],['Groups','list'],['Groups','relationshipSnapshot']]);
+    assert.deepStrictEqual(calls[0][2],{relationship:'people',base:{key:'g'},record:person});
+    assert.deepStrictEqual(FX.field(group,'people').map(r=>r.name),['Ada']);
+    assert.deepStrictEqual(FX.field(person,'groups'),[]);
+    await global.refreshData('People');
+    assert.deepStrictEqual(FX.field(person,'groups').map(r=>r.name),['Group']);
+    assert.deepStrictEqual(FX.scopeValue([group],'people',()=>null).map(r=>r.name),['Ada']);
+    failure=true;
+    await assert.rejects(global.apiRelate(FX.field(group,'people'),person,true),/service failed/);
+    assert.strictEqual(FX.field(group,'people').length,1);
+    failure=false;
+    await global.apiRelate(FX.field(group,'people'),person,true);
+    assert.deepStrictEqual(FX.field(group,'people'),[]);
+    await assert.rejects(global.apiRelate([],person,false),/direct exported relationship/);
+    assert.throws(()=>FX.field(group,'unsupported'),/adapter missing/);
+    contracts.People.navigation.people=contracts.Groups.navigation.people;
+    assert.throws(()=>FX.field({key:'g'},'people'),/ambiguous relationship record/);
+    // Typed loaded rows still resolve when different tables share a key label.
+    assert.deepStrictEqual(FX.field(group,'people'),[]);
+    assert.throws(()=>FX.field({key:17},'people'),/invalid relationship primary key/);
+  } finally {RT.configureRelationships({});}
+});
+
 test('serverRun encodes nested dates without changing client records or hiding invalid values', async () => {
   installGoogleMock('ok');
   const record = {when: new Date('2026-09-09T12:34:56Z'), nested: [{done: false, count: 0, blank: null}]};

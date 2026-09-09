@@ -193,6 +193,10 @@
         return projected;
       });
       if (key === 'value' && typeof record !== 'object') return record;
+      if (!Object.prototype.hasOwnProperty.call(Object(record), key) && global.FXRuntime && global.FXRuntime.relationshipField) {
+        var related = global.FXRuntime.relationshipField(record, key);
+        if (related) return related.value;
+      }
       return record[key] === undefined ? null : record[key];
     },
     // Inner record fields shadow outer fields, including explicit Blank values.
@@ -201,6 +205,10 @@
       for (var i = 0; i < scopes.length; i++) {
         var record = scopes[i];
         if (record != null && Object.prototype.hasOwnProperty.call(record, key)) return record[key];
+        if (record != null && global.FXRuntime && global.FXRuntime.relationshipField) {
+          var related = global.FXRuntime.relationshipField(record, key);
+          if (related) return related.value;
+        }
         if (key === 'value' && record != null && typeof record !== 'object') return record;
       }
       return fallback();

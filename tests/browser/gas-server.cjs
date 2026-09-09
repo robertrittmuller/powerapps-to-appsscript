@@ -126,7 +126,7 @@ readline.createInterface({input: process.stdin}).on('line', line => {
       process.stdout.write('{"result":true}\n'); return;
     }
     if (!['api', 'apiChoices', 'whoami', 'doGet'].includes(request.fn)) throw new Error('unknown test endpoint');
-    mutationRequest = request.fn === 'api' && request.args[1] !== 'list';
+    mutationRequest = request.fn === 'api' && !['list', 'links', 'relationshipSnapshot'].includes(request.args[1]);
     context.requestJSON = JSON.stringify(request);
     const result = vm.runInContext(
       '(function(){var r=JSON.parse(requestJSON); return globalThis[r.fn].apply(null,r.args);})()',

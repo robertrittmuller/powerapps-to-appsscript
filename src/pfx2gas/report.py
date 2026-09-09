@@ -80,7 +80,10 @@ def _data_table(ir: AppIR) -> str:
         lines.append(f"| {ds.name} | {kind} | {ds.origin} | {fields} | {storage} |")
     if any(ds.origin == "dataverse" for ds in ir.data_sources):
         lines.append("\n`data-contract.json` retains exported Dataverse attributes, logical/display names, "
-                     "choices, keys, relationships and views. Lookup records are stored snapshots. Relationship traversal, defaults, calculated fields, "
+                     "choices, keys, relationships and views. Exported one-to-many lookups and many-to-many links are supported; "
+                     "many-to-many links persist in `__pfx2gas_links`. Relate/Unrelate refreshes the first source and uses idempotent retries. "
+                     "Unmatched Unrelate is a no-op; alternate-key relationships and cascade deletes require adapters. "
+                     "Lookup fields are stored snapshots. Source defaults, calculated fields, "
                      "Dataverse permissions and implicit localized choice-to-text coercion still require adapters.")
     return "\n".join(lines)
 

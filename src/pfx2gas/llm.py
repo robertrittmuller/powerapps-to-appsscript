@@ -33,6 +33,7 @@ for a Google Apps Script web app client. Rules:
   FXRuntime.setState(record) — Set updates globals, even if a local shadows them
     Keep variable names unchanged; normalize data column names to snake_case.
   apiCreate(ds, record), apiPatch(ds, base, record), apiPatchRecord(ds, record), apiRemove(ds, record),
+  apiRelate(relatedTable, record, remove),
   apiRemoveIf(ds, predicateFn), refreshData(ds)  — data layer (await them)
   go(screenName, optionalContextRecord), goBack()  — navigation
   toast(msg)  — user notification
@@ -202,6 +203,6 @@ class LlmClient:
     def _log(self, fx: str, data: dict, t0: float) -> None:
         entry = {"ts": time.time(), "elapsed_s": round(time.time() - t0, 2), "fx": fx,
                  "model": self.model, "formulaSha256": hashlib.sha256(fx.encode()).hexdigest(),
-                 "gateVersion": 5, **data}
+                 "gateVersion": 6, **data}
         with (self.log_dir / "llm-calls.jsonl").open("a") as f:
             f.write(json.dumps(entry, default=str) + "\n")

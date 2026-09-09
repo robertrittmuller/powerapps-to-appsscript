@@ -153,12 +153,14 @@ first actions for Milestones, Employee Ideas and Inspection in Chromium,
 retaining delayed connector errors and unreadable primary controls as failures.
 These are partial workflow checks; complete usability remains unproven.
 `./pfx2gas browser scripts/assess_employee_workflow.py` adds explicitly authored
-campaign/user/question records through generated Code.gs before startup. Its 27 checks
+campaign/user/question records through generated Code.gs before startup. Its 29 checks
 pass: campaign filtering/order/search/selection, mobile field layout and labels,
-required-title validation, single/multiline custom responses, submission,
+required-title validation, single/multiline custom responses, campaign idea counts, submission,
 persistence, reload and reopening. The unsupported Teams post follows the source
-warning/recovery path. Adding `--voting` now persists a count of one through
-the source's keyed Patch, but the probe still fails on unsupported Relate.
+warning/recovery path. Adding `--voting` persists a count of one, but fails the
+membership assertion: the exported Concurrent runs both Relate and an
+unconditional Unrelate, leaving no voter link in this run. That source ordering
+risk is ledgered; the converter preserves the source actions.
 The browser gate waits for dispatched server calls and includes errors that
 arrive during capture before assigning a verdict.
 Ratings, attachments, manager workflows and complete app usability remain unassessed.
@@ -311,8 +313,21 @@ Converted apps aim to match the original visually and behaviorally:
   before writing a row. Choices use exported labels and typed values; zero and
   false remain distinct from Blank. Dates cross the Apps Script bridge as ISO
   text. Lookup record snapshots and multi-select values persist as structured
-  cells. Relationship traversal, source defaults/calculations/permissions and
+  cells. Source defaults/calculations/permissions and
   implicit localized choice-to-text coercion still need target adapters.
+- **Relationships** — exported navigation names, schema names and
+  source keys drive related-table reads and `Relate`/`Unrelate`. Many-to-many links persist in
+  a separate `__pfx2gas_links` tab. Refreshing the first source fetches its links
+  and current related records; the reverse source retains its snapshot until
+  explicitly refreshed. Missing/ambiguous keys, conflicting metadata and write
+  failures raise errors. Retried link operations are idempotent in this target
+  adapter; unmatched Unrelate is a no-op. One-to-many relationships use the
+  exported lookup field, support reassignment/unlinking, and honor read-only and
+  system-required lookup flags. Delete requires explicit unlinking first;
+  alternate-key relationships, cascades, Dataverse permissions and live Google contention remain unsupported
+  or unverified. Existing deployments must rerun `setup()` to add join storage;
+  existing source memberships still require data migration. The export alone
+  does not contain those membership rows.
 - **Dataverse saved views** — supply `--solution path/to/export.zip` when the
   canvas export carries view IDs but omits their FetchXML. Supported direct
   `Filter(Table, 'Table Views'.'View name')` arguments preserve nested AND/OR,
@@ -436,7 +451,7 @@ proposal. These static checks do not prove behavioral equivalence or constitute
 a general JavaScript security sandbox; fallback formulas remain partial and
 require runtime QA. Model, formula hash, gate version and rejection reasons are
 retained in the call log.
-Gate v5 rejects behavior-only Concurrent and keyed-write helper references in value proposals.
+Gate v6 rejects behavior-only Concurrent, keyed-write and relationship-write helper references in value proposals.
 
 It may refuse when translation is genuinely impossible — the formula then
 stays a documented stub. All calls are logged to `.runs/llm-calls.jsonl`

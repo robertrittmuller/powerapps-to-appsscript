@@ -24,6 +24,7 @@ STATIC = REPO / "static"
 # (name, expected first params in the runtime definition, min arg count)
 EXPECTED = {
     "apiPatchRecord": (["ds", "record"], 2),
+    "apiRelate": (["related", "record", "remove"], 3),
     "go": (["name", "contextPatch"], 2),
     "updateContext": (["screen", "patch"], 2),
     "powerapps_collect": (["st", "ds"], 2),
@@ -79,7 +80,7 @@ def generated_fixture_bare_calls() -> tuple[list[str], Path, set[str], set[str],
     apps = []
     out = tmp / "FixtureA"
     fixture_build.build_fixtures()
-    for fixture_name in ("fixtureA.msapp", "fixtureForm.msapp", "fixtureCharts.msapp", "fixtureScopes.msapp", "fixtureGallery.msapp", "fixtureTimer.msapp", "fixtureStorage.msapp", "fixtureDataverse.msapp", "fixtureSourceFormulas.msapp", "fixtureCanvas.msapp", "fixtureScaledCanvas.msapp", "fixtureNavigation.msapp", "fixtureViews.msapp", "fixtureCardLayout.msapp", "fixtureCollectionAliases.msapp"):
+    for fixture_name in ("fixtureA.msapp", "fixtureForm.msapp", "fixtureCharts.msapp", "fixtureScopes.msapp", "fixtureGallery.msapp", "fixtureTimer.msapp", "fixtureStorage.msapp", "fixtureDataverse.msapp", "fixtureRelationships.msapp", "fixtureSourceFormulas.msapp", "fixtureCanvas.msapp", "fixtureScaledCanvas.msapp", "fixtureNavigation.msapp", "fixtureViews.msapp", "fixtureCardLayout.msapp", "fixtureCollectionAliases.msapp"):
         solution = fixture_build.FIXTURE_DIR / 'fixtureViews.solution.zip' if fixture_name == 'fixtureViews.msapp' else None
         ir = analyze(parse(unpack(fixture_build.FIXTURE_DIR / fixture_name)), solution=solution)
         out = synthesize(ir, tmp / fixture_name.removesuffix(".msapp"))

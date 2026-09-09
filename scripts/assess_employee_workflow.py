@@ -60,6 +60,8 @@ def main(voting=False):
         gallery = control(page,'galMobileCampaignSummary')
         titles = gallery.locator('[data-control="lblMobileCampaignSummary_Title"]')
         check('active-view-filter-and-order', lambda: expect(titles).to_have_text(['Energy savings','Better meetings']))
+        idea_counts = gallery.locator('[data-control="lblMobileCampaignSummary_IdeaCount"]')
+        check('initial-campaign-idea-counts', lambda: expect(idea_counts).to_have_text(['0 ideas','0 ideas']))
         search = control(page, 'txtMobileCampaignSummary_Search')
         search.fill('meetings')
         check('campaign-search', lambda: expect(titles).to_have_text(['Better meetings']))
@@ -129,6 +131,7 @@ def main(voting=False):
         page.reload()
         expect(page.locator('[data-screen="Mobile Landing Screen"]')).to_be_visible(timeout=10000)
         control(page,'btnMobileBrowseCampaigns').click()
+        check('campaign-idea-counts-after-reload', lambda: expect(idea_counts).to_have_text(['1 idea','0 ideas']))
         control(page,'galMobileCampaignSummary').locator('[data-control="btnMobileCampaignSummary_SelectBorder"]').first.click()
         check('saved-idea-listed-after-reload', lambda: expect(ideas).to_contain_text('Shorter meetings with written decisions'))
         check('reopen-saved-idea', lambda: ideas.locator('[data-control="btnMobileCampaignDetailIdeas_Select"]').first.click())
@@ -158,6 +161,21 @@ def main(voting=False):
                     assert len(records) == 1, records
                     assert records[0]['vote__count'] == 1, records[0]['vote__count']
                 check('vote-persisted-in-generated-server', persisted_vote)
+                def membership(expected):
+                    records = backend({'fn':'api','args':['Employee Ideas','list',{}]})['result']
+                    links = backend({'fn':'api','args':['Employee Ideas','links',{}]})['result']
+                    expected_links = [['msft_employeeidea_systemuser_vote',records[0]['id'],'test-source-user']] if expected else []
+                    assert links == expected_links, {'expectedMembership':expected_links,'actualLinks':links}
+                check('voting-user-membership-persisted', lambda: membership(True))
+                page.reload()
+                control(page,'btnMobileBrowseCampaigns').click()
+                control(page,'galMobileCampaignSummary').locator('[data-control="btnMobileCampaignSummary_SelectBorder"]').first.click()
+                check('vote-count-survives-reload', lambda: expect(vote).to_have_text('1 vote'))
+                check('remove-existing-vote', lambda: vote.click())
+                check('removed-vote-displayed', lambda: expect(vote).to_have_text('0 votes'))
+                check('remove-vote-server-callbacks-settle', lambda: page.wait_for_function(
+                    'async () => await window.__waitForGasIdle()', timeout=10000))
+                check('voting-user-membership-removed', lambda: membership(False))
             finally:
                 (OUT / name / 'vote-records.json').write_text(json.dumps(
                     backend({'fn':'api','args':['Employee Ideas','list',{}]}), indent=2))

@@ -21,6 +21,7 @@ def assess_fidelity(ir: AppIR) -> AppIR:
 
 def synthesize(ir: AppIR, out_dir: str | Path) -> Path:
     import json
+    from ..relationships import relationship_contracts
 
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
@@ -50,7 +51,9 @@ def synthesize(ir: AppIR, out_dir: str | Path) -> Path:
     )
     (out / "data-contract.json").write_text(json.dumps({
         "version": 1, "sources": [ds.model_dump() for ds in ir.data_sources],
-        "limitations": ["Lookup records are stored snapshots; relationship traversal, views, defaults, calculated fields and permissions need target adapters.",
+        "relationshipNavigation": relationship_contracts(ir),
+        "limitations": ["Exported one-to-many lookups and many-to-many links refresh related records on the first source only. Many-to-many links use __pfx2gas_links; retries are idempotent and unmatched Unrelate is a no-op. Cascade deletes, alternate-key relationships and permissions require adapters.",
+                        "Lookup fields remain stored snapshots; source defaults, calculated fields and unsupported saved views require adapters.",
                         "Choice codes and boolean values are retained; implicit localized choice-to-text coercion is not yet implemented."],
     }, indent=2) + "\n")
     for static_name in ("gas-runtime.js", "fx-stdlib.js", "fx-charts.js"):

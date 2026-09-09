@@ -610,6 +610,68 @@ def dataverse_fixture_files() -> dict[str, str]:
         "References\\DataSources.json": json.dumps({"DataSources": sources})}
 
 
+def relationship_fixture_files() -> dict[str, str]:
+    files = dataverse_fixture_files()
+    data = json.loads(files['References\\DataSources.json'])
+    project = data['DataSources'][0]
+    relation = {'SchemaName':'msft_project_systemuser_members', 'Entity1LogicalName':'msft_project',
+        'Entity2LogicalName':'systemuser', 'Entity1NavigationPropertyName':'msft_project_systemuser_members',
+        'Entity2NavigationPropertyName':'msft_project_systemuser_members'}
+    definition = json.loads(project['TableDefinition'])
+    entity = json.loads(definition['EntityMetadata'])
+    entity['ManyToManyRelationships'] = [relation]
+    owner_relation = {'SchemaName':'systemuser_projects_owner','ReferencedEntity':'systemuser',
+        'ReferencedAttribute':'systemuserid','ReferencingEntity':'msft_project','ReferencingAttribute':'msft_owner',
+        'ReferencedEntityNavigationPropertyName':'systemuser_projects_owner','ReferencingEntityNavigationPropertyName':'msft_owner'}
+    entity['ManyToOneRelationships'] = [owner_relation]
+    definition['EntityMetadata'] = json.dumps(entity)
+    project['TableDefinition'] = json.dumps(definition)
+    project['NativeCDSDataSourceInfoNameMapping']['msft_project_systemuser_members'] = 'Users'
+    data['DataSources'].append({'Name':'Users','Type':'NativeCDSDataSourceInfo',
+        'TableDefinition':{'EntityMetadata':{'LogicalName':'systemuser','PrimaryIdAttribute':'systemuserid',
+            'Attributes':[{'LogicalName':key,'AttributeType':kind} for key,kind in [
+                ('systemuserid','Uniqueidentifier'),('fullname','String')]], 'ManyToManyRelationships':[relation],
+                'OneToManyRelationships':[owner_relation]}},
+        'NativeCDSDataSourceInfoNameMapping':{'systemuserid':'User','fullname':'Full Name',
+            'msft_project_systemuser_members':'Projects','systemuser_projects_owner':'Assigned Projects'},
+        'Data':json.dumps([{'systemuserid':'user-one','fullname':'Ada'}, {'systemuserid':'user-two','fullname':'Grace'}])})
+    files['References\\DataSources.json'] = json.dumps(data)
+    def control(name, kind, props):
+        return {'Name':name,'Template':{'Name':kind},'Rules':[
+            {'Property':key,'InvariantScript':str(value)} for key,value in props.items()]}
+    controls = [
+        control('RelatedProject','label',{'X':20,'Y':20,'Width':360,'Height':40,'Text':'selectedProject.Name'}),
+        control('RelatedUser','label',{'X':400,'Y':20,'Width':300,'Height':40,'Text':"selectedUser.'Full Name'"}),
+        control('RelatedNames','label',{'X':20,'Y':70,'Width':360,'Height':40,'Text':"Concat(selectedProject.Users, 'Full Name', \", \")"}),
+        control('RelatedCount','label',{'X':20,'Y':120,'Width':100,'Height':40,'Text':'Text(CountRows(selectedProject.Users))'}),
+        control('InverseCount','label',{'X':400,'Y':70,'Width':100,'Height':40,'Text':'Text(CountRows(selectedUser.Projects))'}),
+        control('AssignedCount','label',{'X':400,'Y':120,'Width':100,'Height':40,'Text':"Text(CountRows(selectedUser.'Assigned Projects'))"}),
+        control('RelatedStatus','label',{'X':20,'Y':170,'Width':660,'Height':40,'Text':'relationshipStatus'}),
+    ]
+    actions = [
+        ('ChooseFirstProject','First project','Set(selectedProject, First(Projects))'),
+        ('ChooseSecondProject','Second project','Set(selectedProject, Last(Projects))'),
+        ('ChooseFirstUser','Ada','Set(selectedUser, First(Users))'),
+        ('ChooseSecondUser','Grace','Set(selectedUser, Last(Users))'),
+        ('AddMember','Add selected member','IfError(Relate(selectedProject.Users, selectedUser); Set(relationshipStatus, "linked"), Set(relationshipStatus, "link failed"))'),
+        ('RemoveMember','Remove selected member','IfError(Unrelate(selectedProject.Users, selectedUser); Set(relationshipStatus, "unlinked"), Set(relationshipStatus, "unlink failed"))'),
+        ('RefreshUsers','Refresh reverse links','Refresh(Users); Set(relationshipStatus, "refreshed")'),
+        ('AddReverse','Add from user side','Relate(selectedUser.Projects, selectedProject); Set(relationshipStatus, "reverse linked")'),
+        ('RemoveReverse','Remove from user side','Unrelate(selectedUser.Projects, selectedProject); Set(relationshipStatus, "reverse unlinked")'),
+        ('RefreshProjects','Refresh project links','Refresh(Projects); Set(relationshipStatus, "refreshed")'),
+        ('AssignProject','Assign project to user','IfError(Relate(selectedUser.\'Assigned Projects\', selectedProject); Set(relationshipStatus, "assigned"), Set(relationshipStatus, "assignment failed"))'),
+        ('UnassignProject','Unassign project from user','IfError(Unrelate(selectedUser.\'Assigned Projects\', selectedProject); Set(relationshipStatus, "unassigned"), Set(relationshipStatus, "unassignment failed"))'),
+    ]
+    for index,(name,title,action) in enumerate(actions):
+        controls.append(control(name,'button',{'X':20+(index%2)*340,'Y':220+(index//2)*60,'Width':320,
+            'Height':44,'Text':json.dumps(title),'OnSelect':action}))
+    files['Properties.json'] = json.dumps({'Name':'FixtureRelationships'})
+    files['Controls\\1.json'] = json.dumps({'TopParent':control('App','appinfo',{
+        'OnStart':'Set(selectedProject, Last(Projects)); Set(selectedUser, Last(Users)); Set(relationshipStatus, "ready")'})})
+    files['Controls\\2.json'] = json.dumps({'TopParent':{**control('RelationshipScreen','screen',{}),'Children':controls}})
+    return files
+
+
 def collection_alias_fixture_files() -> dict[str, str]:
     files = dataverse_fixture_files()
     data = json.loads(files['References\\DataSources.json'])
@@ -984,6 +1046,7 @@ def build_fixtures() -> None:
     _write_msapp(FIXTURE_DIR / "fixtureTimer.msapp", timer_fixture_files())
     _write_msapp(FIXTURE_DIR / "fixtureStorage.msapp", storage_fixture_files())
     _write_msapp(FIXTURE_DIR / "fixtureDataverse.msapp", dataverse_fixture_files())
+    _write_msapp(FIXTURE_DIR / "fixtureRelationships.msapp", relationship_fixture_files())
     _write_msapp(FIXTURE_DIR / "fixtureSourceFormulas.msapp", source_formula_fixture_files())
     _write_msapp(FIXTURE_DIR / "fixtureCanvas.msapp", canvas_fixture_files())
     _write_msapp(FIXTURE_DIR / "fixtureScaledCanvas.msapp", canvas_fixture_files(True))

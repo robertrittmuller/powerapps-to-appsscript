@@ -9,6 +9,7 @@ CODE_GS = """/**
  */
 var ALLOWED_DATA_SOURCES = {data_sources_json};
 var DATA_CONTRACTS = {contracts_json};
+var RELATIONSHIP_CONTRACTS = {relationships_json};
 
 function assertDataSource(ds) {{
   if (ALLOWED_DATA_SOURCES.indexOf(ds) < 0) {{
@@ -49,6 +50,8 @@ function api(ds, op, payload) {{
   payload = payload || {{}};
   assertDataSource(ds);
   if (op === 'list') return listRows(ds);
+  if (op === 'links') return listRelationshipLinks_(ds);
+  if (op === 'relationshipSnapshot') return relationshipSnapshot_(ds);
   return withDataWriteLock_(function () {{
     switch (op) {{
       case 'patch': assertRecord(payload.record, 'patch record'); return patchRow(ds, payload.base, payload.record);
@@ -56,6 +59,8 @@ function api(ds, op, payload) {{
       case 'create': assertRecord(payload.record, 'create record'); return createRow(ds, payload.record);
       case 'remove': assertRecord(payload.record, 'remove record'); return removeRow(ds, payload.record);
       case 'removeIf': return removeRowsByIds(ds, payload.ids);
+      case 'relate': return mutateRelationship_(ds, payload.relationship, payload.base, payload.record, false);
+      case 'unrelate': return mutateRelationship_(ds, payload.relationship, payload.base, payload.record, true);
       default: throw new Error('unknown api op: ' + op);
     }}
   }});
@@ -345,6 +350,7 @@ function removeRow(ds, record) {{
   var idIdx = headers.indexOf(DATA_CONTRACTS[ds].primaryKey);
   var identity = recordIdentity(ds, record);
   if (idIdx < 0 || identity === null) throw new Error('remove requires a primary key');
+  assertNoRelationshipLinks_(ds, [String(identity)]);
   for (var r = 1; r < values.length; r++) {{
     if (String(values[r][idIdx]) === String(identity)) {{
       sh.deleteRow(r + 1);
@@ -364,6 +370,7 @@ function removeRowsByIds(ds, ids) {{
   var idIdx = headers.indexOf(DATA_CONTRACTS[ds].primaryKey);
   if (idIdx < 0) throw new Error('removeIf requires a primary key');
   var wanted = ids.map(String);
+  assertNoRelationshipLinks_(ds, wanted);
   for (var r = values.length - 1; r >= 1; r--) {{
     if (wanted.indexOf(String(values[r][idIdx])) >= 0) sh.deleteRow(r + 1);
   }}
@@ -377,7 +384,10 @@ DATA_INIT_GS = """/**
  */
 function setup() {{
   var props = PropertiesService.getScriptProperties();
-  if (props.getProperty('DATA_SPREADSHEET_ID')) return 'already initialized';
+  if (props.getProperty('DATA_SPREADSHEET_ID')) {{
+    withDataWriteLock_(function () {{ setupRelationships_(ss()); }});
+    return 'already initialized';
+  }}
   var workbook = SpreadsheetApp.create({app_name!r} + ' — data');
   var specs = {tabs_json};
   specs.forEach(function (spec) {{
@@ -407,6 +417,7 @@ function setup() {{
     choiceNote = ' Populate the __Choices tab, then reload the app.';
   }}
   var defaultSheet = workbook.getSheetByName('Sheet1');
+  setupRelationships_(workbook);
   if (defaultSheet && workbook.getSheets().length > 1) workbook.deleteSheet(defaultSheet);
   props.setProperty('DATA_SPREADSHEET_ID', workbook.getId());
   return 'created ' + workbook.getUrl() + choiceNote;
@@ -474,10 +485,15 @@ def data_contracts(ir: AppIR) -> dict:
 
 def render_code_gs(ir: AppIR) -> str:
     import json
+    from ..relationships import relationship_contracts
+    from .relationships import SERVER
 
     allowed = [ds.name for ds in data_sources_with_fields(ir)]
+    if '__pfx2gas_links' in allowed:
+        raise ValueError('source table collides with reserved relationship storage: __pfx2gas_links')
     return CODE_GS.format(app_name=ir.name, data_sources_json=json.dumps(allowed),
-                          contracts_json=json.dumps(data_contracts(ir)))
+                          contracts_json=json.dumps(data_contracts(ir)),
+                          relationships_json=json.dumps(relationship_contracts(ir))) + SERVER
 
 
 def render_data_init(ir: AppIR) -> str:
