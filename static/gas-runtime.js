@@ -135,9 +135,33 @@
     return null;
   }
 
+  // google.script.run accepts plain records/arrays, but rejects Date even
+  // inside a nested record. Keep the instant as ISO text without mutating
+  // client state; malformed values must reach the source's IfError.
+  function wireValue(value, ancestors) {
+    if (value == null) return null;
+    if (value instanceof Date) {
+      if (!isFinite(value.getTime())) throw new Error('Cannot send an invalid date');
+      return value.toISOString();
+    }
+    if (typeof value === 'string' || typeof value === 'boolean') return value;
+    if (typeof value === 'number' && isFinite(value)) return value;
+    if (typeof value !== 'object' || (!Array.isArray(value) && Object.prototype.toString.call(value) !== '[object Object]') || value.nodeType)
+      throw new Error('Unsupported Apps Script argument type');
+    if (ancestors.indexOf(value) >= 0) throw new Error('Cannot send circular data');
+    var path = ancestors.concat([value]);
+    if (Array.isArray(value)) return value.map(function (item) { return wireValue(item, path); });
+    var record = {};
+    Object.keys(value).forEach(function (key) {
+      Object.defineProperty(record, key, {value: wireValue(value[key], path), enumerable: true});
+    });
+    return record;
+  }
+
   function serverRun(fn) {
     var args = Array.prototype.slice.call(arguments, 1);
     return new Promise(function (resolve, reject) {
+      args = wireValue(args, []);
       var settled = false;
       var timer = setTimeout(function () {
         if (!settled) { settled = true; reject(new Error('server call timed out (30s web-app budget): ' + fn)); }
@@ -149,7 +173,8 @@
         .withFailureHandler(function (err) {
           if (!settled) { settled = true; clearTimeout(timer); reject(err); }
         });
-      runner[fn].apply(runner, args);
+      try { runner[fn].apply(runner, args); }
+      catch (err) { settled = true; clearTimeout(timer); reject(err); }
     });
   }
 

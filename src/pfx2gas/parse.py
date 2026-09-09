@@ -151,9 +151,11 @@ def parse(unpacked: UnpackedApp) -> AppIR:
         sample = ds.get("SampleData") if isinstance(ds.get("SampleData"), list) else []
         sample = [{_snake(str(k)): v for k, v in row.items()} if isinstance(row, dict) else row
                   for row in sample]
-        ir.data_sources.append(DataSource(name=str(ds.get("Name", "DataSource")),
-                                          origin=origin, fields=fields,
-                                          sample_data=sample))
+        source = DataSource(name=str(ds.get("Name", "DataSource")), origin=origin,
+                            fields=fields, sample_data=sample)
+        from .data_contract import apply_source_contract
+        apply_source_contract(source, ds)
+        ir.data_sources.append(source)
 
     # Power Apps shows the first screen in screen order; reproduce that.
     ir.screens.sort(key=lambda s: unpacked.screen_order.index(s.name)

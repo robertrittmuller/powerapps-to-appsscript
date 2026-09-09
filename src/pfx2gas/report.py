@@ -68,10 +68,20 @@ def _data_table(ir: AppIR) -> str:
     for ds in ir.data_sources:
         if ds.origin == "collection":
             kind, storage = "collection", "client-side state array (not persisted)"
+        elif ds.origin == "option_set":
+            kind, storage = "enumeration", "exported choice codes in client state; no Sheet tab"
+        elif ds.origin in {"service", "view"}:
+            kind, storage = ds.origin, "source metadata retained; target adapter required"
         else:
             kind, storage = "table", f"Google Sheet tab `{ds.name}`"
+            if ds.primary_key:
+                storage += f"; source primary key `{ds.primary_key}`"
         fields = ", ".join(f"{f.name} ({f.type})" for f in ds.fields) or "_none inferred_"
         lines.append(f"| {ds.name} | {kind} | {ds.origin} | {fields} | {storage} |")
+    if any(ds.origin == "dataverse" for ds in ir.data_sources):
+        lines.append("\n`data-contract.json` retains exported Dataverse attributes, logical/display names, "
+                     "choices, keys, relationships and views. Lookup records are stored snapshots. Relationship traversal, defaults, calculated fields, "
+                     "Dataverse permissions and implicit localized choice-to-text coercion still require adapters.")
     return "\n".join(lines)
 
 

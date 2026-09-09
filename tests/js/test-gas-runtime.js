@@ -69,6 +69,19 @@ test('serverRun rejects when the failure handler fires', async () => {
   await assert.rejects(RT.serverRun('api', 'Tasks', 'list', {}), /boom/);
 });
 
+test('serverRun encodes nested dates without changing client records or hiding invalid values', async () => {
+  installGoogleMock('ok');
+  const record = {when: new Date('2026-09-09T12:34:56Z'), nested: [{done: false, count: 0, blank: null}]};
+  const out = await RT.serverRun('api', 'Projects', 'patch', {record});
+  assert.strictEqual(out.args[2].record.when, '2026-09-09T12:34:56.000Z');
+  assert.deepStrictEqual(out.args[2].record.nested, [{done: false, count: 0, blank: null}]);
+  assert.ok(record.when instanceof Date);
+  await assert.rejects(RT.serverRun('api', {when: new Date('invalid')}), /invalid date/);
+  await assert.rejects(RT.serverRun('api', {callback() {}}), /argument type/);
+  const cyclic = {}; cyclic.self = cyclic;
+  await assert.rejects(RT.serverRun('api', cyclic), /circular/);
+});
+
 test('apiChoices bridges the emitted client call to Apps Script', async () => {
   installGoogleMock('ok');
   const out = await global.apiChoices('Students', 'Subject');

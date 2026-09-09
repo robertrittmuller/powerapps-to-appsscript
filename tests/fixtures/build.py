@@ -524,6 +524,68 @@ def storage_fixture_files() -> dict[str, str]:
     }
 
 
+def dataverse_fixture_files() -> dict[str, str]:
+    """Sanitized native export shapes, with source keys, choices and aliases."""
+    def label(text):
+        return {"UserLocalizedLabel": {"Label": text, "LanguageCode": 1033}}
+    definitions = [
+        ("msft_projectid", "Project", "Uniqueidentifier"), ("msft_name", "Name", "String"),
+        ("msft_status", "Status", "Picklist"), ("msft_active", "Active", "Boolean"),
+        ("msft_budget", "Budget", "Decimal"), ("msft_start", "Start Date", "DateTime"),
+        ("msft_owner", "Owner", "Lookup"), ("msft_tags", "Tags", "MultiSelectPicklist"),
+    ]
+    attrs = [{"LogicalName": logical, "AttributeType": kind,
+              "AttributeTypeName": {"Value": kind + "Type"}, "DisplayName": label(name),
+              "IsValidForCreate": True, "IsValidForUpdate": logical != "msft_projectid",
+              "RequiredLevel": {"Value": "SystemRequired" if logical == "msft_projectid" else "None"},
+              "Targets": ["systemuser"] if kind == "Lookup" else []}
+             for logical, name, kind in definitions]
+    options = [{"Value": 0, "Label": label("Open")}, {"Value": 1, "Label": label("Closed")}]
+    relation = {"ReferencingAttribute": "msft_owner", "ReferencedEntity": "systemuser", "ReferencedAttribute": "systemuserid"}
+    definition = {"EntityMetadata": json.dumps({"LogicalName": "msft_project", "EntitySetName": "msft_projects",
+        "PrimaryIdAttribute": "msft_projectid", "PrimaryNameAttribute": "msft_name", "Attributes": attrs,
+        "ManyToOneRelationships": [relation]}),
+        "PicklistOptionSetAttribute": json.dumps({"value": [{"LogicalName": "msft_status", "OptionSet": {"Options": options}}]}),
+        "BooleanOptionSetAttribute": json.dumps({"value": [{"LogicalName": "msft_active", "OptionSet": {
+            "TrueOption": {"Value": 1, "Label": label("Yes")}, "FalseOption": {"Value": 0, "Label": label("No")}}}]}),
+        "MultiSelectPicklistOptionSetAttribute": json.dumps({"value": [{"LogicalName": "msft_tags", "OptionSet": {"Options": options}}]}),
+        "Views": json.dumps({"value": [{"name": "Active projects", "fetchxml": "<fetch/>"}]})}
+    rows = [{"msft_projectid": "project-one", "msft_name": "First project", "msft_status": 0, "msft_active": True, "msft_budget": 0},
+            {"msft_projectid": "project-two", "msft_name": "Second project", "msft_status": 1, "msft_active": False, "msft_budget": 50}]
+    sources = [{"Name": "Projects", "Type": "NativeCDSDataSourceInfo", "LogicalName": "msft_project",
+                "TableDefinition": json.dumps(definition), "Data": json.dumps(rows),
+                "NativeCDSDataSourceInfoNameMapping": {logical: name for logical, name, _ in definitions}},
+               {"Name": "project_status", "DisplayName": "Project Status", "Type": "OptionSetInfo",
+                "OptionSetInfoNameMapping": {"0": "Open", "1": "Closed"}},
+               {"Name": "project_active", "DisplayName": "Project Active", "Type": "OptionSetInfo",
+                "OptionSetIsBooleanValued": True, "OptionSetInfoNameMapping": {"0": "No", "1": "Yes"}},
+               {"Name": "DirectoryService", "Type": "ServiceInfo"}, {"Name": "Project Views", "Type": "ViewInfo"}]
+    def control(name, kind, props):
+        return {"Name": name, "Template": {"Name": kind},
+                "Rules": [{"Property": key, "InvariantScript": str(value)} for key, value in props.items()]}
+    controls = [
+        control("ContractName", "text", {"Default": "selectedProject.Name", "Mode": "TextMode.SingleLine",
+            "X": 20, "Y": 20, "Width": 360, "Height": 44}),
+        control("ContractChoice", "dropdown", {"Items": "Choices(Projects.Status)", "Default": "selectedProject.Status",
+            "X": 400, "Y": 20, "Width": 200, "Height": 44}),
+        control("ContractResult", "label", {"Text": "projectResult", "X": 20, "Y": 80, "Width": 360, "Height": 40}),
+        control("ContractCount", "label", {"Text": "Text(CountRows(Projects))", "X": 400, "Y": 80, "Width": 200, "Height": 40}),
+        control("ContractSave", "button", {"Text": '"Save selected project"', "X": 20, "Y": 140, "Width": 250, "Height": 44,
+            "OnSelect": 'IfError(Set(selectedProject, Patch(Projects, selectedProject, {msft_name: ContractName.Text, msft_status: ContractChoice.Selected.Value, msft_active: \'Project Active\'.No})); Set(projectResult, "saved"), Set(projectResult, "save failed"))'}),
+        control("ContractInvalid", "button", {"Text": '"Try invalid choice"', "X": 290, "Y": 140, "Width": 250, "Height": 44,
+            "OnSelect": 'IfError(Patch(Projects, selectedProject, {Name: "Must not persist", Status: 999}); Set(projectResult, "unexpected"), Set(projectResult, "invalid choice"))'}),
+        control("ContractNew", "button", {"Text": '"New project"', "X": 20, "Y": 200, "Width": 250, "Height": 44,
+            "OnSelect": 'Set(selectedProject, Patch(Projects, Defaults(Projects), {Name: "New project", Status: \'Project Status\'.Open, Active: \'Project Active\'.Yes, Budget: 0, msft_start: Date(2026, 9, 9), Owner: {UserId: "user-1", FullName: "Grace"}, Tags: [0, 1]})); Set(projectResult, "created")'}),
+        control("ContractDelete", "button", {"Text": '"Delete selected project"', "X": 290, "Y": 200, "Width": 250, "Height": 44,
+            "OnSelect": 'Remove(Projects, selectedProject); Set(selectedProject, Last(Projects)); Set(projectResult, "deleted")'}),
+    ]
+    return {"Properties.json": json.dumps({"Name": "FixtureDataverse"}),
+        "Controls\\1.json": json.dumps({"TopParent": control("App", "appinfo", {
+            "OnStart": 'Set(selectedProject, Last(Projects)); Set(projectResult, "ready")'})}),
+        "Controls\\2.json": json.dumps({"TopParent": {**control("ContractScreen", "screen", {}), "Children": controls}}),
+        "References\\DataSources.json": json.dumps({"DataSources": sources})}
+
+
 def build_fixtures() -> None:
     # Fixture A: navigation + globals, all rule-transpilable
     _write_msapp(
@@ -598,6 +660,7 @@ def build_fixtures() -> None:
     _write_msapp(FIXTURE_DIR / "fixtureGallery.msapp", gallery_fixture_files())
     _write_msapp(FIXTURE_DIR / "fixtureTimer.msapp", timer_fixture_files())
     _write_msapp(FIXTURE_DIR / "fixtureStorage.msapp", storage_fixture_files())
+    _write_msapp(FIXTURE_DIR / "fixtureDataverse.msapp", dataverse_fixture_files())
 
 
 if __name__ == "__main__":

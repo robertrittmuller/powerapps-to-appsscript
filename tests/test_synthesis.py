@@ -200,11 +200,5 @@ def test_whoami_derives_a_display_name_from_email(ir_a):
     assert "fullName: fullName" in code
 
 
-def test_server_mutations_return_the_persisted_record(ir_b):
-    from pfx2gas.synth.server import render_code_gs
-
-    code = render_code_gs(ir_b)
-    assert "if (h === 'id'" in code
-    assert "Utilities.getUuid()" in code
-    assert "return saved;" in code
-    assert "return { name: v, value: v }" in code
+# Persisted mutation results are executed against generated Code.gs in
+# test_data_contract.py and the Chromium form/gallery journeys.

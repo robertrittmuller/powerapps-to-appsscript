@@ -7,7 +7,7 @@ import tempfile
 from pathlib import Path
 
 REQUIRED_FILES = ["Code.gs", "DataInit.gs", "appsscript.json", "Index.html",
-                  "Screens.html", "App.js.html", "conversion-ledger.json"]
+                  "Screens.html", "App.js.html", "conversion-ledger.json", "data-contract.json"]
 
 
 def js_syntax_ok(js: str) -> tuple[bool, str]:
@@ -65,6 +65,30 @@ def validate_project(out_dir: str | Path) -> dict:
             json.loads(manifest_path.read_text())
         except json.JSONDecodeError as exc:
             problems.append(f"appsscript.json is not valid JSON: {exc}")
+
+    # Guard the whole class of source-schema / stored-column drift. Valid JS
+    # cannot prove that aliases, primary keys or non-table kinds survived.
+    contract_path = out / "data-contract.json"
+    if contract_path.exists():
+        try:
+            from .ir import AppIR, DataSource
+            from .synth.server import data_contracts
+            contract = json.loads(contract_path.read_text())
+            if contract.get("version") != 1 or not isinstance(contract.get("sources"), list):
+                raise ValueError("unsupported contract shape")
+            sources = [DataSource.model_validate(ds) for ds in contract["sources"]]
+            expected = data_contracts(AppIR(name="validation", data_sources=sources))
+            declaration = re.search(r"var DATA_CONTRACTS = (.*?);\n", gs)
+            if not declaration or json.loads(declaration.group(1)) != expected:
+                raise ValueError("Code.gs contract differs from exported source contract")
+            init = (out / "DataInit.gs").read_text()
+            declaration = re.search(r"var specs = (.*?);\n", init)
+            specs = json.loads(declaration.group(1)) if declaration else []
+            if {spec["name"]: [field[0] for field in spec["fields"]] for spec in specs} != {
+                    name: list(spec["fields"]) for name, spec in expected.items()}:
+                raise ValueError("DataInit.gs tables or columns differ from source contract")
+        except (ValueError, TypeError, AttributeError, KeyError, OSError) as exc:
+            problems.append(f"data-contract.json is invalid or inconsistent: {exc}")
 
     fidelity_gap_count = 0
     ledger_path = out / "conversion-ledger.json"

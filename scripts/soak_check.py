@@ -24,6 +24,7 @@ from pfx2gas.benchmark import (FAIL, PASS, UNASSESSED, build_scorecard,
 from pfx2gas.fidelity import iter_expressions
 from pfx2gas.parse import parse
 from pfx2gas.startup_sim import simulate_project
+from pfx2gas.server_sim import simulate_server
 from pfx2gas.synth.build import synthesize
 from pfx2gas.unpack import unpack
 from pfx2gas.validate import validate_project
@@ -166,6 +167,9 @@ def _run_app(path: Path, output_dir: Path, metadata: dict[str, Any]) -> dict[str
         app["stages"]["validate"] = PASS if validation["ok"] else FAIL
         app["problems"].extend(validation["problems"])
         if validation["ok"]:
+            server_verdict = simulate_server(output_dir)
+            app["evidence"]["server"] = server_verdict
+            app["problems"].extend("server: " + error for error in server_verdict["errors"])
             automated = [
                 {"id": journey["id"], "steps": journey["steps"]}
                 for journey in metadata.get("criticalJourneys", [])
@@ -181,7 +185,8 @@ def _run_app(path: Path, output_dir: Path, metadata: dict[str, Any]) -> dict[str
             app["evidence"]["startup"] = startup
             app["evidence"]["journeys"] = _journey_evidence(metadata, verdict)
             boot_ok = (
-                startup["visibleScreens"] == [ir.start_screen]
+                server_verdict["status"] == PASS
+                and startup["visibleScreens"] == [ir.start_screen]
                 and not startup["referenceErrors"]
                 and not startup["consoleErrors"]
             )

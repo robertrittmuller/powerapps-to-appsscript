@@ -45,6 +45,11 @@ def synthesize(ir: AppIR, out_dir: str | Path) -> Path:
             "formulas": ledger_rows(ir),
         }, indent=2) + "\n"
     )
+    (out / "data-contract.json").write_text(json.dumps({
+        "version": 1, "sources": [ds.model_dump() for ds in ir.data_sources],
+        "limitations": ["Lookup records are stored snapshots; relationship traversal, views, defaults, calculated fields and permissions need target adapters.",
+                        "Choice codes and boolean values are retained; implicit localized choice-to-text coercion is not yet implemented."],
+    }, indent=2) + "\n")
     for static_name in ("gas-runtime.js", "fx-stdlib.js", "fx-charts.js"):
         src = STATIC_DIR / static_name
         if src.exists():

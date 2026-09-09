@@ -129,6 +129,7 @@ output/<App>/
 ├── gas-runtime.js.html   # static runtime: promise shim, router, state, toasts
 ├── fx-stdlib.js.html     # static FX.* Power Fx helper library
 ├── conversion-ledger.json # machine-readable translation/runtime-wiring ledger
+├── data-contract.json    # source fields, keys, aliases, choices and retained metadata
 └── conversion-report.md  # fidelity ledger — read this before shipping
 ```
 
@@ -151,13 +152,18 @@ business apps are usable yet. The normal `./pfx2gas soak` enforces the existing
 required regression corpus, including failed required journeys and missing apps.
 
 `./pfx2gas browser` tests generated forms, charts, record scopes, editable
-galleries, timer lifecycles, launch parameters and local draft storage in Chromium, plus HelpDesk
+galleries, timer lifecycles, launch parameters, local drafts and Dataverse record
+contracts in Chromium, plus HelpDesk
 when its local export is present. It runs
 generated `doGet`/client/server code against a Sheets test double to check save,
 validation, failure, delete and reload behavior, including safe request templating.
 Screenshots and DOM measurements are saved under `.artifacts/browser/` and
 uploaded by CI. Real Google deployment and original-versus-converted visual
 comparison remain separate acceptance steps.
+
+The real-app soak also executes generated `setup()`, table reads and exported
+choice reads against the Sheets test double. A server initialization failure
+fails the app's startup gate even when all files pass syntax validation.
 
 ## The conversion report
 
@@ -239,6 +245,15 @@ Converted apps aim to match the original visually and behaviorally:
   nested rows for aggregation and filtering, including nested ForAll results.
   Two-argument `IfError` can recover from an awaited save; nested saves expose
   fields for the generated Sheet schema and receive stable row IDs when absent.
+- **Dataverse data contracts** — native exports retain their field types,
+  logical/display aliases, primary keys, choice codes/labels and relationship
+  metadata. Option sets initialize client constants; services and views do not
+  become Sheet tabs. Updates preserve source keys and validate changed cells
+  before writing a row. Choices use exported labels and typed values; zero and
+  false remain distinct from Blank. Dates cross the Apps Script bridge as ISO
+  text. Lookup record snapshots and multi-select values persist as structured
+  cells. Relationship traversal, source defaults/calculations/permissions and
+  implicit localized choice-to-text coercion still need target adapters.
 - **Behavior syntax** — block/line comments, `And`/`Or`/`Not`, and nested
   semicolon-separated actions retain branch-local execution order.
   Multi-condition `If` retains every branch and its optional fallback;

@@ -283,10 +283,9 @@ def _data_sources_from(zf: zipfile.ZipFile, names: list[str]) -> list[dict]:
             continue
         # A Power Apps collection is client-side state, not an external table.
         is_collection = ds.get("Type") == "CollectionDataSourceInfo"
-        entry: dict = {"Name": ds["Name"],
-                       "Type": ds.get("Type", "LegacyDataSource"),
-                       "DataSourceInfo": ds.get("DataSourceInfo", ""),
-                       "IsCollection": is_collection}
+        # Keep the exported contract for parse(), including nested Dataverse
+        # definitions and option-set mappings. Only sample rows are normalized.
+        entry: dict = dict(ds, IsCollection=is_collection)
         if not is_collection:
             entry["Fields"] = parse_schema(ds.get("Schema"))
             sample = ds.get("Data")

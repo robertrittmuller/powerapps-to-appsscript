@@ -30,6 +30,16 @@ while typing. Form/DataCard record application continues to own form field
 defaults. Storage is browser-local, plaintext, and limited to 1 MB
 per encoded entry; it does not make the remote Apps Script app available offline.
 
+The Dataverse slice decodes native TableDefinition metadata and distinguishes
+tables, collections, option sets, views and services. Generated storage keeps
+source primary keys and logical/display field aliases; choices retain labels
+and typed codes. Row writes validate all changed cells before mutation, including
+invalid choices and conflicting aliases. Lookup snapshots and multi-select
+values persist in structured cells; source dates cross google.script.run as ISO
+text. A seventh Chromium fixture executes save/failure/create/delete/reload.
+Every real-app soak now executes generated setup and table/choice reads against
+the Sheets test double, in addition to syntax and client startup checks.
+
 Eleven pinned source exports are available here: five public regression apps
 and six Microsoft business apps. **All eleven generate valid code; the five
 regression apps, Employee Ideas and Inspection currently pass startup. None has
@@ -37,7 +47,7 @@ complete usability acceptance evidence.** The previous two clean Microsoft start
 initialization formulas that were never emitted; restoring those formulas now
 exposes TimeValue, IsMatch and connector dependencies. GroupBy and LoadData no longer
 block Employee Ideas and Inspection, but their loading-to-business workflows
-remain unassessed. Six generated-fixture Chromium journeys pass. These fixtures
+remain unassessed. Seven generated-fixture Chromium journeys pass. These fixtures
 are regression evidence, not additional
 real acceptance apps. The last recorded Google deployment remains HelpDesk @14.
 
@@ -92,14 +102,15 @@ the implementation order.
 
 | Evidence | Latest result | What remains unproven |
 |---|---|---|
-| Unit/runtime tests | 194 Python pass, 3 skip; 71 JS pass; bare globals, FX and FXRuntime emitter/runtime consistency passes | Complete deployed workflows and broader control semantics |
+| Unit/runtime tests | 200 Python pass, 3 skip; 72 JS pass; bare globals, FX and FXRuntime emitter/runtime consistency passes | Complete deployed workflows and broader control semantics |
 | Current real-app soak | 5/5 Bootable; 1,120 formulas | Usability unassessed; the other five historical local exports are absent |
 | Current regression translation/wiring | 1,114 translated; 969 emitted, 13 approximated, 138 ignored/unsupported | Translation does not establish runtime behavior |
 | Historical ten-app corpus | Previously 10/10 Bootable; 23,746 formulas | Not reproduced in this workspace; those results did not establish usability |
 | HelpDesk generated-app journeys | HOME → NEW → HOME; dashboard row text, logo URI, pie and legend output pass | All-screen interactions, image decoding/layout in CI, persistence |
 | HelpDesk @14 live browser | Ticket cards, decoded 64×64 logos, pie/bar/legend SVGs, readable fonts/labels, HOME → NEW → HOME | Same-state original comparison, user name/avatar, complete workflow coverage |
 | Chromium: business form | Actual generated client + Code.gs: edit/create, required validation, write failure, delete and page reload pass against a persistent Sheets test double | Real Google authorization/Sheets writes and another user/session |
-| Chromium regression suite | 6/6 fixtures pass: form, charts, record scopes/launch parameters, editable gallery, timer lifecycle, local draft persistence; generated client and server code | Real Google services, real-app critical workflows and original visual comparisons; HelpDesk is absent here |
+| Chromium regression suite | 7/7 fixtures pass: form, charts, record scopes/launch parameters, editable gallery, timer lifecycle, local draft persistence, Dataverse record contracts; generated client and server code | Real Google services, real-app critical workflows and original visual comparisons; HelpDesk is absent here |
+| Microsoft generated-server initialization | Six exports: setup and reads across 124 tables and 302 choice fields pass in the Sheets test double | Tenant data migration, real Google writes, source defaults, calculations, relationships and permissions |
 | Microsoft business baseline | 6/6 convert and validate; 2/6 pass startup (Employee Ideas, Inspection) | Startup alone does not prove leaving loading or completing business actions; all business workflows remain unverified |
 | CI configuration | Existing tests plus required-app/journey gates and new Chromium artifact job | Browser job configured and locally tested, not yet verified in remote CI; local HelpDesk remains optional |
 
@@ -186,7 +197,7 @@ with `./pfx2gas browser scripts/assess_microsoft_samples.py`.
 | Next priority | Observed blocker and outcome required |
 |---|---|
 | 1. Correct record and formula scopes (R4/R5) | Implemented: blank-safe fields, nested `With`, row/global fallback, `ThisItem`/`ThisRecord`, LookUp/AddColumns, `As` aliases in functions/galleries, table/global disambiguation, column projection, membership, grouping and multi-branch If/Switch. Remaining: variadic/error-handling and async semantics, source workflow coverage and complete table value semantics. |
-| 2. Preserve initialization and data contracts (R5) — next | `Param`, browser `Language()`, Timer lifecycle and explicit initialization failures are implemented. Next preserve Dataverse solution schemas/choices/lookups and define explicit Google connector adapters. Do not fake connector success or navigate past unexecuted initialization. |
+| 2. Preserve initialization and data contracts (R5) — next | `Param`, browser `Language()`, Timer lifecycle and explicit initialization failures are implemented. Native Dataverse schemas, aliases, source keys and choice metadata now feed generated storage. Next implement relationship traversal, defaults/calculations, typed date/choice behavior and explicit Google connector adapters. Do not fake connector success or navigate past unexecuted initialization. |
 | 3. Make record editing reliable (R4/R5) | Stable gallery rows, scoped handlers, defaults/DisplayMode, focus retention and correct-row save/reload pass in generated fixtures. Extend to source business apps, nested layouts and real Google Sheets. |
 | 4. Close visible UI differences (R2/R3/R4) | Use those same workflows for text/media/disabled/validation states, chart series/axes and responsive layout. Extend Chromium to source-sized and narrow viewports and compare matching original screenshots. |
 
@@ -239,13 +250,14 @@ the source-defined flow, with real mapped data, then completing a business
 journey. Follow that immediately with editable-gallery focus/selection tests
 and original-versus-converted UI comparisons in the same data state.
 
-The exports already contain detailed `NativeCDSDataSourceInfo.TableDefinition`
-metadata: entity attributes and primary keys, relationships, views and option
-sets, plus logical/display-name mappings. The legacy adapter currently ignores
-this data while reading only the older `Schema` string. Decode these embedded
-contracts next; missing target schemas are a converter gap, not missing export
-evidence. Also retain `OptionSetInfo` constants rather than treating them as
-empty external tables. Source inspection artifacts are under `.artifacts/`.
+The decoder now retains `NativeCDSDataSourceInfo.TableDefinition` attributes,
+keys, choices, relationships, views and logical/display-name mappings in
+`data-contract.json`. OptionSetInfo constants initialize typed client values;
+services and views remain explicit adapter dependencies. Lookup records are
+stored snapshots, not live relationships. Source defaults/calculated fields,
+permissions, implicit localized choice-to-text conversion and complete typed
+date comparisons remain unimplemented or unverified. These are converter gaps,
+not missing export evidence. Source inspection artifacts are under `.artifacts/`.
 
 ### R1 — P0: make regression evidence enforceable and reproducible
 

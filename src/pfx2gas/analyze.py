@@ -117,7 +117,12 @@ def collect_row_fields(ir: AppIR) -> set[str]:
 
 def infer_data_source_fields(ir: AppIR) -> None:
     """Infer source fields from mutations, dotted refs, and Form DataCards."""
-    by_name = {ds.name: ds for ds in ir.data_sources}
+    from .data_contract import NON_TABLE_ORIGINS, field_aliases
+    by_name = {ds.name: ds for ds in ir.data_sources
+               if ds.origin not in NON_TABLE_ORIGINS - {"collection"}}
+
+    def known_fields(ds):
+        return {name for field in ds.fields for name in field_aliases(field)}
 
     def simple_source_name(raw: str) -> str | None:
         text = raw.strip()
@@ -164,8 +169,8 @@ def infer_data_source_fields(ir: AppIR) -> None:
             ds = by_name.get(ds_name or "")
             if ds is None:
                 continue
-            known = {f.name for f in ds.fields}
-            if "id" not in {name.lower() for name in known}:
+            known = known_fields(ds)
+            if not ds.primary_key and "id" not in known:
                 # Google Sheets has no intrinsic row identity. Every generated
                 # form-backed table gets a stable converter-owned key so an
                 # EditForm submission updates exactly one persisted row.
@@ -176,9 +181,9 @@ def infer_data_source_fields(ir: AppIR) -> None:
                     continue
                 field_expr = card.properties.get("DataField")
                 field_name = string_literal(field_expr.raw) if field_expr else None
-                if field_name and field_name not in known:
+                if field_name and _snake(field_name) not in known:
                     ds.fields.append(FieldDef(name=field_name, type=card_field_type(card)))
-                    known.add(field_name)
+                    known.add(_snake(field_name))
 
     def record_fields_from(record_node) -> list[tuple[str, str]]:
         out = []
@@ -211,16 +216,16 @@ def infer_data_source_fields(ir: AppIR) -> None:
                 continue
             if st.value in {"Patch", "Collect", "ClearCollect"}:
                 records = st.children[2:] if st.value == "Patch" else st.children[1:]
-                known = {f.name for f in ds.fields}
+                known = known_fields(ds)
                 for record in records:
                     for fname, ftype in record_fields_from(record):
-                        if fname not in known:
+                        if _snake(fname) not in known:
                             ds.fields.append(FieldDef(name=fname, type=ftype))
-                            known.add(fname)
+                            known.add(_snake(fname))
                 if ds.origin != "collection":
                     # A partial Patch must not discard untouched fields from
                     # embedded rows, even when the export omitted its schema.
-                    normalized = {_snake(field.name) for field in ds.fields}
+                    normalized = known_fields(ds)
                     for row in ds.sample_data:
                         for field, value in row.items():
                             if field not in normalized:
@@ -229,7 +234,7 @@ def infer_data_source_fields(ir: AppIR) -> None:
                                 normalized.add(field)
                     # Patch updates by identity, not row position. Form-backed
                     # sources already get this key; standalone Patch needs it too.
-                    if "id" not in normalized:
+                    if not ds.primary_key and "id" not in normalized:
                         ds.fields.insert(0, FieldDef(name="id", type="text"))
             elif st.value in {"Remove", "RemoveIf", "Refresh"} and not ds.fields:
                 ds.fields.append(FieldDef(name="id", type="number"))
@@ -246,7 +251,7 @@ def infer_data_source_fields(ir: AppIR) -> None:
                     if tok.kind == "ident" and "." in tok.value:
                         ds_name, field_name = tok.value.split(".", 1)
                         ds = by_name.get(ds_name)
-                        if ds is not None and field_name and all(f.name != field_name for f in ds.fields):
+                        if ds is not None and field_name and _snake(field_name) not in known_fields(ds):
                             ds.fields.append(FieldDef(name=field_name, type="text"))
 
 

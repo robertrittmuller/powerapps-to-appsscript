@@ -32,7 +32,15 @@ class SupportEntry(BaseModel):
 
 class FieldDef(BaseModel):
     name: str
-    type: str = "text"  # text | number | date | bool
+    type: str = "text"  # text | number | date | bool | choice | choices | lookup | unsupported
+    logical_name: str | None = None
+    aliases: list[str] = Field(default_factory=list)
+    source_type: str | None = None
+    choices: list[dict] = Field(default_factory=list)  # name + typed value
+    lookup_targets: list[str] = Field(default_factory=list)
+    required_level: str | None = None
+    writable_create: bool | None = None
+    writable_update: bool | None = None
 
 
 class DataSource(BaseModel):
@@ -42,6 +50,13 @@ class DataSource(BaseModel):
     # Embedded rows from StaticDataSourceInfo sources (keys already normalized
     # to the JS field-name convention) — used to seed the generated workbook.
     sample_data: list[dict] = Field(default_factory=list)
+    logical_name: str | None = None
+    primary_key: str | None = None  # source field name, normalized when emitted
+    aliases: list[str] = Field(default_factory=list)
+    option_values: list[dict] = Field(default_factory=list)
+    # Retain source relationships/views for explicit follow-up; preservation
+    # of metadata does not claim that Dataverse services execute in Sheets.
+    metadata: dict = Field(default_factory=dict)
 
 
 class ControlNode(BaseModel):

@@ -405,19 +405,32 @@ def _seeded_server_data(out: Path) -> dict[str, list[dict]]:
     if not match:
         return {}
     specs = json.loads(match.group(1))
+    match = re.search(r"\bvar DATA_CONTRACTS = (.*?);\n", (out / "Code.gs").read_text())
+    contracts = json.loads(match.group(1)) if match else {}
     seeded: dict[str, list[dict]] = {}
     for spec in specs:
         headers = [field[0] for field in spec.get("fields", [])]
-        seeded[spec["name"]] = [
-            {
-                header: row[index] if index < len(row) else ""
-                for index, header in enumerate(headers)
-            }
-            for row in spec.get("rows", [])
-        ]
+        schema = contracts.get(spec["name"], {})
+        fields = schema.get("fields", {})
+        seeded[spec["name"]] = []
+        for row in spec.get("rows", []):
+            blank = None if schema.get("dataverse") else ""
+            values = {}
+            for index, header in enumerate(headers):
+                aliases = fields.get(header, {}).get("aliases", [])
+                if isinstance(row, dict):
+                    value = next((row[key] for key in [header, *aliases] if key in row), blank)
+                else:
+                    value = row[index] if index < len(row) else blank
+                values[header] = value
+            seeded[spec["name"]].append(values)
         for index, row in enumerate(seeded[spec["name"]], start=1):
-            if "id" in row and row["id"] in {"", None}:
-                row["id"] = f"sim-seeded-{index}"
+            primary = schema.get("primaryKey", "id")
+            if primary in row and row[primary] in {"", None}:
+                row[primary] = f"sim-seeded-{index}"
+            for header in headers:
+                for alias in fields.get(header, {}).get("aliases", []):
+                    row[alias] = row[header]
     return seeded
 
 

@@ -361,6 +361,45 @@ def check_storage(page, backend):
     expect(count).to_have_text("0")
 
 
+def check_dataverse(page, backend):
+    name, status, count = (control(page, key) for key in ("ContractName", "ContractResult", "ContractCount"))
+    expect(name).to_have_value("Second project")
+    expect(count).to_have_text("2")
+    expect(control(page, "ContractChoice").locator("option")).to_have_text(["Open", "Closed"])
+    assert page.evaluate("state['Project Active'].no === false && state['Project Status'].open === 0")
+    assert page.evaluate("() => { try { google.script.run.api('Projects', 'create', {record:{msft_start:new Date()}}); return false; } catch(e) { return /cannot transport/.test(e.message); } }")
+    name.fill("Second project edited")
+    control(page, "ContractChoice").select_option(index=0)
+    control(page, "ContractSave").click()
+    expect(status).to_have_text("saved")
+    saved = backend({"fn": "api", "args": ["Projects", "list", {}]})["result"]
+    assert [(r["id"], r["name"]) for r in saved] == [("project-one", "First project"), ("project-two", "Second project edited")]
+    assert saved[1]["status"] == 0 and saved[1]["active"] is False
+    control(page, "ContractInvalid").click()
+    expect(status).to_have_text("invalid choice")
+    assert backend({"fn": "api", "args": ["Projects", "list", {}]})["result"] == saved
+    page.reload()
+    expect(name).to_have_value("Second project edited")
+    expect(control(page, "ContractChoice")).to_have_value("0")
+    control(page, "ContractNew").click()
+    expect(status).to_have_text("created")
+    expect(count).to_have_text("3")
+    new = backend({"fn": "api", "args": ["Projects", "list", {}]})["result"][-1]
+    assert new["id"] == new["project"] == new["msft_projectid"]
+    assert new["active"] is True and new["budget"] == 0 and new["status"] == 0
+    assert new["msft_start"] == "2026-09-09T00:00:00.000Z"
+    assert new["owner"] == {"user_id": "user-1", "full_name": "Grace"} and new["tags"] == [0, 1]
+    page.reload()
+    expect(name).to_have_value("New project")
+    page.screenshot(path=str(OUT / "dataverse-contract/persisted-project.png"))
+    control(page, "ContractDelete").click()
+    expect(status).to_have_text("deleted")
+    expect(count).to_have_text("2")
+    page.reload()
+    expect(name).to_have_value("Second project edited")
+    expect(count).to_have_text("2")
+
+
 def main():
     subprocess.run([sys.executable, str(REPO / "tests/fixtures/build.py")], check=True, capture_output=True)
     cases = [("business-form", REPO / "tests/fixtures/fixtureForm.msapp", check_form),
@@ -369,6 +408,7 @@ def main():
     cases.append(("editable-gallery", REPO / "tests/fixtures/fixtureGallery.msapp", check_gallery))
     cases.append(("timer-lifecycle", REPO / "tests/fixtures/fixtureTimer.msapp", check_timers, True))
     cases.append(("local-draft-storage", REPO / "tests/fixtures/fixtureStorage.msapp", check_storage))
+    cases.append(("dataverse-contract", REPO / "tests/fixtures/fixtureDataverse.msapp", check_dataverse))
     helpdesk = REPO / "samples/real/helpdesk.msapp"
     if helpdesk.exists():
         cases.append(("helpdesk", helpdesk, check_helpdesk))
