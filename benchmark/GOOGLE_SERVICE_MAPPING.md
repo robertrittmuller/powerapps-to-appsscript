@@ -46,8 +46,11 @@ with retained record/relationship IDs, reload and confirmed deletion. Generated
 Code.gs runs against a Sheets test double; People responses remain explicit
 fixtures. Complete exported reference rows now initialize in appropriately sized
 Sheets, preserving the icon and typography lookups used by the source UI.
-Status/category/priority setup, broader workflows, complete UI parity and live
-Google execution remain unverified.
+The deeper `--settings` probe now saves category/priority/status names through
+the original UI, with blank validation and status captions corrected. Reload
+fails because Sheets-created rows lack Dataverse active-state defaults and the
+source active views omit them. This migration gap remains explicit. Broader
+workflows, complete UI parity and live Google execution remain unverified.
 See Microsoft's [default record ownership contract](https://learn.microsoft.com/en-us/dotnet/api/microsoft.xrm.sdk.iorganizationservice.create?view=dataverse-sdk-latest).
 
 ## Planner implementation scope

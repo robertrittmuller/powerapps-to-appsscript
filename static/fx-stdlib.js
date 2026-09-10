@@ -17,6 +17,20 @@
   function isBlank(v) {
     return v === null || v === undefined || v === '';
   }
+  // A Symbol survives object copies (gallery AllItems) without becoming a
+  // source field or leaking into JSON/Sheets. Plain records never coerce.
+  var primaryOutputProperty = Symbol('Power Fx primary output');
+  function controlReference(record, property) {
+    if (property) Object.defineProperty(record, primaryOutputProperty, {value:property, enumerable:true});
+    return record;
+  }
+  function primaryOutput(value) {
+    var property = value && typeof value === 'object' && value[primaryOutputProperty];
+    if (!property) return value;
+    if (!Object.prototype.hasOwnProperty.call(value, property))
+      throw new Error('Unsupported control primary output: ' + property);
+    return FX.field(value, property);
+  }
   function isNumericError(v) {
     return typeof v === 'number' && !Number.isFinite(v);
   }
@@ -282,6 +296,8 @@
       return (exact ? text : text.toLowerCase()).indexOf(exact ? part : part.toLowerCase()) >= 0;
     },
     isBlank: isBlank,
+    controlReference: controlReference,
+    primaryOutput: primaryOutput,
     isError: function (value) {
       try {
         var result = typeof value === 'function' ? value() : value;

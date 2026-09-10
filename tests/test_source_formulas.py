@@ -34,6 +34,34 @@ def test_canvas_font_values_match_source_character_width_reference_records():
         assert execute('Text(FontWeight.'+weight+')','const state={};')==expected
 
 
+@pytest.mark.parametrize('v1', [False, True])
+def test_control_blank_checks_obey_canvas_compatibility_without_coercing_plain_records(v1):
+    # IsBlankFunctionBase.CheckTypes coerces primary output only before V1.
+    # https://github.com/microsoft/Power-Fx/blob/main/src/libraries/Microsoft.PowerFx.Core/Texl/Builtins/IsBlank.cs
+    setup = '''const state={}; const reference=FX.controlReference({text:''},'text');
+    const val=()=>({all_items:[{row_name:Object.assign({},reference)},{row_name:{text:''}},{row_name:null}]});'''
+    assert execute('CountRows(Filter(Rows.AllItems, IsBlank(RowName)))', setup,
+                   control_names={'Rows','RowName'},power_fx_v1=v1)==(1 if v1 else 2)
+    setup = '''const state={}; const val=()=>FX.controlReference({text:''},'text');'''
+    for function in ['IsBlank','IsBlankOrError']:
+        assert execute(function+'(Input)',setup,control_names={'Input'},power_fx_v1=v1) is (not v1)
+        assert execute(function+'(Input.Text)',setup,control_names={'Input'},power_fx_v1=v1) is True
+    assert execute('IsBlank({Text:""})','const state={};',power_fx_v1=v1) is False
+
+
+@pytest.mark.parametrize('formula,expected',[
+    ('"Optional status " & ThisItem.Order - 1','Optional status 1'),
+    ('"Total " & 2 + 3 * 4','Total 14'),
+    ('2 + 3 & " items"','5 items'),
+    ('"Total " & 2 + 3 = "Total 5"',True),
+    ('"x" & 2 - 1 & "/" & 3 + 1','x1/4'),
+    ('("foo" in "food") = true',True),
+])
+def test_powerfx_arithmetic_concat_comparison_and_membership_precedence(formula,expected):
+    # https://github.com/microsoft/Power-Fx/blob/main/src/libraries/Microsoft.PowerFx.Core/Syntax/Precedence.cs
+    assert execute(formula,'const state={};const item={order:2};')==expected
+
+
 def test_inspection_complete_source_validation_and_original_boundary():
     raw = next(f['raw'] for f in FORMULAS if f['app'] == 'inspection-manager')
     cases = [

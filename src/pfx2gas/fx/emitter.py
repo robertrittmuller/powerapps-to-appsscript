@@ -74,12 +74,14 @@ class Emitter:
                  media_resources: dict[str, str] | None = None,
                  row_alias: str | None = None, screen_name: str | None = None,
                  control_screens: dict[str, str] | None = None, view_sets: dict | None = None,
-                 relationship_keys: set[str] | None = None, service_adapters: dict | None = None):
+                 relationship_keys: set[str] | None = None, service_adapters: dict | None = None,
+                 power_fx_v1: bool = False):
         self.res = res
         self.behavior = behavior
         self.view_sets = view_sets or {}
         self.relationship_keys = relationship_keys or set()
         self.service_adapters = service_adapters or {}
+        self.power_fx_v1 = power_fx_v1
         self.row_fields = row_fields or set()
         self.control_names = control_names or set()
         self.known_controls = control_names is not None
@@ -320,10 +322,19 @@ class Emitter:
             options = self.match_constant(args[2], True) if len(args) == 3 else ""
             fn = {"IsMatch": "isMatch", "Match": "match", "MatchAll": "matchAll"}[name]
             return f"FX.{fn}({self.expr(args[0])}, {_q(pattern)}, {_q(options)})"
+        if name == "IsBlank":
+            if len(args) != 1:
+                raise lx.FxSyntaxError("IsBlank requires one expression")
+            value = self.expr(args[0])
+            if not self.power_fx_v1:
+                value = f"FX.primaryOutput({value})"
+            return f"FX.isBlank({value})"
         if name in {"IsBlankOrError", "IsError"}:
             if len(args) != 1:
                 raise lx.FxSyntaxError(name + " requires one expression")
             value = self.expr(args[0])
+            if name == "IsBlankOrError" and not self.power_fx_v1:
+                value = f"FX.primaryOutput({value})"
             prefix = "async " if "await " in value else ""
             helper = 'isError' if name == 'IsError' else 'isBlankOrError'
             call = f"FX.{helper}({prefix}() => ({value}))"

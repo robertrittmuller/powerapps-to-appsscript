@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import re
 import zipfile
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 # Legacy Template.Name -> canonical control type used by the pa.yaml pipeline.
@@ -185,11 +186,38 @@ def _component_definitions(zf: zipfile.ZipFile, names: list[str]) -> dict[str, d
     return definitions
 
 
+def _primary_outputs(zf: zipfile.ZipFile, names: list[str]) -> dict[tuple[str, str], str]:
+    """Read each exact exported template version's primary output contract."""
+    outputs = {}
+    for name in names:
+        if name.lower().replace("\\", "/") != "references/templates.json":
+            continue
+        doc = json.loads(zf.read(name))
+        for template in doc.get("UsedTemplates", []):
+            raw = template.get("Template", "")
+            if not raw or "<!DOCTYPE" in raw.upper() or "<!ENTITY" in raw.upper():
+                continue
+            try:
+                root = ET.fromstring(raw)
+            except ET.ParseError:
+                continue
+            props = {node.get("name") for node in root.iter()
+                     if any(key.lower() == "isprimaryoutputproperty" and value.lower() == "true"
+                            for key, value in node.attrib.items())}
+            props.discard(None)
+            # Conflicting template declarations require review; never guess
+            # which of several outputs is the source control's default.
+            if len(props) == 1:
+                outputs[(template.get("Name", ""), template.get("Version", ""))] = props.pop()
+    return outputs
+
+
 def _control_to_yaml(
     node: dict,
     component_defs: dict[str, dict] | None = None,
     names: dict[str, str] | None = None,
     parent_name: str | None = None,
+    primary_outputs: dict[tuple[str, str], str] | None = None,
 ) -> dict:
     """Legacy control node -> pa.yaml-style control mapping."""
     template = node.get("Template") if isinstance(node.get("Template"), dict) else {}
@@ -221,7 +249,7 @@ def _control_to_yaml(
         if children:
             out["Children"] = [
                 {name_map.get(str(c.get("Name") or f"Control{i}"), str(c.get("Name") or f"Control{i}")):
-                 _control_to_yaml(c, component_defs, name_map, instance_name)}
+                 _control_to_yaml(c, component_defs, name_map, instance_name, primary_outputs)}
                 for i, c in enumerate(children)
             ]
         return out
@@ -237,6 +265,9 @@ def _control_to_yaml(
         "Control": _normalize_template_for(node),
         "Properties": _rules_to_properties(node.get("Rules"), formula_names),
     }
+    primary = (primary_outputs or {}).get((template_name, template.get("Version", "")))
+    if primary:
+        out["PrimaryOutput"] = primary
     variant = node.get("VariantName")
     if variant:
         out["Variant"] = variant
@@ -244,7 +275,7 @@ def _control_to_yaml(
     if children:
         out["Children"] = [{(names or {}).get(str(c.get("Name", f"Control{i}")),
                                              str(c.get("Name", f"Control{i}"))):
-                            _control_to_yaml(c, component_defs, names, rendered_name)}
+                            _control_to_yaml(c, component_defs, names, rendered_name, primary_outputs)}
                            for i, c in enumerate(children)]
     return out
 
@@ -326,6 +357,7 @@ def convert_legacy_msapp(msapp_path: str | Path) -> dict:
         screens: dict[str, dict] = {}
         screen_index: list[tuple[int, str]] = []
         component_defs = _component_definitions(zf, names)
+        primary_outputs = _primary_outputs(zf, names)
         for n in control_files:
             try:
                 doc = json.loads(zf.read(n))
@@ -341,7 +373,7 @@ def convert_legacy_msapp(msapp_path: str | Path) -> dict:
                 if props:
                     app_yaml = {"App": {"Control": "AppHost", "Properties": props}}
             elif template == "screen":
-                screens[name] = {"Screens": {name: _control_to_yaml(top, component_defs)}}
+                screens[name] = {"Screens": {name: _control_to_yaml(top, component_defs, primary_outputs=primary_outputs)}}
                 idx = top.get("Index")
                 order = int(idx) if isinstance(idx, (int, float)) else len(screen_index)
                 screen_index.append((order, name))

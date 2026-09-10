@@ -312,6 +312,29 @@ def test_generated_fluent_date_defaults_edits_reset_and_bulk_save(tmp_path):
     assert verdict['journeyResults'][0]['status']=='pass',verdict
 
 
+@pytest.mark.parametrize('v1',[False,True])
+def test_generated_control_blank_checks_keep_source_version_and_row_values(tmp_path,v1):
+    from pfx2gas.analyze import analyze
+    from pfx2gas.parse import parse
+    from pfx2gas.startup_sim import simulate_project
+    from pfx2gas.synth.build import synthesize
+    from pfx2gas.unpack import unpack
+    source=FIXTURES/('fixtureControlCoercionV1.msapp' if v1 else 'fixtureControlCoercion.msapp')
+    project=synthesize(analyze(parse(unpack(source))),tmp_path/'ControlCoercion')
+    verdict=simulate_project(project,[{'id':'control-blank-checks','steps':[
+        {'action':'expectText','control':'InputBlank','equals':'present' if v1 else 'blank'},
+        {'action':'expectText','control':'RecordBlank','equals':'record'},
+        {'action':'expectText','control':'StatusCaption','equals':'Optional status 1'},
+        {'action':'setValue','control':'Input','value':'Entered'},
+        {'action':'expectText','control':'InputBlank','equals':'present'},
+        {'action':'setValue','control':'RowName','gallery':'Rows','row':1,'value':'Beta'},
+        {'action':'click','control':'Save'},
+        {'action':'expectText','control':'Saved','equals':'Alpha | Beta'},
+    ]}])
+    assert not verdict['consoleErrors'],verdict
+    assert verdict['journeyResults'][0]['status']=='pass',verdict
+
+
 def test_generated_nested_galleries_keep_defaults_selection_reset_and_bulk_saves_per_parent(tmp_path):
     from pfx2gas.analyze import analyze
     from pfx2gas.parse import parse

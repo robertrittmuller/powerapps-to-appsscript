@@ -20,6 +20,13 @@ def test_parse_binary_precedence():
     assert ast[0].kind == "binary"
 
 
+def test_membership_binds_below_comparison_as_in_the_source_parser():
+    # Parsing alone does not assert this expression passes Power Fx type checks.
+    node=lx.parse_formula('a in b = c')[0]
+    assert node.value=='in'
+    assert node.children[1].value=='='
+
+
 def test_parse_call_with_lambda_arg():
     ast = lx.parse_formula("Filter(Tasks, Amount > 100)")
     call = ast[0]

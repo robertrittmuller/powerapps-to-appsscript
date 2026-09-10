@@ -1305,7 +1305,35 @@ def responsive_gallery_fixture_files() -> dict[str,str]:
     }
 
 
+def control_coercion_fixture_files(v1=False) -> dict[str,str]:
+    def node(name,kind,props,children=None):
+        return {'Name':name,'Template':{'Name':kind,'Version':'1.0'},
+                'Rules':[{'Property':key,'InvariantScript':str(value)} for key,value in props.items()],
+                'Children':children or []}
+    screen=node('BlankChecks','screen',{'Width':800,'Height':600},[
+        node('Input','text',{'X':20,'Y':20,'Width':240,'Height':40,'Default':'""'}),
+        node('InputBlank','label',{'X':300,'Y':20,'Width':240,'Height':40,'Text':'If(IsBlank(Input),"blank","present")'}),
+        node('Rows','gallery',{'X':20,'Y':90,'Width':600,'Height':220,'TemplateSize':90,'Items':'Drafts'},[
+            node('RowName','text',{'X':5,'Y':5,'Width':250,'Height':40,'Default':'ThisItem.Name'})]),
+        node('Save','button',{'X':20,'Y':350,'Width':240,'Height':40,'Text':'"Save"',
+            'DisplayMode':'If(CountRows(Filter(Rows.AllItems,IsBlank(RowName)))>0,DisplayMode.Disabled,DisplayMode.Edit)',
+            'OnSelect':'Set(savedNames,Concat(Rows.AllItems,RowName.Text," | "))'}),
+        node('Saved','label',{'X':20,'Y':410,'Width':600,'Height':40,'Text':'savedNames'}),
+        node('RecordBlank','label',{'X':20,'Y':470,'Width':600,'Height':40,
+            'Text':'If(IsBlank({Text:""}),"blank","record")'}),
+        node('StatusCaption','label',{'X':20,'Y':520,'Width':600,'Height':40,
+            'Text':'"Optional status " & CountRows(Drafts) - 1'})])
+    templates=[{'Name':kind,'Version':'1.0','Template':f'<widget><property name="{prop}" isPrimaryOutputProperty="true"/></widget>'}
+               for kind,prop in [('text','Text'),('label','Text'),('button','Pressed'),('gallery','Selected')]]
+    return {'Properties.json':json.dumps({'Name':'Control coercion','AppPreviewFlagsMap':{'powerfxv1':v1}}),
+        'Controls/1.json':json.dumps({'TopParent':node('App','app',{'OnStart':'ClearCollect(Drafts,Table({Name:"Alpha"},{Name:""})); Set(savedNames,"")'})}),
+        'Controls/2.json':json.dumps({'TopParent':screen}),
+        'References/Templates.json':json.dumps({'UsedTemplates':templates})}
+
+
 def build_fixtures() -> None:
+    _write_msapp(FIXTURE_DIR/'fixtureControlCoercion.msapp',control_coercion_fixture_files())
+    _write_msapp(FIXTURE_DIR/'fixtureControlCoercionV1.msapp',control_coercion_fixture_files(True))
     # Fixture A: navigation + globals, all rule-transpilable
     _write_msapp(
         FIXTURE_DIR / "fixtureA.msapp",

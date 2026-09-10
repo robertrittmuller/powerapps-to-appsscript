@@ -34,6 +34,7 @@ class UnpackedApp:
     # Screen names in the app's own order (first one is the start screen).
     # Legacy: TopParent.Index; modern: archive entry order / ScreenOrder.
     screen_order: list[str] = field(default_factory=list)
+    power_fx_v1: bool = False
 
 
 _IMAGE_MIME_TYPES = {
@@ -157,6 +158,7 @@ def unpack(msapp_path: str | Path) -> UnpackedApp:
     # Preserve only layout metadata; connection/author identifiers are not
     # needed by the generated page. Both source formats use these settings.
     layout = {}
+    power_fx_v1 = False
     layout_keys = {
         "DocumentLayoutWidth": "designWidth", "DocumentLayoutHeight": "designHeight",
         "DocumentLayoutScaleToFit": "scaleToFit",
@@ -169,6 +171,11 @@ def unpack(msapp_path: str | Path) -> UnpackedApp:
             metadata = json.loads(read(metadata_name) or "{}")
             if not isinstance(metadata, dict):
                 continue
+            flags = metadata.get("AppPreviewFlagsMap") or {}
+            if isinstance(flags, dict) and "powerfxv1" in flags:
+                if type(flags["powerfxv1"]) is not bool:
+                    raise UnpackError("invalid canvas compatibility setting: powerfxv1")
+                power_fx_v1 = flags["powerfxv1"]
             for original, key in layout_keys.items():
                 if original in metadata:
                     value = metadata[original]
@@ -209,6 +216,7 @@ def unpack(msapp_path: str | Path) -> UnpackedApp:
                 entries, raw_entries, legacy["warnings"]
             )
             legacy["layout"] = layout
+            legacy["power_fx_v1"] = power_fx_v1
             return UnpackedApp(**legacy)
         if any(n.lower().endswith(".fx.yaml") for n in entries):
             raise UnpackError(
@@ -217,7 +225,7 @@ def unpack(msapp_path: str | Path) -> UnpackedApp:
             )
         raise UnpackError("no src/*.pa.yaml files found in the .msapp archive")
 
-    out = UnpackedApp(app_name=str(app_name), layout=layout)
+    out = UnpackedApp(app_name=str(app_name), layout=layout, power_fx_v1=power_fx_v1)
     out.media_resources = _extract_media_resources(entries, raw_entries, out.warnings)
     for name in src_files:
         base = name.rsplit("/", 1)[-1]

@@ -219,7 +219,12 @@ the same work-item ID and linked identities through edits, and deletion preserve
 the project and its milestones. These use generated Code.gs and native Google
 API fixtures. Its complete icon/localization/character-width tables now survive
 conversion, and the milestone label measures the source formula's 115 pixels.
-Settings/status setup, broader workflows, source-imposed column clipping and
+Adding `--settings` tests original category/priority/status creation before the
+work-item lifecycle. Empty names now disable Save using the source control's
+exported primary output, and status captions preserve arithmetic precedence.
+The probe still fails on reload: saved rows have no active-state defaults and
+the source's active views exclude them. This remains a failed workflow.
+Broader workflows, source-imposed column clipping and
 complete app usability remain open. Source/data hashes,
 records and screenshots are in `.artifacts/browser/`.
 The normal `./pfx2gas soak` enforces the existing

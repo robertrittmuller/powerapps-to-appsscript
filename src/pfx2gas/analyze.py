@@ -335,7 +335,7 @@ def analyze(ir: AppIR, uncovered: list[dict] | None = None, solution=None) -> Ap
                             media_resources=ir.media_resources, row_alias=row_alias,
                             screen_name=screen_name, control_screens=control_screens, view_sets=ir.view_sets,
                             relationship_keys=relationship_keys,
-                            service_adapters=adapters)
+                            service_adapters=adapters, power_fx_v1=ir.power_fx_v1)
             expr.js = res.js
             expr.translation_status = "stubbed" if res.unmapped else "rule"
             expr.blocked_dependencies = [name for name in res.unmapped if name.startswith('Dataverse view')]

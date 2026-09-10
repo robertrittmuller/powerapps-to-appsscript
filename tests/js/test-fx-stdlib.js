@@ -3,6 +3,22 @@ const test = require('node:test');
 const assert = require('node:assert');
 const FX = require('../../static/fx-stdlib.js');
 
+test('control primary outputs survive gallery copies and stay out of record fields and JSON', () => {
+  const ref = FX.controlReference({text:'',value:false},'text');
+  const copied = Object.assign({},ref);
+  assert.strictEqual(FX.primaryOutput(copied),'');
+  assert.strictEqual(FX.isBlank(copied),false);
+  copied.text='edited';
+  assert.strictEqual(FX.primaryOutput(copied),'edited');
+  assert.deepStrictEqual(Object.keys(copied),['text','value']);
+  assert.strictEqual(JSON.stringify(copied),'{"text":"edited","value":false}');
+  const ordinary={text:''};
+  assert.strictEqual(FX.primaryOutput(ordinary),ordinary);
+  assert.strictEqual(FX.primaryOutput(null),null);
+  assert.strictEqual(FX.primaryOutput(FX.controlReference({value:false},'value')),false);
+  assert.throws(()=>FX.primaryOutput(FX.controlReference({text:'Save'},'pressed')),/Unsupported control primary output/);
+});
+
 test('Concurrent starts independent deferred branches and awaits every result', async () => {
   let releaseFirst, releaseSecond, finished = false;
   const events = [];

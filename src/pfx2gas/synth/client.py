@@ -662,6 +662,8 @@ def _render_control(
     indent = "  " * (depth + 1)
     style = _static_style(ctrl, in_flex, rules)
     style_attr = f' style="{style}"' if style else ""
+    if ctrl.primary_output:
+        style_attr += f' data-fx-primary-output="{html.escape(_snake(ctrl.primary_output), quote=True)}"'
     flex = _is_flex_container(ctrl)
     extra = ""
     if ctrl.type in {"TextInput", "TextArea"}:

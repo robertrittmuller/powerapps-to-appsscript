@@ -30,9 +30,10 @@ def seed(backend):
             'googlePeople':'explicit native API fixtures; no live Google authorization'}
 
 
-def main(project=False,workitem=False):
+def main(project=False,workitem=False,settings=False):
+    workitem=workitem or settings
     project=project or workitem
-    name=NAME+('-workitem' if workitem else '-project' if project else '')
+    name=NAME+('-settings' if settings else '-workitem' if workitem else '-project' if project else '')
     steps=[]
     def check(name,action):
         try:
@@ -86,6 +87,52 @@ def main(project=False,workitem=False):
                 assert all(record['msft_isdisplaysplashpowerapps'] is False for record in records),records
             check('separate-persisted-user-settings',separate_settings)
             page.screenshot(path=str(OUT/name/'returning-user.png'),full_page=True)
+            if settings:
+                check('open-global-settings',lambda:control(page,'imgProjectsGlobalSettings').click())
+                check('global-settings-screen',lambda:expect(page.locator('[data-screen="Global Settings Screen"]')).to_be_visible())
+                settings_save=control(page,'btnSave_GlobalSettings')
+                check('unchanged-settings-disable-save',lambda:expect(settings_save).to_be_disabled())
+                specs=[('Category','Categories',['Facilities']),('Priority','Priorities',['High']),
+                       ('Status','Statuses',['Done','Not started','In progress'])]
+                for kind,plural,names in specs:
+                    for label in names:
+                        check('add-'+kind.lower()+'-'+label,lambda kind=kind:control(page,'btnAdd'+kind).click())
+                        check('blank-'+kind.lower()+'-'+label+'-disables-save',lambda:expect(settings_save).to_be_disabled())
+                        inputs=control(page,'gal'+plural).locator('[data-control="txt'+kind+'Name"]')
+                        inputs.last.fill(label)
+                        inputs.last.press('Tab')
+                        check('enter-'+kind.lower()+'-'+label,lambda inputs=inputs,label=label:expect(inputs.last).to_have_value(label))
+                check('valid-settings-enable-save',lambda:expect(settings_save).to_be_enabled())
+                check('source-status-titles',lambda:expect(control(page,'galStatuses').locator('[data-control="lblStatusTitle"]')).to_have_text(
+                    ['Completion status','Optional status 1','Optional status 2']))
+                page.screenshot(path=str(OUT/name/'settings-draft.png'),full_page=True)
+                check('save-global-settings',lambda:settings_save.click())
+                check('settings-callbacks-settle',lambda:page.wait_for_function('async()=>await window.__waitForGasIdle()',timeout=10000))
+                def settings_records():
+                    records={}
+                    for _kind,plural,names in specs:
+                        source='Project Work Item '+plural
+                        rows=backend({'fn':'api','args':[source,'list',{}]})['result']
+                        records[source]=rows
+                        assert [row['msft_name'] for row in rows]==names,{'source':source,'names':[row['msft_name'] for row in rows]}
+                    (OUT/name/'configured-settings.json').write_text(json.dumps(records,indent=2)+'\n')
+                check('configured-settings-persist',settings_records)
+                check('return-after-settings',lambda:control(page,'btnCancel_GlobalSettings').click())
+                expect(page.locator('[data-screen="Projects Screen"]')).to_be_visible()
+                page.reload()
+                expect(page.locator('[data-screen="Projects Screen"]')).to_be_visible(timeout=10000)
+                check('reopen-global-settings',lambda:control(page,'imgProjectsGlobalSettings').click())
+                expect(page.locator('[data-screen="Global Settings Screen"]')).to_be_visible()
+                for kind,plural,names in specs:
+                    def restored_settings(kind=kind,plural=plural,names=names):
+                        inputs=control(page,'gal'+plural).locator('[data-control="txt'+kind+'Name"]')
+                        expect(inputs).to_have_count(len(names))
+                        for index,label in enumerate(names):
+                            expect(inputs.nth(index)).to_have_value(label)
+                    check('restored-'+plural.lower(),restored_settings)
+                page.screenshot(path=str(OUT/name/'settings-reloaded.png'),full_page=True)
+                control(page,'btnCancel_GlobalSettings').click()
+                expect(page.locator('[data-screen="Projects Screen"]')).to_be_visible()
             if project:
                 ada=DIRECTORY['people'][0]
                 response={'method':'get','args':['people/100',{'personFields':'metadata,names,emailAddresses,organizations,phoneNumbers,locations,photos',
@@ -191,6 +238,9 @@ def main(project=False,workitem=False):
                     check('persisted-milestone-options',lambda:expect(control(page,selectors[1]).locator('option')).to_contain_text(['Survey site','Replace equipment','Review handover']))
                     check('assign-work-item-google-user',lambda:control(page,selectors[0]).select_option(label='Ada Lovelace'))
                     check('assign-work-item-milestone',lambda:control(page,selectors[1]).select_option(label='Replace equipment'))
+                    if settings:
+                        for selector,label in [(selectors[2],'In progress'),(selectors[3],'Facilities'),(selectors[4],'High')]:
+                            check('select-work-item-'+label,lambda selector=selector,label=label:control(page,selector).select_option(label=label))
                     control(page,'txtAddWorkItemName').fill('Survey the north entrance')
                     control(page,'txtAddWorkItemDesc').fill('Measure access clearance.\nRecord photos in the project notes.')
                     control(page,'datAddWorkItemTargetDate').fill('2026-03-09')
@@ -221,6 +271,11 @@ def main(project=False,workitem=False):
                             assert created[field]['id']==target['id'],{'field':field,'actual':created[field].get('id'),'expected':target['id']}
                         assert created['msft_teammember_id']['msft_userid']=='business.tester@example.test'
                     check('saved-work-item-links-and-google-assignee',linked_records)
+                    if settings:
+                        def configured_links(record):
+                            for field,label in [('msft_workitemstatus_id','In progress'),('msft_category_id','Facilities'),('msft_priority_id','High')]:
+                                assert record[field] and record[field]['msft_name']==label,{'field':field,'recordId':record['id']}
+                        check('work-item-retains-configured-settings',lambda:configured_links(created))
                     items=control(page,'galWorkItems')
                     title=items.locator('[data-control="lblWorkItemTitle"]')
                     check('saved-work-item-visible',lambda:expect(title).to_have_text(['Survey the north entrance']))
@@ -264,6 +319,9 @@ def main(project=False,workitem=False):
                         expect(control(page,'datAddWorkItemTargetDate')).to_have_value('2026-03-09')
                         expect(control(page,selectors[0]).locator('option:checked')).to_have_text(['Ada Lovelace'])
                         expect(control(page,selectors[1]).locator('option:checked')).to_have_text(['Replace equipment'])
+                        if settings:
+                            for selector,label in [(selectors[2],'In progress'),(selectors[3],'Facilities'),(selectors[4],'High')]:
+                                expect(control(page,selector).locator('option:checked')).to_have_text([label])
                     check('work-item-editor-restores-values-and-links',restored_editor)
                     control(page,'txtAddWorkItemName').fill('Confirm north entrance clearance')
                     control(page,'datAddWorkItemTargetDate').fill('2026-03-11')
@@ -280,6 +338,10 @@ def main(project=False,workitem=False):
                         assert record['msft_etadate']=='2026-03-11T04:00:00.000Z'
                         assert record['msft_teammember_id']['id']==created['msft_teammember_id']['id']
                         assert record['msft_milestone_id']['id']==created['msft_milestone_id']['id']
+                        if settings:
+                            configured_links(record)
+                            for field in ['msft_workitemstatus_id','msft_category_id','msft_priority_id']:
+                                assert record[field]['id']==created[field]['id']
                     check('work-item-edit-retains-record-and-linked-identities',edited_record)
                     check('edited-work-item-listed-once',lambda:expect(title).to_have_text(['Confirm north entrance clearance']))
                     backend({'fn':'__peopleResponses','args':[[response,response]]})
@@ -320,7 +382,7 @@ def main(project=False,workitem=False):
             solution=REPO/'samples/microsoft/Milestones.solution.zip',setup_backend=seed,
             timezone_id='America/New_York',running_time='2026-03-01T16:00:00+00:00')
         browser.close()
-    result.update(sourceAppId='milestones',steps=steps,assessmentScope='first-run onboarding and persisted settings across two simulated Google users'+('; project creation probe' if project else '')+('; work-item create/edit/delete and preserved assignment/milestone links' if workitem else ''),
+    result.update(sourceAppId='milestones',steps=steps,assessmentScope='first-run onboarding and persisted settings across two simulated Google users'+('; source global category/priority/status setup and reload' if settings else '')+('; project creation probe' if project else '')+('; work-item create/edit/delete and preserved assignment/milestone links' if workitem else ''),
                   completeUsability='unassessed')
     (OUT/name/'result.json').write_text(json.dumps(result,indent=2)+'\n')
     print(json.dumps({'status':result['status'],'steps':steps},indent=2))
@@ -332,5 +394,6 @@ if __name__=='__main__':
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--project',action='store_true',help='Continue through the original project creation workflow')
     parser.add_argument('--workitem',action='store_true',help='Continue project creation through the original work-item workflow')
+    parser.add_argument('--settings',action='store_true',help='Configure source categories/priorities/statuses before the project and work-item lifecycle')
     args=parser.parse_args()
-    raise SystemExit(main(project=args.project,workitem=args.workitem))
+    raise SystemExit(main(project=args.project,workitem=args.workitem,settings=args.settings))

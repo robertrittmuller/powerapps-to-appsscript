@@ -65,6 +65,8 @@ class ControlNode(BaseModel):
     name: str
     type: str
     variant: str | None = None
+    # Exported template metadata, not inferred from the rendered HTML tag.
+    primary_output: str | None = None
     # Legacy canvas-component instances point at a reusable definition. The
     # adapter expands the definition's child tree under the instance and keeps
     # the declared input names so synthesis can expose them to child formulas.
@@ -96,6 +98,7 @@ class AppIR(BaseModel):
     on_start: FxExpr | None = None
     properties: dict[str, FxExpr] = Field(default_factory=dict)
     layout: dict = Field(default_factory=dict)
+    power_fx_v1: bool = False
     screens: list[ScreenNode] = Field(default_factory=list)
     data_sources: list[DataSource] = Field(default_factory=list)
     global_vars: list[str] = Field(default_factory=list)

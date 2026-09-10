@@ -67,6 +67,7 @@ def _parse_control(name: str, node: dict) -> ControlNode:
         for child_name, child_node in child.items():
             children.append(_parse_control(str(child_name), child_node))
     return ControlNode(name=name, type=ctrl_type, variant=variant if isinstance(variant, str) else None,
+                       primary_output=node.get("PrimaryOutput"),
                        component_template=(str(node["ComponentTemplate"])
                                            if node.get("ComponentTemplate") else None),
                        component_inputs=[str(p) for p in node.get("ComponentInputs", [])],
@@ -127,6 +128,7 @@ def parse(unpacked: UnpackedApp) -> AppIR:
         warnings=list(unpacked.warnings),
         media_resources=dict(unpacked.media_resources),
         layout=dict(unpacked.layout),
+        power_fx_v1=unpacked.power_fx_v1,
     )
 
     # App-level OnStart

@@ -315,6 +315,32 @@ def check_fluent_dates(page, backend):
         expect(dates.nth(index)).to_have_value(value)
 
 
+def check_control_coercion(page, backend, v1=False):
+    expect(control(page,'InputBlank')).to_have_text('present' if v1 else 'blank')
+    expect(control(page,'RecordBlank')).to_have_text('record')
+    expect(control(page,'StatusCaption')).to_have_text('Optional status 1')
+    rows=control(page,'Rows').locator('[data-control="RowName"]')
+    expect(rows).to_have_count(2)
+    save=control(page,'Save')
+    if v1:
+        expect(save).to_be_enabled()
+    else:
+        expect(save).to_be_disabled()
+    rows.nth(1).fill('Beta')
+    expect(save).to_be_enabled()
+    save.click()
+    expect(control(page,'Saved')).to_have_text('Alpha | Beta')
+    rows.nth(0).fill('')
+    if v1:
+        expect(save).to_be_enabled()
+    else:
+        expect(save).to_be_disabled()
+    control(page,'Input').fill('Entered')
+    expect(control(page,'InputBlank')).to_have_text('present')
+    control(page,'Input').fill('')
+    expect(control(page,'InputBlank')).to_have_text('present' if v1 else 'blank')
+
+
 def check_nested_gallery(page, backend):
     source_font="'Segoe UI', 'Open Sans', sans-serif"
     rows=control(page,'OuterRows').locator(':scope > .fx-rows > .fx-row')
@@ -1273,6 +1299,9 @@ def main():
              ("record-scopes", REPO / "tests/fixtures/fixtureScopes.msapp", check_scopes)]
     cases.append(("editable-gallery", REPO / "tests/fixtures/fixtureGallery.msapp", check_gallery))
     cases.append(('nested-gallery',REPO/'tests/fixtures/fixtureNestedGallery.msapp',check_nested_gallery))
+    cases.append(('control-coercion',REPO/'tests/fixtures/fixtureControlCoercion.msapp',check_control_coercion))
+    cases.append(('control-coercion-v1',REPO/'tests/fixtures/fixtureControlCoercionV1.msapp',
+                  lambda page,backend:check_control_coercion(page,backend,True)))
     cases.append(('fluent-dates',REPO/'tests/fixtures/fixtureFluentDates.msapp',check_fluent_dates,
                   False,None,None,None,None,'America/New_York','2026-03-01T16:00:00+00:00'))
     cases.append(("timer-lifecycle", REPO / "tests/fixtures/fixtureTimer.msapp", check_timers, True))

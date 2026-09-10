@@ -557,7 +557,8 @@
           ? Math.max(0,(standard.height-standard.template_padding*(wraps+1))/wraps) : standard.template_size; }},
       });
     }
-    return standard;
+    var primary = typeof el.getAttribute === 'function' ? el.getAttribute('data-fx-primary-output') : null;
+    return primary ? FX.controlReference(standard, primary) : standard;
   }
 
   function registerGalleryTemplate(name, parentName, sizeFn) {
