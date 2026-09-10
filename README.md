@@ -19,6 +19,15 @@ the private migration function in the Apps Script editor. Missing migration is
 an error. Membership, dates, assignments, creation and description updates have
 generated-server and Chromium evidence; live Google deployment remains unverified.
 
+Office365Users and Microsoft365Users search, profile and photo calls now use the
+native Google People directory. Generated projects include `DirectoryMigration.gs`
+and `directory-migration.md` for mapping source user IDs to Google accounts.
+The manifest enables People v1 and directory access; the app must execute as the
+identified accessing user with domain directory sharing enabled. A Chromium
+journey covers search, profile/photo selection and persisted task assignment
+using explicit native API response fixtures. Live directory permissions and
+photo visibility remain deployment checks.
+
 It is a deterministic transpiler pipeline (unpack → parse → analyze →
 synthesize → validate) with an optional LLM fallback for formulas the rule
 engine can't map. The LLM never writes files; it can only propose a

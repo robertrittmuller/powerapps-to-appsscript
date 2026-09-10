@@ -55,7 +55,17 @@ const workbook = {
 };
 const properties = new Map();
 let sequence = 0, failNext = false;
-let storageAppId = 'test-script:' + process.argv[2], storageUser = 'business.tester@example.test';
+let storageAppId = 'test-script:' + process.argv[2], storageUser = 'business.tester@example.test', effectiveUser = null;
+let directoryResponses = [], directoryRequests = [];
+function directoryCall(method, args) {
+  directoryRequests.push({method,args:clone(args)});
+  const next=directoryResponses.shift();
+  if (!next) throw new Error('No configured Google People test response');
+  if (next.error) throw new Error(next.error);
+  if (next.method !== method) throw new Error('Unexpected Google People method: '+method);
+  if (next.args && JSON.stringify(next.args)!==JSON.stringify(args)) throw new Error('Unexpected Google People arguments');
+  return clone(next.result);
+}
 const context = vm.createContext({
   HtmlService: {
     createHtmlOutputFromFile(name) {
@@ -99,7 +109,13 @@ const context = vm.createContext({
     },
   })},
   Utilities: { getUuid: () => 'test-record-' + (++sequence) },
-  Session: { getActiveUser: () => ({ getEmail: () => storageUser }) },
+  Session: { getActiveUser: () => ({ getEmail: () => storageUser }),
+    getEffectiveUser: () => ({getEmail: () => effectiveUser === null ? storageUser : effectiveUser}) },
+  People: {People:{
+    get:(...args)=>directoryCall('get',args),
+    searchDirectoryPeople:(...args)=>directoryCall('searchDirectoryPeople',args),
+    listDirectoryPeople:(...args)=>directoryCall('listDirectoryPeople',args),
+  }},
   ScriptApp: { getScriptId: () => storageAppId },
 });
 for (const file of ['Code.gs', 'DataInit.gs']) {
@@ -125,11 +141,22 @@ readline.createInterface({input: process.stdin}).on('line', line => {
       [storageAppId, storageUser] = request.args;
       process.stdout.write('{"result":true}\n'); return;
     }
+    if (request.fn === '__setEffectiveUser') {
+      effectiveUser=request.args[0]; process.stdout.write('{"result":true}\n'); return;
+    }
+    if (request.fn === '__peopleResponses') {
+      directoryResponses=clone(request.args[0]); directoryRequests=[];
+      process.stdout.write('{"result":true}\n'); return;
+    }
+    if (request.fn === '__peopleRequests') {
+      process.stdout.write(JSON.stringify({result:directoryRequests})+'\n'); return;
+    }
     // Test-only administrative hooks; private Apps Script functions are never RPC endpoints.
-    const administrative = {__importPlanner:'importPlanner_', __plannerSnapshot:'plannerDocument_', __setup:'setup'};
+    const administrative = {__importPlanner:'importPlanner_', __plannerSnapshot:'plannerDocument_', __setup:'setup',
+      __importDirectory:'importDirectory_'};
     const admin = Object.prototype.hasOwnProperty.call(administrative, request.fn) && administrative[request.fn];
     if (!admin && !['api', 'apiChoices', 'whoami', 'doGet', 'connector'].includes(request.fn)) throw new Error('unknown test endpoint');
-    mutationRequest = request.fn === '__importPlanner' || request.fn === 'connector' ||
+    mutationRequest = request.fn === '__importPlanner' || request.fn === '__importDirectory' || request.fn === 'connector' ||
       (request.fn === 'api' && !['list', 'links', 'relationshipSnapshot'].includes(request.args[1]));
     if (admin) request.fn = admin;
     context.requestJSON = JSON.stringify(request);

@@ -386,7 +386,7 @@ DATA_INIT_GS = """/**
 function setup() {{
   var props = PropertiesService.getScriptProperties();
   if (props.getProperty('DATA_SPREADSHEET_ID')) {{
-    withDataWriteLock_(function () {{ setupRelationships_(ss()); setupPlanner_(ss()); }});
+    withDataWriteLock_(function () {{ setupRelationships_(ss()); setupPlanner_(ss()); setupDirectory_(ss()); }});
     return 'already initialized';
   }}
   var workbook = SpreadsheetApp.create({app_name!r} + ' — data');
@@ -420,6 +420,7 @@ function setup() {{
   var defaultSheet = workbook.getSheetByName('Sheet1');
   setupRelationships_(workbook);
   setupPlanner_(workbook);
+  setupDirectory_(workbook);
   if (defaultSheet && workbook.getSheets().length > 1) workbook.deleteSheet(defaultSheet);
   props.setProperty('DATA_SPREADSHEET_ID', workbook.getId());
   return 'created ' + workbook.getUrl() + choiceNote;
@@ -436,7 +437,8 @@ MANIFEST = """{{
     "access": "{access}"
   }},
   "oauthScopes": [
-    "https://www.googleapis.com/auth/spreadsheets"
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/userinfo.email"
   ]
 }}
 """
@@ -490,15 +492,16 @@ def render_code_gs(ir: AppIR) -> str:
     from ..relationships import relationship_contracts
     from .relationships import SERVER
     from .planner import SERVER as PLANNER_SERVER
+    from .directory import SERVER as DIRECTORY_SERVER
     from ..services import service_contracts
 
     allowed = [ds.name for ds in data_sources_with_fields(ir)]
-    if {'__pfx2gas_links', '__pfx2gas_planner'} & set(allowed):
+    if {'__pfx2gas_links', '__pfx2gas_planner', '__pfx2gas_directory'} & set(allowed):
         raise ValueError('source table collides with reserved relationship/connector storage')
     return CODE_GS.format(app_name=ir.name, data_sources_json=json.dumps(allowed),
                           contracts_json=json.dumps(data_contracts(ir)),
                           relationships_json=json.dumps(relationship_contracts(ir)),
-                          services_json=json.dumps(service_contracts(ir))) + SERVER + PLANNER_SERVER
+                          services_json=json.dumps(service_contracts(ir))) + SERVER + PLANNER_SERVER + DIRECTORY_SERVER
 
 
 def render_data_init(ir: AppIR) -> str:
@@ -519,4 +522,11 @@ def render_data_init(ir: AppIR) -> str:
 def render_manifest(ir: AppIR) -> str:
     # MANIFEST is a format-template ({{ }} are literal braces); without
     # .format() it ships invalid JSON with doubled braces.
-    return MANIFEST.format(access=ir.webapp_access, execute_as=ir.webapp_execute_as)
+    import json
+    from ..services import service_contracts
+    manifest = json.loads(MANIFEST.format(access=ir.webapp_access, execute_as=ir.webapp_execute_as))
+    if any(adapter['target']=='google-people-directory' for adapter in service_contracts(ir).values()):
+        manifest['dependencies']['enabledAdvancedServices'] = [
+            {'userSymbol':'People','serviceId':'peopleapi','version':'v1'}]
+        manifest['oauthScopes'].append('https://www.googleapis.com/auth/directory.readonly')
+    return json.dumps(manifest,indent=2)+'\n'

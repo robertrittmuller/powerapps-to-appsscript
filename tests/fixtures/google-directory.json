@@ -1,0 +1,14 @@
+{
+  "migration": {"users": [
+    {"id":"user-a","google_email":"business.tester@example.test","resource_name":"people/100","aliases":["ada@old.example.test"]},
+    {"id":"user-b","google_email":"second@example.test","resource_name":"people/200","aliases":["grace@old.example.test"]}
+  ]},
+  "people": [
+    {"resourceName":"people/100","emailAddresses":[{"value":"business.tester@example.test"}],
+     "names":[{"displayName":"Ada Lovelace","givenName":"Ada","familyName":"Lovelace"}],
+     "photos":[{"url":"https://lh3.googleusercontent.com/test-ada","default":true}]},
+    {"resourceName":"people/200","emailAddresses":[{"value":"second@example.test"}],
+     "names":[{"displayName":"Grace Hopper","givenName":"Grace","familyName":"Hopper"}],
+     "photos":[{"url":"https://lh3.googleusercontent.com/test-grace","default":false}]}
+  ]
+}

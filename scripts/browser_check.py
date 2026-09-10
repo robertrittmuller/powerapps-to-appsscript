@@ -887,6 +887,77 @@ def check_planner(page, backend):
     page.screenshot(path=str(OUT/'google-planner/persisted-board.png'))
 
 
+def setup_directory(backend):
+    setup_planner(backend)
+    data=json.loads((REPO/'tests/fixtures/google-directory.json').read_text())
+    assert backend({'fn':'__importDirectory','args':[data['migration']]})=={'result':{'ok':True,'users':2}}
+    return {'source':'authored directory identity mappings and Planner board',
+            'googlePeople':'explicit native API response fixtures; no live Google authorization',
+            'users':2,'plans':2,'tasks':2}
+
+
+def check_directory(page,backend):
+    data=json.loads((REPO/'tests/fixtures/google-directory.json').read_text())
+    people=data['people'];grace=people[1]
+    def responses(*items):
+        backend({'fn':'__peopleResponses','args':[list(items)]})
+    def requests():
+        return backend({'fn':'__peopleRequests','args':[]})['result']
+    # Authored image returned at the fixture API's photo URL; no network download.
+    page.route('https://lh3.googleusercontent.com/test-grace',lambda route:route.fulfill(
+        content_type='image/svg+xml',body='<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><circle cx="16" cy="16" r="16" fill="teal"/></svg>'))
+    expect(control(page,'DirectoryStatus')).to_have_text('ready')
+    expect(control(page,'DirectorySearch')).to_have_attribute('aria-label','Search people')
+    responses({'method':'listDirectoryPeople','result':{'people':people}})
+    control(page,'DirectoryFind').click()
+    expect(control(page,'DirectoryStatus')).to_have_text('search complete')
+    rows=control(page,'DirectorySelect')
+    expect(rows).to_have_text(['Ada Lovelace / business.tester@example.test','Grace Hopper / second@example.test'])
+    assert requests()[0]['method']=='listDirectoryPeople'
+    responses({'error':'403 Directory permission revoked'})
+    control(page,'DirectorySearch').fill('Grace')
+    control(page,'DirectoryFind').click()
+    expect(control(page,'DirectoryStatus')).to_have_text('search failed')
+    expect(rows).to_have_count(2)
+    responses({'method':'searchDirectoryPeople','result':{'people':[grace]}})
+    control(page,'DirectoryFind').focus()
+    page.keyboard.press('Enter')
+    expect(control(page,'DirectoryStatus')).to_have_text('search complete')
+    expect(rows).to_have_text(['Grace Hopper / second@example.test'])
+    assert requests()[0]['args'][0]['query']=='Grace'
+    responses({'method':'get','result':grace},{'error':'403 Photo access denied'})
+    rows.click()
+    expect(control(page,'DirectoryStatus')).to_have_text('assignment failed')
+    assert page.evaluate('(state.colTaskAssignments || []).length')==0
+    expect(rows).to_have_count(1)
+    responses({'method':'get','result':grace},{'method':'get','result':grace})
+    rows.click()
+    expect(control(page,'DirectoryStatus')).to_have_text('assigned')
+    expect(control(page,'DirectoryAssigned')).to_have_text('Grace Hopper')
+    expect(rows).to_have_count(0)
+    page.wait_for_function('document.querySelector("[data-control=DirectoryPhoto]").naturalWidth === 32')
+    assert page.evaluate('state.colUserProfiles[0]')=={
+        'app_ref':'user-b','app_email':'second@example.test','app_img':grace['photos'][0]['url'],'app_display_name':'Grace Hopper'}
+    assert [request['args'][0] for request in requests()]==['people/200','people/200']
+    for name in ['DirectorySearch','DirectoryFind','DirectoryCreate','DirectoryPhoto']:
+        expect(control(page,name)).to_be_visible()
+        box=control(page,name).bounding_box()
+        assert box['width']>0 and box['height']>0 and box['x']>=0 and box['x']+box['width']<=page.viewport_size['width'],box
+    backend({'fn':'__failNextMutation','args':[]})
+    control(page,'DirectoryCreate').click()
+    expect(control(page,'DirectoryStatus')).to_have_text('task failed')
+    expect(control(page,'DirectoryTaskCount')).to_have_text('1')
+    control(page,'DirectoryCreate').click()
+    expect(control(page,'DirectoryStatus')).to_have_text('task created')
+    expect(control(page,'DirectoryTaskCount')).to_have_text('2')
+    task=backend({'fn':'__plannerSnapshot','args':[]})['result']['tasks'][-1]
+    assert task['title']=='Directory assigned repair' and task['assignees']==['user-b']
+    page.screenshot(path=str(OUT/'google-directory/assigned-google-person.png'))
+    page.reload()
+    expect(control(page,'DirectoryTaskCount')).to_have_text('2')
+    assert backend({'fn':'__plannerSnapshot','args':[]})['result']['tasks'][-1]==task
+
+
 def main():
     subprocess.run([sys.executable, str(REPO / "tests/fixtures/build.py")], check=True, capture_output=True)
     cases = [("business-form", REPO / "tests/fixtures/fixtureForm.msapp", check_form),
@@ -905,6 +976,8 @@ def main():
     cases.append(('collection-aliases', REPO / 'tests/fixtures/fixtureCollectionAliases.msapp', check_collection_aliases))
     cases.append(('google-planner', REPO/'tests/fixtures/fixturePlanner.msapp', check_planner,
                   False,None,None,None,setup_planner,'UTC'))
+    cases.append(('google-directory', REPO/'tests/fixtures/fixtureDirectory.msapp', check_directory,
+                  False,None,None,None,setup_directory,'UTC'))
     cases.append(("saved-views", REPO / "tests/fixtures/fixtureViews.msapp", check_views,
                   False, None, None, REPO / 'tests/fixtures/fixtureViews.solution.zip'))
     cases.append(('relative-saved-views', REPO/'tests/fixtures/fixtureRelativeViews.msapp', check_relative_views,

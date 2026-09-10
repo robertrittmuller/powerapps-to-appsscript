@@ -40,6 +40,12 @@ def synthesize(ir: AppIR, out_dir: str | Path) -> Path:
         if not migration.exists():
             migration.write_text(MIGRATION_TEMPLATE)
         (out / 'planner-migration.md').write_text(MIGRATION_GUIDE)
+    if any(contract['target'] == 'google-people-directory' for contract in service_contracts(ir).values()):
+        from .directory import MIGRATION_TEMPLATE, MIGRATION_GUIDE
+        migration = out / 'DirectoryMigration.gs'
+        if not migration.exists():
+            migration.write_text(MIGRATION_TEMPLATE)
+        (out / 'directory-migration.md').write_text(MIGRATION_GUIDE)
     (out / "appsscript.json").write_text(render_manifest(ir))
     (out / "Index.html").write_text(render_index_html(ir, screens_html))
     (out / "Screens.html").write_text(screens_html)

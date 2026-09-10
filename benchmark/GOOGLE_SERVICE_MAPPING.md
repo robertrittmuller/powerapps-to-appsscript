@@ -12,7 +12,7 @@ is missing. Empty successful responses cannot stand in for an unmigrated service
 | Planner shared plans, buckets and assigned tasks | Google Sheets and Apps Script task-board adapter | Implemented for eight operations below. Explicit Google-user mapping and plan/task migration are required. Generated-server and Chromium tests preserve IDs, membership checks, buckets, assignments, progress, dates and description writes. |
 | Personal task lists and tasks that fit the native API | Google Tasks | Candidate native adapter; shared assignments, bucket semantics and due-time fidelity must not be claimed. |
 | Teams spaces/channels/messages | Google Chat | Candidate space/channel mapping and message adapter; membership and authorization must be explicit. |
-| Office365 profiles | Google Workspace directory/People plus migrated user mapping | Candidate adapter; unavailable profile fields must stay explicit. |
+| Office365Users/Microsoft365Users search, profiles and photos | Native Google People domain directory plus migrated user mapping | Implemented SearchUser, UserProfileV2 and UserPhotoV2. Generated-server and Chromium assignment tests use explicit native API fixtures; live domain access remains unverified. |
 | Files and attachments | Google Drive | Candidate storage and access adapter with upload/download evidence. |
 
 ## Planner implementation scope
@@ -62,7 +62,42 @@ Deployment must establish both usable identity and the intended storage access
 boundary. See Google's [Session identity contract](https://developers.google.com/apps-script/reference/base/session)
 and [web-app execution modes](https://developers.google.com/apps-script/guides/web).
 
-The other candidate adapters above remain planned. No real app has complete
+## Native Google directory implementation
+
+Both exported service names route to Google People: V1 SearchUser returns a
+profile array through searchDirectoryPeople/listDirectoryPeople pagination;
+UserProfileV2 and UserPhotoV2 resolve mapped identities through People.get.
+Returned IDs retain the original Microsoft identity, while mail/principal names
+use the mapped Google email. Names, organization, location and phones come from
+native primary fields. A custom photo returns its Google HTTPS URL; an absent
+custom photo is Blank. This is an approximation of Microsoft's binary photo API.
+
+Google prefix matching, directory visibility and supported profile fields differ
+from Microsoft. Unmapped identities, ambiguous primary fields, unsupported
+selected fields, permission/API errors and pagination limits fail explicitly.
+An editor-only DirectoryMigration.gs imports validated IDs, Google emails,
+resource names and optional old-email aliases into reserved storage. Operator
+edits survive reconversion. The manifest enables People v1, directory.readonly
+and userinfo.email; owner-delegated or unidentified directory access is denied.
+The accessing user needs both Google domain-directory and workbook permissions.
+
+The generated Chromium fixture searches, handles revoked permissions, selects
+the correct native profile/photo, excludes the assigned person from the picker,
+creates a task with the preserved source user ID, and verifies persistence after
+reload. Photo and write failures recover without an unintended assignment or
+task. Keyboard activation, input labeling, visible geometry and image decoding
+are checked. Native API responses and the photo image are authored test fixtures;
+live Google authorization, visibility, URL lifetime and quotas remain unverified.
+No full real-app workflow is inferred from this fixture.
+
+Contracts: Microsoft's [Office 365 Users connector](https://learn.microsoft.com/en-us/connectors/office365users/),
+Google's [directory guide](https://developers.google.com/people/v1/directory),
+[directory search](https://developers.google.com/people/api/rest/v1/people/searchDirectoryPeople),
+[directory listing](https://developers.google.com/people/api/rest/v1/people/listDirectoryPeople),
+[person lookup](https://developers.google.com/people/api/rest/v1/people/get), and
+[Apps Script People service](https://developers.google.com/apps-script/advanced/people).
+
+The remaining candidate adapters above are planned. No real app has complete
 conversion acceptance; current evidence is in
 [the progress report](PROGRESS_2026-09-09.md).
 

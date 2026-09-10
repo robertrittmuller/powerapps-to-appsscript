@@ -220,10 +220,13 @@ function plannerOperation_(operation, args) {
 
 function connector(service, operation, args) {
   var adapter = GOOGLE_SERVICE_ADAPTERS[service];
-  if (!adapter || service !== 'Planner' || !Object.prototype.hasOwnProperty.call(adapter.operations, operation))
+  if (!adapter || !Object.prototype.hasOwnProperty.call(GOOGLE_SERVICE_ADAPTERS,service) ||
+      !Object.prototype.hasOwnProperty.call(adapter.operations, operation))
     throw new Error('Google adapter operation is not configured: ' + service + '.' + operation);
   if (!Array.isArray(args) || !adapter.operations[operation].arity.includes(args.length))
     throw new Error('Wrong number of connector arguments: ' + operation);
+  if (adapter.target === 'google-people-directory') return directoryOperation_(operation,args);
+  if (adapter.target !== 'google-sheets-task-board' || service !== 'Planner') throw new Error('Unsupported Google adapter');
   // Lock reads too, so the permission check and mutation see the same board.
   return withDataWriteLock_(function () { return plannerOperation_(operation,args); });
 }

@@ -1048,6 +1048,44 @@ def planner_fixture_files() -> dict[str, str]:
         'References\\DataSources.json':json.dumps({'DataSources':[{'Name':'Planner','Type':'ServiceInfo'}]})}
 
 
+def directory_fixture_files() -> dict[str, str]:
+    """Authored assignment journey: native directory -> migrated Planner board."""
+    def control(name, kind, y, props):
+        return {'Name':name,'Template':{'Name':kind},'Rules':[
+            {'Property':key,'InvariantScript':str(value)} for key,value in
+            {'X':20,'Y':y,'Width':420,'Height':44,**props}.items()]}
+    controls=[
+        control('DirectorySearch','text',20,{'Default':'""','AccessibleLabel':'"Search people"'}),
+        control('DirectoryFind','button',80,{'Text':'"Find people"','OnSelect':
+            'IfError(ClearCollect(directoryResults, Office365Users.SearchUser({searchTerm: DirectorySearch.Text})); '
+            'Set(directoryStatus, "search complete"), Set(directoryStatus, "search failed"))'}),
+        control('DirectoryStatus','label',140,{'Text':'directoryStatus'}),
+        control('DirectoryAssigned','label',200,{'Text':'Concat(colUserProfiles, appDisplayName, ", ")'}),
+        control('DirectoryCreate','button',260,{'Text':'"Create assigned repair"','OnSelect':
+            'IfError(Set(directoryTask, Planner.CreateTaskV3("group-a", "plan-a", "Directory assigned repair", '
+            '{bucketId:"bucket-a",assignments:Concat(colTaskAssignments, appEmailAddress, ";")})); '
+            'Set(directoryStatus, "task created"), Set(directoryStatus, "task failed"))'}),
+        control('DirectoryTaskCount','label',320,{'Text':'Text(CountRows(Planner.ListTasks("plan-a").value))'}),
+        control('DirectoryPhoto','image',380,{'Width':80,'Height':80,'Image':'First(colUserProfiles).appImg'}),
+    ]
+    gallery=control('DirectoryPeople','gallery',20,{'X':480,'Width':500,'Height':360,'TemplateSize':65,'TemplatePadding':0,
+        'Items':'Filter(directoryResults, Not(UserPrincipalName in colTaskAssignments.appEmailAddress))'})
+    template=control('DirectoryTemplate','gallerytemplate',0,{'OnSelect':
+        'IfError(With({varProfile:Office365Users.UserProfileV2(ThisItem.UserPrincipalName)}, '
+        'Collect(colUserProfiles, {appRef:varProfile.id, appEmail:ThisItem.UserPrincipalName, '
+        'appImg:Microsoft365Users.UserPhotoV2(ThisItem.UserPrincipalName), appDisplayName:varProfile.displayName})); '
+        'Collect(colTaskAssignments, {appEmailAddress:ThisItem.UserPrincipalName}); Set(directoryStatus, "assigned"), '
+        'Set(directoryStatus, "assignment failed"))'})
+    template['Children']=[control('DirectorySelect','button',0,{'X':0,'Width':480,
+        'Text':'ThisItem.DisplayName & " / " & ThisItem.UserPrincipalName','OnSelect':'Select(Parent)'})]
+    gallery['Children']=[template];controls.append(gallery)
+    return {'Properties.json':json.dumps({'Name':'FixtureDirectory'}),
+        'Controls\\1.json':json.dumps({'TopParent':control('App','appinfo',0,{'OnStart':'Set(directoryStatus, "ready")'})}),
+        'Controls\\2.json':json.dumps({'TopParent':{**control('DirectoryBoard','screen',0,{'Width':1100,'Height':600}),'Children':controls}}),
+        'References\\DataSources.json':json.dumps({'DataSources':[
+            {'Name':name,'Type':'ServiceInfo'} for name in ['Planner','Office365Users','Microsoft365Users']]})}
+
+
 def build_fixtures() -> None:
     # Fixture A: navigation + globals, all rule-transpilable
     _write_msapp(
@@ -1131,6 +1169,7 @@ def build_fixtures() -> None:
     _write_msapp(FIXTURE_DIR / 'fixtureCardLayout.msapp', card_layout_fixture_files())
     _write_msapp(FIXTURE_DIR / 'fixtureCollectionAliases.msapp', collection_alias_fixture_files())
     _write_msapp(FIXTURE_DIR / 'fixturePlanner.msapp', planner_fixture_files())
+    _write_msapp(FIXTURE_DIR / 'fixtureDirectory.msapp', directory_fixture_files())
     _write_msapp(FIXTURE_DIR / 'fixtureViews.msapp', view_fixture_files())
     _write_msapp(FIXTURE_DIR / 'fixtureViews.solution.zip', {'customizations.xml':
         f'<ImportExportXml><Entities><Entity><savedqueries><savedquery><savedqueryid>{{{VIEW_ID}}}</savedqueryid><fetchxml>{VIEW_QUERY}</fetchxml></savedquery></savedqueries></Entity></Entities></ImportExportXml>'})
