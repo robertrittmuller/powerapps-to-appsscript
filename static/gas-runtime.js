@@ -14,6 +14,7 @@
   var cardLayouts = [], cardGeometry = {}, galleryLayouts = [];
   var handlers = {};     // controlName -> { event: fn }
   var controlValues = {}; // control name -> evaluated properties used by dependents
+  var controlNodes = new WeakMap();
   var controlProperties = Object.create(null), resolvingProperties = [];
   var galleryTemplates = Object.create(null), resolvingTemplates = [];
   var forms = {};        // form name -> generated DataCard submit configuration
@@ -366,7 +367,7 @@
   }
 
   function bind(name, event, fn, parentName) {
-    var el = document.querySelector('[data-control="' + name + '"]');
+    var el = controlElement(name);
     if (!el) { console.warn('control not found for binding:', name); return; }
     listen(el, event === 'OnSelect' ? 'click' : 'change', function () {
       var previousSelf = global.selfRef;
@@ -450,7 +451,7 @@
       return canvasRef('App');
     }
     if (!element && Object.prototype.hasOwnProperty.call(canvas.screens, name)) return canvasRef(name);
-    var el = element || document.querySelector('[data-control="' + name + '"]')
+    var el = element || controlElement(name)
       || document.querySelector('[data-screen="' + name + '"]');
     if (!el) return Object.assign(
       { text: '', value: '', selected: null, checked: false,
@@ -461,11 +462,18 @@
     var selectedRows = isSelect ? selectedRecords(el) : [];
     var selectedInfo = isSelect && selectedRows[0]
       ? optionRecord(selectedRows[0]) : { value: '', label: '' };
-    var bounds = typeof el.getBoundingClientRect === 'function'
-      ? el.getBoundingClientRect() : null;
-    function numericStyle(name, fallback) {
+    var bounds, measured = false;
+    function numericStyle(name, dimension) {
       var parsed = parseFloat(el.style && el.style[name]);
       if (Number.isFinite(parsed)) return parsed;
+      // Generated controls usually have all four dimensions inline. Measuring
+      // every reference after style writes forces a layout for every formula,
+      // even when its measured rectangle would never be used.
+      if (!measured) {
+        bounds = typeof el.getBoundingClientRect === 'function' ? el.getBoundingClientRect() : null;
+        measured = true;
+      }
+      var fallback = bounds && bounds[dimension];
       return Number.isFinite(fallback) ? fallback : 0;
     }
     var standard = {
@@ -478,10 +486,10 @@
       selected_items: selectedRows,
       selected_text: selectedRows[0] ? { value: selectedInfo.label } : null,
       selected_date: el.type === 'date' ? dateInputValue(el) : el.value ? el.value : null,
-      width: numericStyle('width', bounds && bounds.width),
-      height: numericStyle('height', bounds && bounds.height),
-      x: numericStyle('left', bounds && bounds.left),
-      y: numericStyle('top', bounds && bounds.top),
+      width: numericStyle('width', 'width'),
+      height: numericStyle('height', 'height'),
+      x: numericStyle('left', 'left'),
+      y: numericStyle('top', 'top'),
       fill: el.style && el.style.backgroundColor || '',
       color: el.style && el.style.color || '',
       accessible_label: typeof el.getAttribute === 'function' ? el.getAttribute('aria-label') || '' : '',
@@ -493,17 +501,25 @@
     ['template_size','template_width','template_height','template_padding'].forEach(function (key) { liveProperties.add(key); });
     Object.assign(standard, element ? (element.__fxValues || {}) : (controlValues[name] || {}),
       el.__fxValues || {}, element ? {} : (cardGeometry[name] || {}));
-    var definitions = !element && controlProperties[name];
+    var scoped = el.__fxProperties;
+    var definitions = scoped || (!element && controlProperties[name]);
+    if (scoped && ['INPUT','SELECT','TEXTAREA'].indexOf(el.tagName) < 0) {
+      // A label's Text is a formula, including when a later sibling has not
+      // painted yet. Editable input text must continue to come from the DOM.
+      liveProperties.delete('text');
+    }
     if (definitions) Object.keys(definitions.fns).forEach(function (key) {
       if (liveProperties.has(key)) return; // DOM input values and geometry retain their live contract.
       var resolved = false, value;
       Object.defineProperty(standard, key, {enumerable:true, configurable:true, get:function () {
         if (resolved) return value;
-        var reference = name + '.' + key;
-        if (resolvingProperties.includes(reference)) throw new Error('Circular control property: ' + reference);
+        var label = name + '.' + key;
+        var reference = scoped ? (scoped.tokens[key] || (scoped.tokens[key] = {})) : label;
+        if (resolvingProperties.includes(reference)) throw new Error('Circular control property: ' + label);
         resolvingProperties.push(reference);
         try {
-          value = inControlContext(name, definitions.parent, definitions.fns[key]);
+          value = scoped ? definitions.fns[key](scoped.read, standard, scoped.read(definitions.parent))
+            : inControlContext(name, definitions.parent, definitions.fns[key]);
           resolved = true; return value;
         }
         finally { resolvingProperties.pop(); }
@@ -551,7 +567,7 @@
   function registerCardLayout(name, cards, columnsFn, parentName) {
     var previous = '';
     cardLayouts.push(function () {
-      var host = document.querySelector('[data-control="' + name + '"]');
+      var host = controlElement(name);
       if (!host) return false;
       var hostRef = val(name), width = Math.max(0, Number(hostRef.width) || 0);
       var columns = Math.max(1, Number(columnsFn(val, hostRef, val(parentName))) || 1);
@@ -724,11 +740,17 @@
   function applyDefaultSelection(el, defaults) {
     var wanted = Array.isArray(defaults) ? defaults : [defaults];
     var rows = Array.isArray(el.__fxRecords) ? el.__fxRecords : [];
+    var matched = false;
     Array.prototype.forEach.call(el.options || [], function (option, index) {
-      option.selected = wanted.some(function (candidate) {
+      var selected = wanted.some(function (candidate) {
         return sameRecord(rows[index], candidate);
       });
+      option.selected = selected;
+      matched = matched || selected;
     });
+    // A native single select may reselect its first option as other options
+    // are deselected. Blank must explicitly leave it without a selection.
+    if (!matched) el.selectedIndex = -1;
   }
 
   function registerControlProps(name, parentName, propertyFns) {
@@ -754,10 +776,17 @@
     evaluator.apply();
   }
 
+  function registerRowProps(row, name, parentName, propertyFns) {
+    var el = findControl(row, name);
+    if (!el) return;
+    el.__fxProperties = {parent:parentName, fns:propertyFns || {}, tokens:{},
+      read:function (control) { return rowValue(row, control); }};
+  }
+
   function styleControl(name, cssProp, valueFn, unit, parentName) {
     evaluators.push({
       apply: function () {
-        var el = document.querySelector('[data-control="' + name + '"]');
+        var el = controlElement(name);
         if (!el) return;
         var v;
         var previousSelf = global.selfRef;
@@ -779,7 +808,7 @@
   function attrControl(name, attr, valueFn, parentName) {
     var evaluator = {
       apply: function () {
-        var el = document.querySelector('[data-control="' + name + '"]');
+        var el = controlElement(name);
         if (!el) return;
         var previousSelf = global.selfRef;
         var previousParent = global.parentRef;
@@ -832,7 +861,7 @@
   function htmlControl(name, valueFn, parentName) {
     var evaluator = {
       apply: function () {
-        var el = document.querySelector('[data-control="' + name + '"]');
+        var el = controlElement(name);
         if (!el) return;
         var previousSelf = global.selfRef;
         var previousParent = global.parentRef;
@@ -851,7 +880,7 @@
 
   function rowElement(row, name) {
     for (var scope = row; scope; scope = scope.__fxParentRow) {
-      var el = scope.querySelector('[data-control="' + name + '"]');
+      var el = findControl(scope, name);
       if (el) return el;
     }
     return null;
@@ -891,7 +920,7 @@
 
   function rowControl(row, name, parentName, propertyFns) {
     if (!row || typeof row.querySelector !== 'function') return;
-    var el = row.querySelector('[data-control="' + name + '"]');
+    var el = findControl(row, name);
     if (!el) return;
     var read = function (control) { return rowValue(row, control); };
     var px = { left: true, top: true, width: true, height: true };
@@ -907,6 +936,7 @@
         } else if (key === 'text') {
           el.textContent = value == null ? '' : String(value);
         } else if (key === 'default') {
+          if (el.tagName === 'SELECT') el.__fxDefaultSelection = value;
           var signature = JSON.stringify(value == null ? '' : value);
           if (el.__fxDefaultSignature !== signature) {
             el.__fxDefaultSignature = signature;
@@ -1144,6 +1174,9 @@
               });
             });
             row.querySelectorAll('input, textarea, select').forEach(function (el) {
+              // Native editing must not invoke the gallery's OnSelect through
+              // DOM bubbling. A source OnSelect/Select(Parent) remains explicit.
+              listen(el, 'click', function (event) { if (event) event.stopPropagation(); });
               listen(el, 'input', updateBindings);
             });
           }
@@ -1230,7 +1263,7 @@
   }
 
   function gallery(name, itemsFn, rowFn, handlers, controlFields, config) {
-    var getHost=function () {return document.querySelector('[data-control="'+name+'"]');};
+    var getHost=function () {return controlElement(name);};
     var controller=createGallery(name,getHost,null);
     controller.configure(itemsFn,rowFn,handlers,controlFields,config);
     var host=getHost();
@@ -1248,7 +1281,7 @@
   }
 
   function renderChart(name, rows, cfg) {
-    var el = document.querySelector('[data-control="' + name + '"]');
+    var el = controlElement(name);
     if (!el || !global.FXCharts) return null;
     rows = Array.isArray(rows) ? rows : [];
     cfg = cfg || {};
@@ -1262,7 +1295,25 @@
   }
 
   function controlElement(name) {
-    return document.querySelector('[data-control="' + name + '"]');
+    return findControl(document, name);
+  }
+
+  function findControl(root, name) {
+    var cache = controlNodes.get(root);
+    if (!cache) {cache = new Map(); controlNodes.set(root, cache);}
+    function owned(el) {
+      if (!el || !el.isConnected || typeof el.closest !== 'function') return false;
+      var row = el.closest('.fx-row');
+      return root === document ? !row : row === root;
+    }
+    var el = cache.get(name);
+    if (owned(el)) return el;
+    el = root.querySelector('[data-control="' + name + '"]');
+    // Never cache a descendant row as a document/parent control: sorting and
+    // remounting change which instance a global query would find first.
+    if (owned(el)) cache.set(name, el);
+    else cache.delete(name);
+    return el;
   }
 
   function formMode(value) {
@@ -1517,7 +1568,7 @@
       publish();
     }
     timers[name] = { reset: reset };
-    var el = document.querySelector('[data-control="' + name + '"]');
+    var el = controlElement(name);
     if (el) el.addEventListener('click', function () {
       var wasRunning = epoch !== null || busy;
       if (completed) reset();
@@ -1532,13 +1583,15 @@
     if (timers[name]) {
       timers[name].reset(); updateBindings(); return 0;
     }
-    var el = element || document.querySelector('[data-control="' + name + '"]');
+    var el = element || controlElement(name);
     if (!el) throw new Error('control not found for Reset: ' + name);
     if (el.__fxGallery) {
       el.__fxGallery.reset(); updateBindings(); return null;
     }
     var value = el.getAttribute('data-fx-default');
-    if (el.type === 'checkbox') el.checked = value === 'true';
+    if (el.tagName === 'SELECT' && Object.prototype.hasOwnProperty.call(el, '__fxDefaultSelection'))
+      applyDefaultSelection(el, el.__fxDefaultSelection);
+    else if (el.type === 'checkbox') el.checked = value === 'true';
     else el.value = value === null ? '' : value;
     updateBindings();
     return value;
@@ -1546,7 +1599,7 @@
 
   function inputControl(name, parentName, propertyFns) {
     var evaluator = {apply: function () { rowControl(document, name, parentName, propertyFns); }};
-    var el = document.querySelector('[data-control="' + name + '"]');
+    var el = controlElement(name);
     if (el && !el.__fxInputUpdates) {
       el.__fxInputUpdates = true;
       listen(el, 'input', updateBindings);
@@ -1778,6 +1831,8 @@
     refreshData: refreshData,
     updateBindings: updateBindings,
     setState: setState,
+    controlElement: controlElement,
+    registerRowProps: registerRowProps,
     registerControlProps: registerControlProps,
     registerGalleryTemplate: registerGalleryTemplate,
     registerCardLayout: registerCardLayout,
@@ -1800,7 +1855,7 @@
     resetControl: resetControl,
     registerTimer: registerTimer,
     focusControl: function (name) {
-      var el = document.querySelector('[data-control="' + name + '"]');
+      var el = controlElement(name);
       if (el && !el.disabled && typeof el.focus === 'function') el.focus();
     },
     exitApp: exitApp,
@@ -1833,7 +1888,7 @@
     });
   };
   global.selectControl = function (name) {
-    var el = document.querySelector('[data-control="' + name + '"]');
+    var el = controlElement(name);
     if (el) el.click();
   };
   global.selfRef = null; // bound per-control during evaluator registration

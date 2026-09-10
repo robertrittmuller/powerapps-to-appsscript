@@ -950,7 +950,7 @@ def _row_descendants(ctrl: ControlNode):
         yield from visit(child)
 
 
-def _emit_gallery(lines: list[str], ctrl: ControlNode, parent_names: dict[str, str], nested: bool = False):
+def _emit_gallery(lines: list[str], ctrl: ControlNode, parent_names: dict[str, str], referenced_props: dict[str, set[str]], nested: bool = False):
     items = ctrl.properties.get("Items")
     if items and items.js:
         mark_emission(items)
@@ -970,10 +970,24 @@ def _emit_gallery(lines: list[str], ctrl: ControlNode, parent_names: dict[str, s
             handlers[ctrl.name] = (parent_names.get(selection_owner.name), {"OnSelect": _behavior_js(gallery_select, f"{selection_owner.name}.OnSelect")})
             mark_emission(gallery_select)
         row_controls = list(_row_descendants(ctrl))
+        referenced_expressions = []
+        # Register all row-owned property definitions before any visual formula
+        # reads Self/another row control, including later siblings.
+        for child in row_controls:
+            registered = [(prop, expr) for prop, expr in child.properties.items()
+                          if prop in referenced_props.get(child.name, set()) and expr.js
+                          and 'await ' not in expr.js
+                          and not (child.type == 'FluentDatePicker' and prop == 'Value')]
+            if registered:
+                row_fns.append(f'        FXRuntime.registerRowProps(row, {child.name!r}, {parent_names.get(child.name)!r}, {{')
+                for prop, expr in registered:
+                    row_fns.append(f'          {_snake(prop)!r}: function (val, selfRef, parentRef) {{ return {expr.js}; }},')
+                    referenced_expressions.append(expr)
+                row_fns.append('        });')
         for child in row_controls:
             if child.type == 'Gallery':
                 nested_lines=[]
-                _emit_gallery(nested_lines, child, parent_names, nested=True)
+                _emit_gallery(nested_lines, child, parent_names, referenced_props, nested=True)
             else:
                 nested_lines=[]
             texpr = child.properties.get("Text")
@@ -1085,6 +1099,11 @@ def _emit_gallery(lines: list[str], ctrl: ControlNode, parent_names: dict[str, s
             mark_emission(default, 'approximated', 'gallery default selects its matching loaded row; otherwise the first loaded row is selected')
         lines.append("    }")
         lines.append("  );")
+        for expr in referenced_expressions:
+            # A readable property does not make an approximated UI/layout
+            # adapter exact. Let actual rendering classify it first.
+            if expr.emission_status in {'pending', 'ignored'}:
+                mark_emission(expr, 'emitted', 'exposed to dependent formulas in its owning gallery row')
 
 
 def render_app_js(ir: AppIR) -> str:
@@ -1291,7 +1310,7 @@ def render_app_js(ir: AppIR) -> str:
                 lines.append("  });")
 
             if ctrl.type == "Gallery":
-                _emit_gallery(lines, ctrl, parent_names)
+                _emit_gallery(lines, ctrl, parent_names, referenced_props)
 
             # --- chart rendering ------------------------------------------
             if ctrl.type in CHART_TYPES:
@@ -1301,7 +1320,7 @@ def render_app_js(ir: AppIR) -> str:
                                   "chart data is rendered by the generated SVG chart runtime")
                     lines.append(f"  // {ctrl.name} (chart)")
                     lines.append("  FXRuntime.addEvaluator(async function () {")
-                    lines.append(f'    var el = document.querySelector(\'[data-control="{ctrl.name}"]\');')
+                    lines.append(f'    var el = FXRuntime.controlElement({ctrl.name!r});')
                     lines.append("    if (!el) return;")
                     lines.append("    var cfg = JSON.parse(el.getAttribute('data-chart') || '{}');")
                     lines.append(f"    var selfRef = val({ctrl.name!r}), parentRef = val({parent_names.get(ctrl.name)!r});")
@@ -1326,15 +1345,16 @@ def render_app_js(ir: AppIR) -> str:
                                     or ctrl.properties.get("DisplayFields")
                                     or ctrl.properties.get("SearchFields"))
                     default_selected = ctrl.properties.get("DefaultSelectedItems")
-                    needs_async = "await " in items_expr.js
+                    reset_expr = ctrl.properties.get("Reset")
+                    needs_async = any(expr and expr.js and "await " in expr.js
+                                      for expr in (items_expr, display_expr, default_selected, reset_expr))
                     fn_head = "async function () {" if needs_async else "function () {"
                     lines.append(f"  // {ctrl.name}.Items (options)")
                     lines.append("  FXRuntime.addEvaluator(" + fn_head)
-                    lines.append(f'    var el = document.querySelector(\'[data-control="{ctrl.name}"]\');')
+                    lines.append(f'    var el = FXRuntime.controlElement({ctrl.name!r});')
                     lines.append("    if (!el || el.tagName !== 'SELECT') return;")
-                    lines.append("    var current = el.value;")
-                    lines.append(f"    var rows = {items_expr.js};" if needs_async
-                                 else f"    var rows = {items_expr.js};")
+                    lines.append(f"    var selfRef = val({ctrl.name!r}), parentRef = val({parent_names.get(ctrl.name)!r});")
+                    lines.append(f"    var rows = {items_expr.js};")
                     if display_expr and display_expr.js:
                         lines.append(f"    var displayFields = {display_expr.js};")
                         if display_expr is ctrl.properties.get("SearchFields"):
@@ -1347,19 +1367,25 @@ def render_app_js(ir: AppIR) -> str:
                                           "used to choose the displayed option field")
                     else:
                         lines.append("    var displayFields = [];")
-                    lines.append("    el.__fxRecords = rows || [];")
-                    lines.append("    var opts = (rows || []).map(function (r, index) {")
-                    lines.append("        var option = FXRuntime.optionRecord(r, displayFields);")
-                    lines.append("        return '<option data-fx-index=\"' + index + '\" value=\"' + esc(option.value) + '\">' + esc(option.label) + '</option>';")
-                    lines.append("    }).join('');")
-                    lines.append("    if (el.__fxOpts !== opts) { el.__fxOpts = opts; el.innerHTML = opts; if (current) el.value = current; }")
                     if default_selected and default_selected.js:
-                        lines.append("    if (!el.__fxDefaultSelectionApplied) {")
-                        lines.append("      el.__fxDefaultSelectionApplied = true;")
-                        lines.append(f"      FXRuntime.applyDefaultSelection(el, {default_selected.js});")
-                        lines.append("    }")
+                        lines.append(f"    var defaults = {default_selected.js};")
                         mark_emission(default_selected)
-                    lines.append("    if (!el.__fxDefaultApplied) { el.__fxDefaultApplied = true; var d = el.getAttribute('data-fx-default'); if (d !== null) el.value = d; }")
+                    if reset_expr and reset_expr.js:
+                        lines.append(f"    var reset = {reset_expr.js};")
+                        mark_emission(reset_expr)
+                    # Use the row-control contract for both scopes: retain typed
+                    # records for Reset, reevaluate changed defaults, and preserve
+                    # every selected record when option labels are refreshed.
+                    lines.append(f"    FXRuntime.rowControl(document, {ctrl.name!r}, {parent_names.get(ctrl.name)!r}, {{")
+                    lines.append("      displayFields: function () { return displayFields; },")
+                    lines.append("      items: function () { return rows; },")
+                    if default_selected and default_selected.js:
+                        lines.append("      default: function () { return defaults; },")
+                    if reset_expr and reset_expr.js:
+                        lines.append("      reset: function () { return reset; },")
+                    lines.append("    });")
+                    if not (default_selected and default_selected.js):
+                        lines.append("    if (!el.__fxDefaultApplied) { el.__fxDefaultApplied = true; var d = el.getAttribute('data-fx-default'); if (d !== null) el.value = d; }")
                     lines.append("  });")
 
             text_expr = ctrl.properties.get("Text")
@@ -1367,7 +1393,7 @@ def render_app_js(ir: AppIR) -> str:
                     and ctrl.type not in {"Gallery"}):
                 lines.append(f"  // {ctrl.name}.Text (reactive)")
                 lines.append("  FXRuntime.addEvaluator(function () {")
-                lines.append('    var el = document.querySelector(\'[data-control="' + ctrl.name + '"]\');')
+                lines.append(f"    var el = FXRuntime.controlElement({ctrl.name!r});")
                 lines.append("    if (el) {")
                 lines.append("      var previousSelf = selfRef, previousParent = parentRef;")
                 lines.append("      selfRef = val(" + repr(ctrl.name) + "); parentRef = val(" +

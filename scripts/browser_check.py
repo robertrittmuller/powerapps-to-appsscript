@@ -161,8 +161,45 @@ def check_scopes(page, backend):
 
 
 def check_gallery(page, backend):
+    # Standalone selectors share the record-valued default/reset contract with
+    # gallery children. Loading another record must not retain the first default.
+    single=control(page,'PeopleChoice')
+    multiple=control(page,'PeopleChoices')
+    expect(single.locator('option:checked')).to_have_text(['Ada'])
+    expect(multiple.locator('option:checked')).to_have_text(['Ada'])
+    single.select_option(index=1)
+    multiple.select_option(['one','two'])
+    control(page,'UnrelatedUpdate').click()
+    expect(single.locator('option:checked')).to_have_text(['Grace'])
+    expect(multiple.locator('option:checked')).to_have_text(['Ada','Grace'])
+    control(page,'ResetPeople').click()
+    expect(single.locator('option:checked')).to_have_text(['Ada'])
+    expect(multiple.locator('option:checked')).to_have_text(['Ada'])
+    assert page.evaluate('state.peopleChanges')==2, 'Reset does not invoke OnChange'
+    control(page,'LastPeople').click()
+    expect(single.locator('option:checked')).to_have_text(['Grace'])
+    expect(multiple.locator('option:checked')).to_have_text(['Ada','Grace'])
+    single.select_option(index=0)
+    multiple.select_option(['one'])
+    control(page,'ResetPeople').click()
+    expect(single.locator('option:checked')).to_have_text(['Grace'])
+    expect(multiple.locator('option:checked')).to_have_text(['Ada','Grace'])
+    control(page,'BlankPeople').click()
+    expect(single.locator('option:checked')).to_have_count(0)
+    expect(multiple.locator('option:checked')).to_have_count(0)
+    control(page,'LastPeople').click()
+    expect(single.locator('option:checked')).to_have_text(['Grace'])
+    expect(multiple.locator('option:checked')).to_have_text(['Ada','Grace'])
+    assert page.evaluate('state.peopleChanges')==4
     rows = control(page, "ContactRows").locator('.fx-row')
     expect(rows).to_have_count(2)
+    toggle=rows.nth(1).locator('[data-control="RowToggle"]')
+    toggle.check()
+    expect(toggle).to_be_checked()
+    assert page.evaluate('state.parentCalls')==0, 'Editing a checkbox must not invoke Gallery.OnSelect'
+    toggle.uncheck()
+    expect(toggle).not_to_be_checked()
+    assert page.evaluate('state.parentCalls')==0
     first = rows.nth(0).locator('[data-control="RowFirst"]')
     second = rows.nth(1).locator('[data-control="RowFirst"]')
     last = rows.nth(1).locator('[data-control="RowLast"]')
@@ -201,6 +238,10 @@ def check_gallery(page, backend):
     # A row's selector retains records and reacts through its own OnChange.
     rows.nth(1).locator('[data-control="RowChoice"]').select_option(index=0)
     page.wait_for_function("state.chosenName === 'Ada'")
+    rows.nth(1).locator('[data-control="RowReset"]').click()
+    expect(rows.nth(1).locator('[data-control="RowChoice"] option:checked')).to_have_text(['Amazing Grace'])
+    expect(rows.nth(0).locator('[data-control="RowChoice"] option:checked')).to_have_text(['Ada'])
+    assert page.evaluate('state.chosenName')=='Ada', 'Reset does not invoke OnChange'
     control(page, "LockRows").click()
     expect(last).to_be_disabled()
     control(page, "LockRows").click()
@@ -283,6 +324,12 @@ def check_nested_gallery(page, backend):
         expect(child(index,'ChosenPreview')).to_have_text(color)
         expect(child(index,'ColorSelected').locator('visible=true')).to_have_count(1)
     expect(child(0,'CurrentRow')).to_have_text('current')
+    expect(child(0,'OuterMetrics')).to_have_text('Segoe UI:9:18')
+    expect(child(1,'OuterMetrics')).to_have_text('Segoe UI:12:24')
+    expect(child(0,'OuterMetrics')).to_have_css('width','42px')
+    expect(child(1,'OuterMetrics')).to_have_css('width','54px')
+    expect(child(0,'ColorMetric').nth(0)).to_have_text('Segoe UI:9:18:2')
+    expect(child(1,'ColorMetric').nth(2)).to_have_text('Segoe UI:12:24:6')
     control(page,'ToggleColors').click()
     expect(child(1,'ChooseColor')).to_have_count(0)
     control(page,'ToggleColors').click()
@@ -299,12 +346,16 @@ def check_nested_gallery(page, backend):
     note.evaluate('el=>window.__nestedNote=el')
     control(page,'Unrelated').click()
     expect(note).to_have_value('green draft')
+    expect(child(0,'OuterMetrics')).to_have_css('width','43px')
+    expect(child(1,'OuterMetrics')).to_have_css('width','55px')
     control(page,'ToggleSize').click()
     assert child(1,'Colors').evaluate('el=>parseFloat(el.style.width)')==114
     assert child(1,'ColorNote').nth(0).evaluate('el=>parseFloat(el.style.width)')==30
     assert note.evaluate('el=>el===window.__nestedNote')
     control(page,'SortParents').click()
     expect(child(0,'OuterName')).to_have_value('Install')
+    expect(child(0,'OuterMetrics')).to_have_text('Segoe UI:12:24')
+    expect(child(0,'ColorMetric').nth(2)).to_have_text('Segoe UI:12:24:6')
     expect(child(0,'ChosenPreview')).to_have_text('green')
     expect(child(0,'ColorNote').nth(1)).to_have_value('green draft')
     assert child(0,'ColorNote').nth(1).evaluate('el=>el===window.__nestedNote')

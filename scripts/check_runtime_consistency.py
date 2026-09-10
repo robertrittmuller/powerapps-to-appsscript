@@ -23,6 +23,8 @@ STATIC = REPO / "static"
 
 # (name, expected first params in the runtime definition, min arg count)
 EXPECTED = {
+    'controlElement': (['name'], 1),
+    'registerRowProps': (['row', 'name', 'parentName', 'propertyFns'], 4),
     'gallery': (['name', 'itemsFn', 'rowFn', 'handlers', 'controlFields', 'config'], 6),
     'rowGallery': (['row', 'name', 'itemsFn', 'rowFn', 'handlers', 'controlFields', 'config'], 7),
     'registerGalleryTemplate': (['name', 'parentName', 'sizeFn'], 3),

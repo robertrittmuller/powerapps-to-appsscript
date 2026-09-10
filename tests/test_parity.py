@@ -103,8 +103,8 @@ def test_transparent_colors_sizing_line_height_and_dynamic_images():
     assert "line-height:1.2" in screens and "line-height:1.2px" not in screens
     assert "styleControl('Title', 'backgroundColor'" not in app_js
     assert "FXRuntime.attrControl('Avatar', 'src'" in app_js
-    assert "FXRuntime.optionRecord(r, displayFields)" in app_js
-    assert "el.__fxRecords = rows || []" in app_js
+    assert "FXRuntime.rowControl(document," in app_js
+    assert "items: function () { return rows; }" in app_js
     assert 'class="fx-image"' in screens
     assert "[data-control] { box-sizing: border-box; }" in index
     assert "padding: 16px" not in index

@@ -21,6 +21,64 @@ require('../../static/fx-stdlib.js');
 require('../../static/gas-runtime.js');
 const RT = global.FXRuntime;
 
+test('row property definitions resolve in their own scope and detect actual dependency cycles', () => {
+  const first={tagName:'SPAN',textContent:'first',style:{}},second={tagName:'SPAN',textContent:'second',style:{}};
+  const row1={querySelector:name=>name.includes('ScopedCaption')?first:null};
+  const row2={querySelector:name=>name.includes('ScopedCaption')?second:null};
+  let size=9;
+  RT.registerRowProps(row1,'ScopedCaption',null,{size:()=>size,padding_left:(_read,self)=>self.size+2});
+  RT.registerRowProps(row2,'ScopedCaption',null,{size:()=>RT.rowValue(row1,'ScopedCaption').size+3});
+  assert.strictEqual(RT.rowValue(row1,'ScopedCaption').padding_left,11);
+  assert.strictEqual(RT.rowValue(row2,'ScopedCaption').size,12,'same-named instances are independent dependencies');
+  size=20;
+  assert.strictEqual(RT.rowValue(row1,'ScopedCaption').padding_left,22);
+  assert.strictEqual(RT.rowValue(row2,'ScopedCaption').size,23);
+  RT.registerRowProps(row1,'ScopedCaption',null,{size:(read)=>read('ScopedCaption').size});
+  assert.throws(()=>RT.rowValue(row1,'ScopedCaption').size,/Circular control property/);
+});
+
+test('control lookup caches stable nodes but observes replacements and reordered gallery instances', () => {
+  const original=global.document.querySelector;
+  let calls=0,current={isConnected:true,closest:()=>null};
+  global.document.querySelector=()=>{calls++;return current;};
+  try {
+    assert.strictEqual(RT.controlElement('LookupContract'),current);
+    assert.strictEqual(RT.controlElement('LookupContract'),current);
+    assert.strictEqual(calls,1);
+    current.isConnected=false;
+    current={isConnected:true,closest:()=>null};
+    assert.strictEqual(RT.controlElement('LookupContract'),current);
+    assert.strictEqual(calls,2);
+    current.isConnected=false;
+    const first={isConnected:true,closest:()=>({})},second={isConnected:true,closest:()=>({})};
+    current=first;
+    assert.strictEqual(RT.controlElement('LookupContract'),first);
+    current=second;
+    assert.strictEqual(RT.controlElement('LookupContract'),second);
+    assert.strictEqual(calls,4,'global gallery references must follow current row order');
+  } finally { global.document.querySelector=original; }
+});
+
+test('control references avoid layout measurement when inline geometry is available', () => {
+  const original=global.document.querySelector;
+  let measurements=0;
+  const el={tagName:'SPAN',textContent:'Ready',style:{width:'120px',height:'30px',left:'8px',top:'12px'},
+    getBoundingClientRect() { measurements++; return {width:130,height:40,left:18,top:22}; }};
+  global.document.querySelector=()=>el;
+  try {
+    const inline=global.val('MeasuredLabel');
+    assert.deepStrictEqual([inline.text,inline.width,inline.height,inline.x,inline.y],['Ready',120,30,8,12]);
+    assert.strictEqual(measurements,0,'reading source-sized controls must not force browser layout');
+    delete el.style.height;delete el.style.top;
+    const fallback=global.val('MeasuredLabel');
+    assert.deepStrictEqual([fallback.width,fallback.height,fallback.x,fallback.y],[120,40,8,22]);
+    assert.strictEqual(measurements,1,'missing inline dimensions share one measured rectangle');
+    el.style.width='240px';
+    assert.strictEqual(global.val('MeasuredLabel').width,240);
+    assert.strictEqual(measurements,2,'a later reference must observe current geometry');
+  } finally { global.document.querySelector=original; }
+});
+
 test('gallery template dimensions exist before the first Items binding mounts rows', () => {
   const vm = require('node:vm'), fs = require('node:fs');
   const gallery = {tagName:'DIV',style:{width:'390px'},textContent:'',
@@ -473,6 +531,31 @@ test('Dropdown Selected and ComboBox SelectedItems preserve source records', () 
   assert.strictEqual(options[0].selected, true);
   assert.strictEqual(options[1].selected, false);
   global.document.querySelector = original;
+});
+
+test('Reset restores single-record, table and Blank select defaults without stringifying them', () => {
+  const vm=require('node:vm'),fs=require('node:fs');
+  const records=[{id:'a',name:'Ada'},{id:'b',name:'Grace'}],attrs={};
+  const options=records.map((record,index)=>({value:record.id,index,selected:false,
+    getAttribute:()=>String(index)}));
+  const el={tagName:'SELECT',style:{},options,__fxRecords:records,
+    get selectedOptions() {return options.filter(option=>option.selected);},
+    get selectedIndex() {return options.findIndex(option=>option.selected);},
+    set selectedIndex(index) {options.forEach((option,i)=>{option.selected=i===index;});},
+    get value() {return this.selectedOptions[0]?.value || '';},
+    set value(value) {options.forEach(option=>{option.selected=option.value===value;});},
+    getAttribute:key=>attrs[key]??null,setAttribute:(key,value)=>{attrs[key]=value;}};
+  const document={querySelector:()=>el,getElementById:()=>null,addEventListener:()=>{}};
+  const ctx=vm.createContext({document});ctx.window=ctx;
+  vm.runInContext(fs.readFileSync(require.resolve('../../static/gas-runtime.js'),'utf8'),ctx);
+  const rt=ctx.FXRuntime;
+  for (const defaults of [records[1],records,null]) {
+    rt.rowControl(document,'People',null,{default:()=>defaults});
+    rt.applyDefaultSelection(el,records[0]);
+    rt.resetRowControl(document,'People');
+    const expected=defaults===null?[]:Array.isArray(defaults)?['a','b']:['b'];
+    assert.deepStrictEqual(options.filter(option=>option.selected).map(option=>option.value),expected);
+  }
 });
 
 test('date controls expose local dates and Blank, including pre-100 years and invalid values', () => {

@@ -6,6 +6,7 @@ Run: ./pfx2gas browser scripts/assess_milestones_workflow.py
 """
 import hashlib
 import json
+import time
 
 from browser_check import OUT, REPO, control, run_case
 from playwright.sync_api import expect, sync_playwright
@@ -29,8 +30,9 @@ def seed(backend):
             'googlePeople':'explicit native API fixtures; no live Google authorization'}
 
 
-def main(project=False):
-    name=NAME+('-project' if project else '')
+def main(project=False,workitem=False):
+    project=project or workitem
+    name=NAME+('-workitem' if workitem else '-project' if project else '')
     steps=[]
     def check(name,action):
         try:
@@ -40,8 +42,10 @@ def main(project=False):
     def journey(page,backend):
         page.set_default_timeout(5000)
         def snapshot():
-            records={source:backend({'fn':'api','args':[source,'list',{}]})
-                     for source in ['Project User Settings','Projects','Project Team Members','Project Milestones']}
+            sources=['Project User Settings','Projects','Project Team Members','Project Milestones']
+            if workitem:
+                sources+=['Project Work Items','Project Work Item Statuses','Project Work Item Categories','Project Work Item Priorities']
+            records={source:backend({'fn':'api','args':[source,'list',{}]}) for source in sources}
             (OUT/name/'saved-records.json').write_text(json.dumps(records,indent=2)+'\n')
         try:
             check('source-loading-transition',lambda:expect(page.locator('[data-screen="Projects Screen"]')).to_be_visible(timeout=10000))
@@ -161,6 +165,119 @@ def main(project=False):
                     assert [row['msft_color'] for row in milestones]==['#5AC6CC','#F4B9B9','#F0F9FA'],{
                         'milestoneColors':[row['msft_color'] for row in milestones]}
                 check('independent-milestone-colors-persist',milestone_colors)
+                if workitem:
+                    backend({'fn':'__peopleResponses','args':[[response,response]]})
+                    page.reload()
+                    check('project-screen-after-reload',lambda:expect(page.locator('[data-screen="Projects Screen"]')).to_be_visible(timeout=10000))
+                    projects=control(page,'galProjects')
+                    check('saved-project-listed-after-reload',lambda:expect(projects.locator('[data-control="lblProjects_ProjectName"]')).to_have_text(['Facilities renewal']))
+                    check('select-saved-project',lambda:projects.locator('[data-control="btnProjects_Foreground"]').first.click())
+                    check('saved-project-header',lambda:expect(control(page,'lblProjectName')).to_have_text('Facilities renewal'))
+                    def open_work_item():
+                        started=time.monotonic()
+                        try:
+                            control(page,'btnNewWorkItem').click()
+                        finally:
+                            elapsed=time.monotonic()-started
+                            (OUT/name/'work-item-click-timing.json').write_text(json.dumps({'seconds':elapsed})+'\n')
+                    check('new-work-item-action',open_work_item)
+                    check('new-work-item-screen',lambda:expect(page.locator('[data-screen="Add/Edit Work Item"]')).to_be_visible())
+                    save=control(page,'btnCreateWorkItem')
+                    check('empty-work-item-name-disables-create',lambda:expect(save).to_be_disabled())
+                    selectors=['cmbAddWorkItemTeamMember','cmbAddWorkItemMilestone','cmbAddWorkItemStatus','cmbAddWorkItemCategory','cmbAddWorkItemPriority']
+                    options={selector:control(page,selector).locator('option').all_text_contents() for selector in selectors}
+                    (OUT/name/'work-item-options.json').write_text(json.dumps(options,indent=2)+'\n')
+                    check('migrated-project-member-option',lambda:expect(control(page,selectors[0]).locator('option')).to_contain_text(['Ada Lovelace']))
+                    check('persisted-milestone-options',lambda:expect(control(page,selectors[1]).locator('option')).to_contain_text(['Survey site','Replace equipment','Review handover']))
+                    check('assign-work-item-google-user',lambda:control(page,selectors[0]).select_option(label='Ada Lovelace'))
+                    check('assign-work-item-milestone',lambda:control(page,selectors[1]).select_option(label='Replace equipment'))
+                    control(page,'txtAddWorkItemName').fill('Survey the north entrance')
+                    control(page,'txtAddWorkItemDesc').fill('Measure access clearance.\nRecord photos in the project notes.')
+                    control(page,'datAddWorkItemTargetDate').fill('2026-03-09')
+                    check('work-item-name-enables-create',lambda:expect(save).to_be_enabled())
+                    page.screenshot(path=str(OUT/name/'work-item-draft.png'),full_page=True)
+                    check('create-work-item',lambda:save.click())
+                    check('return-from-work-item',lambda:expect(page.locator('[data-screen="Projects Screen"]')).to_be_visible())
+                    check('work-item-callbacks-settle',lambda:page.wait_for_function('async()=>await window.__waitForGasIdle()',timeout=10000))
+                    def work_item_record():
+                        records=backend({'fn':'api','args':['Project Work Items','list',{}]})['result']
+                        assert len(records)==1,{'count':len(records)}
+                        record=records[0]
+                        assert record['msft_name']=='Survey the north entrance',record['msft_name']
+                        assert record['msft_description']=='Measure access clearance.\nRecord photos in the project notes.',record['msft_description']
+                        assert record['msft_etadate']=='2026-03-09T04:00:00.000Z',record['msft_etadate']
+                    check('saved-work-item-text-and-date',work_item_record)
+                    created=backend({'fn':'api','args':['Project Work Items','list',{}]})['result'][0]
+                    observed={'created':created}
+                    def retain_work_item_evidence():
+                        (OUT/name/'work-item-records.json').write_text(json.dumps(observed,indent=2)+'\n')
+                    retain_work_item_evidence()
+                    def linked_records():
+                        for field,source,title in [('msft_project_id','Projects','Facilities renewal'),
+                                ('msft_milestone_id','Project Milestones','Replace equipment'),
+                                ('msft_teammember_id','Project Team Members','Ada Lovelace')]:
+                            targets=backend({'fn':'api','args':[source,'list',{}]})['result']
+                            target=next(record for record in targets if record['msft_name']==title)
+                            assert created[field]['id']==target['id'],{'field':field,'actual':created[field].get('id'),'expected':target['id']}
+                        assert created['msft_teammember_id']['msft_userid']=='business.tester@example.test'
+                    check('saved-work-item-links-and-google-assignee',linked_records)
+                    items=control(page,'galWorkItems')
+                    title=items.locator('[data-control="lblWorkItemTitle"]')
+                    check('saved-work-item-visible',lambda:expect(title).to_have_text(['Survey the north entrance']))
+                    check('saved-work-item-milestone-label',lambda:expect(items.locator('[data-control="lblWorkItemMilestone"]')).to_have_text(['Replace equipment']))
+                    check('saved-work-item-assignee-label',lambda:expect(items.locator('[data-control="lblWorkItemAssignedTo"]')).to_have_text(['Ada Lovelace']))
+                    backend({'fn':'__peopleResponses','args':[[response,response]]})
+                    page.reload()
+                    expect(page.locator('[data-screen="Projects Screen"]')).to_be_visible(timeout=10000)
+                    projects.locator('[data-control="btnProjects_Foreground"]').first.click()
+                    check('work-item-visible-after-reload',lambda:expect(title).to_have_text(['Survey the north entrance']))
+                    check('reopen-work-item',lambda:items.locator('[data-control="btnWorkItemsForeground"]').first.click())
+                    check('edit-work-item-screen',lambda:expect(page.locator('[data-screen="Add/Edit Work Item"]')).to_be_visible())
+                    def restored_editor():
+                        expect(control(page,'txtAddWorkItemName')).to_have_value('Survey the north entrance')
+                        expect(control(page,'txtAddWorkItemDesc')).to_have_value('Measure access clearance.\nRecord photos in the project notes.')
+                        expect(control(page,'datAddWorkItemTargetDate')).to_have_value('2026-03-09')
+                        expect(control(page,selectors[0]).locator('option:checked')).to_have_text(['Ada Lovelace'])
+                        expect(control(page,selectors[1]).locator('option:checked')).to_have_text(['Replace equipment'])
+                    check('work-item-editor-restores-values-and-links',restored_editor)
+                    control(page,'txtAddWorkItemName').fill('Confirm north entrance clearance')
+                    control(page,'datAddWorkItemTargetDate').fill('2026-03-11')
+                    check('save-work-item-edits',lambda:save.click())
+                    expect(page.locator('[data-screen="Projects Screen"]')).to_be_visible()
+                    page.wait_for_function('async()=>await window.__waitForGasIdle()',timeout=10000)
+                    def edited_record():
+                        records=backend({'fn':'api','args':['Project Work Items','list',{}]})['result']
+                        assert len(records)==1,{'count':len(records)}
+                        record=records[0]
+                        observed['edited']=record;retain_work_item_evidence()
+                        assert record['id']==created['id']
+                        assert record['msft_name']=='Confirm north entrance clearance'
+                        assert record['msft_etadate']=='2026-03-11T04:00:00.000Z'
+                        assert record['msft_teammember_id']['id']==created['msft_teammember_id']['id']
+                        assert record['msft_milestone_id']['id']==created['msft_milestone_id']['id']
+                    check('work-item-edit-retains-record-and-linked-identities',edited_record)
+                    check('edited-work-item-listed-once',lambda:expect(title).to_have_text(['Confirm north entrance clearance']))
+                    backend({'fn':'__peopleResponses','args':[[response,response]]})
+                    page.reload()
+                    expect(page.locator('[data-screen="Projects Screen"]')).to_be_visible(timeout=10000)
+                    projects.locator('[data-control="btnProjects_Foreground"]').first.click()
+                    check('edited-work-item-survives-reload',lambda:expect(title).to_have_text(['Confirm north entrance clearance']))
+                    page.screenshot(path=str(OUT/name/'work-item-reloaded.png'),full_page=True)
+                    check('select-work-item-for-deletion',lambda:items.locator('[data-control="chkSelectWorkItem"]').first.check())
+                    check('selection-stays-on-project-screen',lambda:expect(page.locator('[data-screen="Projects Screen"]')).to_be_visible())
+                    check('open-work-item-deletion-dialog',lambda:control(page,'imgDeleteWorkItems').click())
+                    check('deletion-requires-confirmation',lambda:expect(control(page,'btnDeleteWarning')).to_be_disabled())
+                    check('confirm-work-item-deletion',lambda:control(page,'chkConfirmDelete').check())
+                    check('delete-selected-work-item',lambda:control(page,'btnDeleteWarning').click())
+                    page.wait_for_function('async()=>await window.__waitForGasIdle()',timeout=10000)
+                    def removed_record():
+                        observed['afterDelete']=backend({'fn':'api','args':['Project Work Items','list',{}]})['result']
+                        retain_work_item_evidence()
+                        assert observed['afterDelete']==[]
+                        assert len(backend({'fn':'api','args':['Projects','list',{}]})['result'])==1
+                        assert len(backend({'fn':'api','args':['Project Milestones','list',{}]})['result'])==3
+                    check('work-item-deletion-preserves-project-and-milestones',removed_record)
+                    check('deleted-work-item-disappears',lambda:expect(title).to_have_count(0))
         finally:
             snapshot()
             (OUT/name/'runtime-state.json').write_text(json.dumps(page.evaluate("""() => ({
@@ -178,7 +295,7 @@ def main(project=False):
             solution=REPO/'samples/microsoft/Milestones.solution.zip',setup_backend=seed,
             timezone_id='America/New_York',running_time='2026-03-01T16:00:00+00:00')
         browser.close()
-    result.update(sourceAppId='milestones',steps=steps,assessmentScope='first-run onboarding and persisted settings across two simulated Google users'+('; project creation probe' if project else ''),
+    result.update(sourceAppId='milestones',steps=steps,assessmentScope='first-run onboarding and persisted settings across two simulated Google users'+('; project creation probe' if project else '')+('; work-item create/edit/delete and preserved assignment/milestone links' if workitem else ''),
                   completeUsability='unassessed')
     (OUT/name/'result.json').write_text(json.dumps(result,indent=2)+'\n')
     print(json.dumps({'status':result['status'],'steps':steps},indent=2))
@@ -189,4 +306,6 @@ if __name__=='__main__':
     import argparse
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--project',action='store_true',help='Continue through the original project creation workflow')
-    raise SystemExit(main(project=parser.parse_args().project))
+    parser.add_argument('--workitem',action='store_true',help='Continue project creation through the original work-item workflow')
+    args=parser.parse_args()
+    raise SystemExit(main(project=args.project,workitem=args.workitem))

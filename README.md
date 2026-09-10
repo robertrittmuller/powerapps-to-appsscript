@@ -212,9 +212,14 @@ All 19 checks pass. Its `--project` probe reaches project/member creation throug
 native Google People fixtures and saves three distinct edited milestone names and dates.
 All 39 checks pass, including dates across the daylight-saving change, opening
 the second nested color picker, selecting a different color, and preserving each
-milestone's name/date/color in storage. This proves the tested creation path with
-API fixtures; remaining settings/work-item workflows and complete app usability
-are unassessed. Source/data hashes and records are in `.artifacts/browser/`.
+milestone's name/date/color in storage. Adding `--workitem` passes 75 checks through
+project creation, work-item creation, Google-user assignment, milestone linkage,
+reload, reopening with typed defaults, edit and confirmed deletion. It retains
+the same work-item ID and linked identities through edits, and deletion preserves
+the project and its milestones. These use generated Code.gs and native Google
+API fixtures. Clipped headings, narrow milestone labels, settings/status setup,
+broader workflows and complete app usability remain open. Source/data hashes,
+records and screenshots are in `.artifacts/browser/`.
 The normal `./pfx2gas soak` enforces the existing
 required regression corpus, including failed required journeys and missing apps.
 It currently fails Editable Grid because its choice formulas reference the
@@ -225,7 +230,9 @@ dependency failure instead of returning an empty successful response.
 galleries, timer lifecycles, launch parameters, local drafts, Dataverse record
 contracts, complete source timestamp/URL-validation formulas, responsive and
 scaled canvases, card grids, responsive gallery template sizes and horizontal wrapping, the migrated Planner task board,
-native Google directory assignments, Chat selectors/notifications, Fluent date entry/reset/bulk save,
+native Google directory assignments, Chat selectors/notifications, record-valued
+selector defaults/reset in both standalone and row controls, independent nested
+property reads, checkbox editing without accidental gallery navigation, Fluent date entry/reset/bulk save,
 typed collection aliases and conditional draft
 updates in Chromium, plus HelpDesk
 when its local export is present. It runs
