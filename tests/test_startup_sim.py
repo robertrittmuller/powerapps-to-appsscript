@@ -312,6 +312,36 @@ def test_generated_fluent_date_defaults_edits_reset_and_bulk_save(tmp_path):
     assert verdict['journeyResults'][0]['status']=='pass',verdict
 
 
+def test_generated_nested_galleries_keep_defaults_selection_reset_and_bulk_saves_per_parent(tmp_path):
+    from pfx2gas.analyze import analyze
+    from pfx2gas.parse import parse
+    from pfx2gas.startup_sim import simulate_project
+    from pfx2gas.synth.build import synthesize
+    from pfx2gas.unpack import unpack
+    ir=analyze(parse(unpack(FIXTURES/'fixtureNestedGallery.msapp')))
+    project=synthesize(ir,tmp_path/'Nested')
+    verdict=simulate_project(project,[{'id':'independent-nested-galleries','steps':[
+        {'action':'expectText','control':'ChosenPreview','gallery':'OuterRows','row':0,'equals':'red'},
+        {'action':'expectText','control':'ChosenPreview','gallery':'OuterRows','row':1,'equals':'blue'},
+        {'action':'click','control':'ChooseColor','gallery':'OuterRows','row':1},
+        {'action':'expectState','key':'chosenCaption','equals':'red for Install'},
+        {'action':'expectState','key':'parentCaption','equals':'Install'},
+        {'action':'expectState','key':'parentCalls','equals':1},
+        {'action':'expectText','control':'ChosenPreview','gallery':'OuterRows','row':1,'equals':'red'},
+        {'action':'click','control':'ResetColors','gallery':'OuterRows','row':1},
+        {'action':'expectText','control':'ChosenPreview','gallery':'OuterRows','row':1,'equals':'blue'},
+        {'action':'click','control':'SortParents'},
+        {'action':'expectValue','control':'OuterName','gallery':'OuterRows','row':0,'equals':'Install'},
+        {'action':'click','control':'ChooseColor','gallery':'OuterRows','row':0},
+        {'action':'click','control':'SaveAll'},
+        {'action':'expectState','key':'saved','equals':True},
+        {'action':'expectDataRow','source':'Parents','where':{'id':'one','name':'Survey','chosen':'red'}},
+        {'action':'expectDataRow','source':'Parents','where':{'id':'two','name':'Install','chosen':'red'}},
+    ]}])
+    assert not verdict['consoleErrors'],verdict
+    assert verdict['journeyResults'][0]['status']=='pass',verdict
+
+
 def test_generated_timers_initialize_data_and_leave_loading_screen(tmp_path):
     from pfx2gas.analyze import analyze
     from pfx2gas.parse import parse

@@ -1,4 +1,4 @@
-# pfx2gas — Gap Assessment & Roadmap (updated 2026-09-09)
+# pfx2gas — Gap Assessment & Roadmap (updated 2026-09-10)
 
 The product goal is to convert common business Power Apps canvas apps into
 Google-hosted apps that work correctly and preserve as much of the original UI
@@ -193,9 +193,9 @@ unconditional Unrelate leaves no voting-user link in this run. This is a source
 race risk requiring original-app review; the converter does not rewrite it.
 Ratings, attachments, manager workflows and
 complete usability remain unassessed.
-Milestones also exposes a nonfinite dtcSettings.Height dependency during startup;
-the new card layout gate surfaces it instead of silently accepting NaN geometry.
-Twenty generated-fixture Chromium journeys pass. Fixtures are regression
+Milestones' previously nonfinite settings-card dimensions are repaired. Its
+populated project-creation path now passes 39 checks. Twenty-three
+generated-fixture Chromium journeys pass. Fixtures are regression
 evidence, not additional real acceptance apps. The last recorded Google
 deployment remains HelpDesk @14.
 
@@ -254,24 +254,38 @@ civil days and DateAdd clones its input. Strict arithmetic exposed omitted Self
 sizing dependencies, legacy screen-size cases and Split/Result glyph-width
 calculations; these now execute without the Milestones layout errors. Semantic
 properties resolve once per control snapshot, with cycle checks. The original
-project journey passes 32 checks and saves distinct dates; nested colors remain
-a failure. Typed Time arithmetic, ISO operand typing, tenant timezone settings,
+project journey now passes 39 checks and saves distinct names, dates and edited
+colors; complete project/work-item functionality remains unassessed. Typed Time arithmetic, ISO operand typing, tenant timezone settings,
 calendar appearance and full date semantics remain open. Split's legacy Result
 alias survives AddColumns but not all table-copy/serialization paths; the
 per-formula ledger records that limitation and native-calendar differences.
+
+Nested galleries now render as independent instances owned by their outer row.
+Default/Selected, ThisItem.IsSelected, parent control reads/actions, template sizes
+and loaded control values retain their scope. Node and Chromium verify selection,
+empty/repopulated items, edits through parent sorting and resize, non-recursive
+Reset, keyboard interaction and correct-record bulk persistence. The simulator
+now parses balanced nested templates instead of flattening their children. A real
+Milestones click exposed transparent button text intercepting a neighboring
+control outside its rectangle; generated buttons now clip content, and the exact
+long-label pattern is a browser regression. Row/AllItems copies preserve hidden
+logical-name aliases, preventing a caught Employee Ideas reopening regression.
+All 39 populated project-creation
+checks pass with Google API fixtures. Eager loading, cross-level record aliases,
+other nested controls and complete visual/workflow parity remain review items.
 
 ## Current evidence and its limits
 
 | Evidence | Latest result | What remains unproven |
 |---|---|---|
-| Unit/runtime tests | 458 Python pass, 3 skip; 99 JS pass; bare globals, FX, FXRuntime and FX.collections emitter/runtime consistency passes | Complete deployed workflows and broader control semantics |
+| Unit/runtime tests | 459 Python pass, 3 skip; 99 JS pass; bare globals, FX, FXRuntime and FX.collections emitter/runtime consistency passes | Complete deployed workflows and broader control semantics |
 | Current real-app soak | 5/5 valid code and generated-server initialization; 4/5 Bootable; 1,145 formulas | Editable Grid requests choices from unexported Student Tracker; the former empty-success simulator hid this dependency. Usability unassessed; five historical local exports are absent |
 | Current regression translation/wiring | 1,140 translated; 973 emitted, 14 approximated, 158 ignored/unsupported | Translation does not establish runtime behavior |
 | Historical ten-app corpus | Previously 10/10 Bootable; 23,746 formulas | Not reproduced in this workspace; those results did not establish usability |
 | HelpDesk generated-app journeys | HOME → NEW → HOME; dashboard row text, logo URI, pie and legend output pass | All-screen interactions, image decoding/layout in CI, persistence |
 | HelpDesk @14 live browser | Ticket cards, decoded 64×64 logos, pie/bar/legend SVGs, readable fonts/labels, HOME → NEW → HOME | Same-state original comparison, user name/avatar, complete workflow coverage |
 | Chromium: business form | Actual generated client + Code.gs: edit/create, required validation, write failure, delete and page reload pass against a persistent Sheets test double | Real Google authorization/Sheets writes and another user/session |
-| Chromium regression suite | 22/22 fixtures pass, including Fluent date input/reset/focus/bulk save across DST, Self sizing dependencies, responsive gallery template sizes and empty cards, native Chat selectors/notifications, stable horizontal gallery geometry/wrapping, native Google directory search/profile/photo assignment, imported Planner tasks, persisted relationships and relative-date view save/reload; three intentional failure gates preserve failed verdicts | Real Google services, real-app critical workflows and original visual comparisons; HelpDesk is absent here |
+| Chromium regression suite | 23/23 fixtures pass, including independent nested galleries, parent selection, non-recursive reset and bounded color-button clicks, Fluent date input/reset/focus/bulk save across DST, Self sizing dependencies, responsive gallery template sizes and empty cards, native Chat selectors/notifications, stable horizontal gallery geometry/wrapping, native Google directory search/profile/photo assignment, imported Planner tasks, persisted relationships and relative-date view save/reload; three intentional failure gates preserve failed verdicts | Real Google services, real-app critical workflows and original visual comparisons; HelpDesk is absent here |
 | Planner to Google adapter | Eight operations use generated Code.gs and a reserved Sheets task-board store. Chromium lists plans/buckets/tasks, creates and assigns, writes descriptions, selects/updates, reloads and recovers from failed writes. Labels and geometry pass. Missing migration, unknown/unmapped identity, denied membership, invalid dates and oversized records fail explicitly | Native Tasks UI, Planner roles/audit metadata, ordering hints, categories, notifications, aliases/additional operations and complete real-app workflows. Workbook editors bypass API membership checks; live identity and storage access require deployment verification |
 | Office365Users/Microsoft365Users to Google | SearchUser, UserProfileV2 and UserPhotoV2 use native Google People with explicit source-ID/account mappings and manifest scopes. Chromium searches, selects the correct profile/photo, excludes the assigned person, creates a task with the preserved source ID, reloads, and recovers from API/write failures | Native API responses and images are authored fixtures. Live directory access/photo visibility, unsupported Microsoft fields, exact search semantics and complete real-app assignment flows remain unverified. Owner-delegated access is denied |
 | MicrosoftTeams to Google Chat | Four exported operations preserve source team/channel IDs through explicit named-space mappings. Native joined-space checks, deterministic supported HTML-to-Markdown posts, byte limits and API failures execute in generated-server tests. Chromium selectors, labels, posting/reload and error recovery pass. The unchanged Employee Ideas notification scenario passes 31 checks | Explicit native API fixtures, no live messages. Google Cloud/OAuth setup, native rendering, richer HTML, attachments, Teams roles/settings, connector aliases and complete workflows remain open; the hierarchy exists in the converted UI rather than native Chat |
@@ -280,7 +294,7 @@ per-formula ledger records that limitation and native-calendar differences.
 | Gallery template dimensions | Static orientation and reactive TemplateSize determine template dimensions before row mounting. Chromium verifies the original loading formula stays 224 × 88, wrapping/selection, responsive 72/84-pixel vertical rows and 48/64-pixel horizontal rows, empty-card heights and retained input nodes/text. The unchanged Milestones settings card is 316 pixels without layout errors | Dynamic orientation/padding/WrapCount, nested galleries, exact native cross-axis sizing and original visual comparison remain gaps |
 | Dataverse ownership | Exported Owner fields default to a migrated Google caller on create; explicit user/team assignments update derived ownership columns while ordinary edits retain ownership. Generated-server tests cover source keys/aliases, two users, team assignment, ambiguous/missing identities and failure without partial writes. Validation checks source/ledger ownership contracts | Ownership is record data; source row security, privileges, cascading assignment, business units, audit/status defaults and live Google execution remain open |
 | Gallery AllItems controls | Loaded records include their own current control values. Generated Node and Chromium tests cover distinct bulk edits, sorting, aliases, nested record scopes, awaited writes and reload. Data records remain unchanged and control values omit DOM nodes from JSON | Gallery loading remains eager; nested galleries and full control-object semantics need further work |
-| Milestones populated onboarding | 19 checks pass across two simulated Google users: source first-run dialog, dismissal, reload, separate settings and returning-user behavior, with zero runtime errors | Project probe passes 32 checks and saves three distinct edited names and dates across DST, then fails because nested-picker colors still fall back to gray. Complete project/work-item functionality and UI remain unproven |
+| Milestones populated onboarding | 19 checks pass across two simulated Google users: source first-run dialog, dismissal, reload, separate settings and returning-user behavior, with zero runtime errors | Project creation passes 39 checks, including edited names, dates across DST, a pointer-selected nested color, visible preview and independent persisted colors. Complete project/work-item functionality and UI remain unproven |
 | Microsoft generated-server initialization | Six exports: setup and reads across 124 tables and 302 choice fields pass in the Sheets test double | Tenant data migration, real Google writes, source defaults, calculations, relationships and permissions |
 | Microsoft business baseline | 6/6 convert and validate; 2/6 pass short startup (Employee Ideas, Inspection) | Migrated identities and Teams/Planner dependencies still fail prerequisites |
 | Microsoft first actions | All three default probes fail. A separate Inspection probe with an authored imported Google task board passes all five checks and has zero runtime errors; it cannot overwrite the default missing-migration failure. Populated Employee Ideas passes 29 checks through mobile submission and reload. Optional voting persists its count but source Concurrent removes the voter link | Complete inspection/task creation, voting ordering, ratings, attachments, real Google persistence, identities and UI parity; partial success never promotes an app to Usable |
@@ -414,7 +428,7 @@ full dependency list:
 | Employee Ideas Manager | GetAllTeams requires explicit Chat migration and native authorization | Complete team/channel setup, campaign editing and notifications with migrated data |
 | Inspection | Leaves Landing for Welcome/Items; all five first-action checks pass with an explicitly imported Sheets task board. Unmigrated Planner fails | Local drafts, shared tasks and native Google directory assignment pass in fixtures; full real inspection/task submission, migrated identities and Teams-to-Chat posting remain |
 | Inspection Manager | Current-user identity and required Chat/Planner migrations | Plan/bucket/task/group-plan setup and complete inspection management; URL validation formula has executed evidence |
-| Milestones | Default initialization needs user/directory migration. With migrated users, 32 project checks pass; saved nested-picker colors remain gray | Complete project/task creation, assignment, relational data and readable onboarding/layout |
+| Milestones | Default initialization needs user/directory migration. With migrated users, 39 project-creation checks pass, including edited nested colors | Complete project/task creation, assignment, relational data and readable onboarding/layout |
 | Review Inspections | Current-user identity; Planner migration is also required | Complete review workflow, inspection data, task associations and live authorization |
 
 Typed toggle values, source canvas dimensions, OnHidden initialization and

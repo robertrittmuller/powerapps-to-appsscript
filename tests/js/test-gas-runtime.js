@@ -565,20 +565,31 @@ test('gallery row selection exposes Selected and row-specific AllItems control r
   global.document.querySelector = (selector) => selector.includes('PeopleGallery') ? host
     : rows[0] ? rows[0].child : null;
   const items = [{ id: 1, name: 'Ada' }, { id: 2, name: 'Grace' }];
+  items.forEach(item => Object.defineProperty(item, 'source_name', {
+    configurable:true, get() { return this.name; },
+  }));
+  const rowScopes = [];
   RT.gallery('PeopleGallery', () => items, (item, row) => {
+    rowScopes.push(item);
     RT.rowControl(row, 'Name', 'PeopleGallery', {
       text: () => item.name,
       left: (_read, _self, parent) => parent.template_width - 5,
       height: (_read, _self, parent) => parent.template_height,
     });
   }, null, {Name:'name_control'});
-  assert.strictEqual(RT.gallery.length,5);
+  assert.strictEqual(RT.gallery.length,6);
+  assert.strictEqual(RT.rowGallery.length,7);
   RT.updateBindings();
   assert.strictEqual(rows.length, 2);
   assert.strictEqual(rows[0].style.minHeight, '87px');
   assert.strictEqual(rows[0].style.padding, '3px');
   assert.strictEqual(rows[0].child.textContent, 'Ada');
   assert.strictEqual(rows[1].child.textContent, 'Grace');
+  assert.strictEqual(rowScopes[0].source_name,'Ada','ThisItem must retain non-enumerable source aliases');
+  assert.strictEqual(rowScopes[1].source_name,'Grace');
+  assert.strictEqual(rowScopes[0].is_selected,true);
+  assert.strictEqual(rowScopes[1].is_selected,false);
+  assert.strictEqual(items[0].is_selected,undefined,'selection metadata must not mutate data records');
   assert.strictEqual(rows[0].child.style.left, '205px');
   const retained = rows.slice();
   RT.setState({unrelatedUpdate: 1});
@@ -588,6 +599,7 @@ test('gallery row selection exposes Selected and row-specific AllItems control r
   rows[1].click();
   assert.deepStrictEqual(global.val('PeopleGallery').selected, items[1]);
   const loaded=global.val('PeopleGallery').all_items;
+  assert.deepStrictEqual(loaded.map(row=>row.source_name),['Ada','Grace'],'AllItems must retain source aliases');
   assert.deepStrictEqual(loaded.map(row=>[row.id,row.name,row.name_control.text]),[[1,'Ada','Ada'],[2,'Grace','Grace']]);
   assert.strictEqual(global.val('PeopleGallery').all_items_count,2);
   assert.strictEqual(loaded[1].name_control.el,undefined);

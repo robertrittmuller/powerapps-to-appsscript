@@ -103,6 +103,34 @@ def main(project=False):
                     dates.nth(1).fill('2026-03-10')
                     dates.nth(2).fill('2026-03-20')
                 check('edit-independent-milestone-dates',edit_dates)
+                def default_colors():
+                    selected=page.evaluate("""() => [...document.querySelector('[data-control="galAddMilestones"]').querySelector(':scope > .fx-rows').children]
+                        .map(row => FXRuntime.rowValue(row, 'galMilestoneColorPicker').selected.color)""")
+                    assert selected==['#5AC6CC','#C5E9EA','#F0F9FA'],selected
+                check('source-default-color-selections',default_colors)
+                check('open-second-color-picker',lambda:control(page,'btnMilestoneColor').nth(1).click())
+                picker=control(page,'galMilestoneColorPicker').nth(1)
+                check('second-color-picker-visible',lambda:expect(picker).to_be_visible())
+                def choose_color():
+                    button=picker.locator('[data-control="btnColorPreview"]').filter(has_text='#F4B9B9')
+                    picker.evaluate('''host=>{window.__colorClicks=[];host.addEventListener('click',event=>{
+                        const row=event.target.closest('.fx-row');
+                        const record={target:event.target.dataset.control,item:row&&row.__fxItem,before:host.__fxValues.selected,
+                            x:event.clientX,y:event.clientY,scroll:host.scrollLeft,rect:event.target.getBoundingClientRect().toJSON()};
+                        window.__colorClicks.push(record);
+                    },true);}''')
+                    evidence={'before':button.evaluate('el=>({text:el.textContent,item:el.closest(".fx-row").__fxItem,rect:el.getBoundingClientRect().toJSON()})')}
+                    evidence['geometry']=picker.evaluate('el=>({scroll:el.scrollLeft,host:el.getBoundingClientRect().toJSON(),buttons:[...el.querySelectorAll("button")].map(btn=>({text:btn.textContent,rect:btn.getBoundingClientRect().toJSON(),width:getComputedStyle(btn).width,minWidth:getComputedStyle(btn).minWidth,padding:getComputedStyle(btn).padding,position:getComputedStyle(btn).position}))})')
+                    button.click()
+                    evidence['after']=picker.evaluate('el=>({selected:el.__fxValues.selected,rows:[...el.querySelector(":scope > .fx-rows").children].map(row=>({item:row.__fxItem,text:row.querySelector("button").textContent}))})')
+                    evidence['clicks']=page.evaluate('window.__colorClicks')
+                    (OUT/name/'color-selection.json').write_text(json.dumps(evidence,indent=2)+'\n')
+                check('choose-second-milestone-color',choose_color)
+                check('color-picker-closes-after-selection',lambda:expect(picker).to_be_hidden())
+                def color_preview():
+                    colors=control(page,'btnMilestoneColor').evaluate_all('els => els.map(el=>getComputedStyle(el).backgroundColor)')
+                    assert colors==['rgb(90, 198, 204)','rgb(244, 185, 185)','rgb(240, 249, 250)'],colors
+                check('independent-edited-color-preview',color_preview)
                 control(page,'txtNewProjectName').fill('Facilities renewal')
                 for index,title in enumerate(['Survey site','Replace equipment','Review handover']):
                     control(page,'txtAddMilestoneName').nth(index).fill(title)
@@ -130,9 +158,9 @@ def main(project=False):
                 check('milestone-edited-dates-persist',milestone_dates)
                 def milestone_colors():
                     milestones=backend({'fn':'api','args':['Project Milestones','list',{}]})['result']
-                    assert [row['msft_color'] for row in milestones]==['#5AC6CC','#C5E9EA','#F0F9FA'],{
+                    assert [row['msft_color'] for row in milestones]==['#5AC6CC','#F4B9B9','#F0F9FA'],{
                         'milestoneColors':[row['msft_color'] for row in milestones]}
-                check('source-milestone-colors-persist',milestone_colors)
+                check('independent-milestone-colors-persist',milestone_colors)
         finally:
             snapshot()
             (OUT/name/'runtime-state.json').write_text(json.dumps(page.evaluate("""() => ({

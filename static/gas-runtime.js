@@ -492,7 +492,7 @@
     var liveProperties = new Set(Object.keys(standard));
     ['template_size','template_width','template_height','template_padding'].forEach(function (key) { liveProperties.add(key); });
     Object.assign(standard, element ? (element.__fxValues || {}) : (controlValues[name] || {}),
-      element ? {} : (cardGeometry[name] || {}));
+      el.__fxValues || {}, element ? {} : (cardGeometry[name] || {}));
     var definitions = !element && controlProperties[name];
     if (definitions) Object.keys(definitions.fns).forEach(function (key) {
       if (liveProperties.has(key)) return; // DOM input values and geometry retain their live contract.
@@ -518,14 +518,16 @@
     // Resolve TemplateSize lazily, before Items mounts rows and independently
     // of control registration order. Responsive formulas must also update the
     // derived dimensions; a stale/absent HTML attribute is not their source.
-    var template = !element && galleryTemplates[name];
+    var template = el.__fxGalleryTemplate || (!element && galleryTemplates[name]);
     if (template || (typeof el.getAttribute === 'function' && el.getAttribute('data-template-size') !== null)) {
       Object.defineProperty(standard, 'template_size', {enumerable: true, get: function () {
         if (!template) return Number(el.getAttribute('data-template-size')) || 0;
-        if (resolvingTemplates.indexOf(name) >= 0) throw new Error('Circular gallery TemplateSize: ' + name);
-        resolvingTemplates.push(name);
+        var token = el.__fxGalleryTemplate ? el : name;
+        if (resolvingTemplates.indexOf(token) >= 0) throw new Error('Circular gallery TemplateSize: ' + name);
+        resolvingTemplates.push(token);
         try {
-          var size = Number(template.fn(val, standard, val(template.parent)));
+          var read = template.read || val;
+          var size = Number(template.fn(read, standard, read(template.parent)));
           if (!Number.isFinite(size)) throw new Error('Non-finite gallery TemplateSize: ' + name);
           return Math.max(1, size);
         } finally { resolvingTemplates.pop(); }
@@ -847,9 +849,16 @@
     evaluator.apply();
   }
 
+  function rowElement(row, name) {
+    for (var scope = row; scope; scope = scope.__fxParentRow) {
+      var el = scope.querySelector('[data-control="' + name + '"]');
+      if (el) return el;
+    }
+    return null;
+  }
+
   function rowValue(row, name) {
-    var el = row && row.querySelector('[data-control="' + name + '"]');
-    return val(name, el);
+    return val(name, rowElement(row, name));
   }
 
   function inputMode(el, mode) {
@@ -888,6 +897,10 @@
     var px = { left: true, top: true, width: true, height: true };
     try {
       Object.keys(propertyFns || {}).forEach(function (key) {
+        if (key === 'templateSize') {
+          el.__fxGalleryTemplate = {fn:propertyFns[key], read:read, parent:parentName};
+          return;
+        }
         var value = propertyFns[key](read, read(name), read(parentName));
         if (key === 'mode') {
           el = inputMode(el, value);
@@ -952,17 +965,28 @@
    * row template, handlers maps control names to event descriptors. Reconcile
    * stable record identities so state updates retain live inputs and focus.
    */
-  function gallery(name, itemsFn, rowFn, handlers, controlFields) {
+  function galleryRecord(item) {
+    // Typed collections carry logical/display-name aliases as non-enumerable
+    // accessors. A row's UI properties must not discard those record fields.
+    var record = Object.defineProperties({}, Object.getOwnPropertyDescriptors(selectionRecord(item) || {}));
+    var source = item && typeof item === 'object' && relationshipRecords.get(item);
+    if (source) tagRelationshipRecord(source, record);
+    return record;
+  }
+
+  function createGallery(name, getHost, parentRow) {
+    var itemsFn, rowFn, handlers, controlFields, config = {};
     var mounted = new Map();
     var identities = new WeakMap(), nextIdentity = 0;
-    galleryLayouts.push(function () {
-      var host = document.querySelector('[data-control="' + name + '"]');
+    var resetRequested = false, defaultSignature;
+    function layout() {
+      var host = getHost();
       if (!rowFn || !host || host.getAttribute('data-gallery-layout') !== 'horizontal') return;
       // Ordinary style bindings may size the gallery after its Items binding.
       // Reapply row geometry against the final size without rerunning Items or
       // remounting controls, so Parent.TemplateHeight is correct on first paint.
-      mounted.forEach(function (row) { rowFn(row.__fxItem,row); });
-    });
+      mounted.forEach(function (row) { rowFn(row.__fxScope,row); });
+    }
     function identity(item) {
       if (item && typeof item === 'object') {
         for (var key of ['id', 'ID', 'key']) {
@@ -997,7 +1021,8 @@
       try { return JSON.stringify(encode(item)); } catch (_) { return null; }
     }
     function choose(row) {
-      controlValues[name] = Object.assign({}, controlValues[name] || {}, {
+      var host = getHost();
+      host.__fxValues = Object.assign({}, host.__fxValues || {}, {
         selected: row.__fxItem, selected_items: [row.__fxItem],
       });
     }
@@ -1007,7 +1032,7 @@
       if (!fn) return Promise.resolve();
       var queued = [];
       return Promise.resolve().then(function () {
-        return fn(row.__fxItem, row, function (target) {
+        return fn(row.__fxScope, row, function (target) {
           queued.push(target === 'Parent' ? descriptor.parent : target === 'Self' ? control : target);
         });
       }).then(function () {
@@ -1018,7 +1043,10 @@
               choose(row);
               return invoke(row, target, 'OnSelect');
             }
-            var targetElement = row.querySelector('[data-control="' + target + '"]');
+            for (var ancestor=row.__fxParentRow;ancestor;ancestor=ancestor.__fxParentRow) {
+              if (ancestor.__fxGalleryName===target) return ancestor.__fxGalleryController.select(ancestor);
+            }
+            var targetElement = rowElement(row,target);
             if (targetElement) targetElement.click();
             else global.selectControl(target);
           });
@@ -1028,9 +1056,19 @@
         toast('Error: ' + (err && err.message ? err.message : err), true);
       });
     }
-    evaluators.push({
+    var controller = {
+      configure: function (items, render, events, fields, options) {
+        itemsFn=items; rowFn=render; handlers=events; controlFields=fields; config=options || {};
+      },
+      reset: function () {
+        resetRequested=true;
+        var host=getHost();
+        if (host) {host.scrollTop=0;host.scrollLeft=0;}
+      },
+      select: function (row) {choose(row);return invoke(row,name,'OnSelect').then(updateBindings);},
+      layout: layout,
       apply: function () {
-        var host = document.querySelector('[data-control="' + name + '"]');
+        var host = getHost();
         if (!host || typeof host.querySelector !== 'function') return;
         // A mounted row can contain another gallery. Its template must never
         // replace this gallery's own template when additional rows are added.
@@ -1040,9 +1078,14 @@
         var items;
         try { items = itemsFn() || []; } catch (e) { console.error('gallery Items error', name, e); items = []; }
         if (!Array.isArray(items)) items = [];
-        var current = controlValues[name] && controlValues[name].selected;
-        var selected = items.find(function (item) { return sameRecord(item, current); }) || null;
-        controlValues[name] = Object.assign({}, controlValues[name] || {}, {
+        var current = host.__fxValues && host.__fxValues.selected;
+        var initial = config.Default ? config.Default() : null;
+        var signature = valueKey(initial);
+        var reset = resetRequested || defaultSignature !== signature;
+        defaultSignature=signature; resetRequested=false;
+        if (reset || current == null) current=initial;
+        var selected = items.find(function (item) { return sameRecord(item, current); }) || items[0] || null;
+        host.__fxValues = Object.assign({}, host.__fxValues || {}, {
           selected: selected,
           selected_items: selected ? [selected] : [],
         });
@@ -1105,6 +1148,13 @@
             });
           }
           row.__fxItem = item;
+          row.__fxParentRow = parentRow;
+          row.__fxGalleryName = name;
+          row.__fxGalleryController = controller;
+          row.__fxScope = galleryRecord(item);
+          Object.defineProperty(row.__fxScope,'is_selected',{configurable:true,get:function () {
+            return sameRecord(row.__fxItem,host.__fxValues.selected);
+          }});
           next.set(key, row);
           retainedRows.add(row);
           // Avoid moving an already correctly placed node: moving a focused
@@ -1121,7 +1171,7 @@
         host.__fxAllItems = function () {
           return renderedRows.filter(Boolean).map(function (row) {
             var item = row.__fxItem;
-            var record = item && typeof item === 'object' ? Object.assign({}, item) : {value:item};
+            var record = galleryRecord(item);
             Object.keys(controlFields || {}).forEach(function (control) {
               if (!row.querySelector('[data-control="' + control + '"]')) return;
               Object.defineProperty(record, controlFields[control], {enumerable:true, configurable:true, get:function () {
@@ -1133,7 +1183,7 @@
             return record;
           });
         };
-        var templateSize = val(name).template_size;
+        var templateSize = (parentRow ? val(name,host) : val(name)).template_size;
         var templatePadding = parseFloat(host.getAttribute('data-template-padding'));
         var wrapCount = parseInt(host.getAttribute('data-wrap-count'), 10);
         var horizontal = host.getAttribute('data-gallery-layout') === 'horizontal';
@@ -1165,7 +1215,7 @@
             row.style.padding = templatePadding + 'px';
           }
           if (rowFn) {
-            try { rowFn(item, row); } catch (e) { console.error('gallery row error', e); }
+            try { rowFn(row.__fxScope, row); } catch (e) { console.error('gallery row error', e); }
           }
         });
         if (restoreFocus && rowsEl.contains(focused) && document.activeElement !== focused) {
@@ -1175,7 +1225,26 @@
           }
         }
       },
-    });
+    };
+    return controller;
+  }
+
+  function gallery(name, itemsFn, rowFn, handlers, controlFields, config) {
+    var getHost=function () {return document.querySelector('[data-control="'+name+'"]');};
+    var controller=createGallery(name,getHost,null);
+    controller.configure(itemsFn,rowFn,handlers,controlFields,config);
+    var host=getHost();
+    if (host) host.__fxGallery=controller;
+    evaluators.push(controller);
+    galleryLayouts.push(controller.layout);
+  }
+
+  function rowGallery(row, name, itemsFn, rowFn, handlers, controlFields, config) {
+    var host=row.querySelector('[data-control="'+name+'"]');
+    if (!host) return;
+    if (!host.__fxGallery) host.__fxGallery=createGallery(name,function () {return host;},row);
+    host.__fxGallery.configure(itemsFn,rowFn,handlers,controlFields,config);
+    host.__fxGallery.apply();
   }
 
   function renderChart(name, rows, cfg) {
@@ -1465,6 +1534,9 @@
     }
     var el = element || document.querySelector('[data-control="' + name + '"]');
     if (!el) throw new Error('control not found for Reset: ' + name);
+    if (el.__fxGallery) {
+      el.__fxGallery.reset(); updateBindings(); return null;
+    }
     var value = el.getAttribute('data-fx-default');
     if (el.type === 'checkbox') el.checked = value === 'true';
     else el.value = value === null ? '' : value;
@@ -1716,11 +1788,12 @@
     rowControl: rowControl,
     rowValue: rowValue,
     resetRowControl: function (row, name) {
-      return resetControl(name, row.querySelector('[data-control="' + name + '"]'));
+      return resetControl(name, rowElement(row, name));
     },
     optionRecord: optionRecord,
     applyDefaultSelection: applyDefaultSelection,
     gallery: gallery,
+    rowGallery: rowGallery,
     renderChart: renderChart,
     setFormMode: setFormMode,
     resetForm: resetForm,

@@ -523,6 +523,50 @@ def fluent_dates_fixture_files() -> dict[str, str]:
                           for order,name in enumerate(['Survey','Install','Review'],1)]}]})}
 
 
+def nested_gallery_fixture_files() -> dict[str, str]:
+    def c(name, kind, props, children=None):
+        node={"Control":kind,"Properties":{key:'='+str(value) for key,value in props.items()}}
+        if children is not None: node['Children']=children
+        return {name:node}
+    colors=c('Colors','Gallery',{'X':220,'Y':32,'Width':'Self.TemplateWidth * 3','Height':94,
+        'Layout':'Layout.Horizontal','TemplateSize':'If(compact, 38, 54)','TemplatePadding':0,
+        'Items':'If(showColors, Palette, [])','Default':'LookUp(Palette, Color = ThisItem.Chosen)',
+        'OnSelect':'Set(chosenCaption, ThisItem.Color & " for " & OuterName.Text); Select(Parent)'},[
+        c('ChooseColor','Button',{'X':4,'Y':0,'Width':24,'Height':24,
+            'Text':'"Click to select the color " & Switch(ThisItem.Color, "red", "#F4B9B9", "green", "#C5E9EA", "#94BFFF")',
+            'Color':'Transparent','OnSelect':'Select(Parent)','Fill':'ColorValue(ThisItem.Color)'}),
+        c('ColorSelected','Label',{'X':4,'Y':30,'Width':'Parent.TemplateWidth - 8','Height':24,
+            'Text':'"selected"','Visible':'ThisItem.IsSelected'}),
+        c('ColorNote','TextInput',{'X':4,'Y':56,'Width':'Parent.TemplateWidth - 8','Height':30,
+            'Default':'ThisItem.Color','OnChange':'Set(lastNote, Self.Text & " for " & OuterName.Text)'})])
+    outer=c('OuterRows','Gallery',{'X':20,'Y':100,'Width':850,'Height':380,'TemplateSize':180,'TemplatePadding':0,
+        'Items':'SortByColumns(Parents, "ID", If(reverseRows, Descending, Ascending))',
+        'OnSelect':'Set(parentCaption, ThisItem.Name); Set(parentCalls, parentCalls + 1)'},[
+        c('OuterName','TextInput',{'X':8,'Y':32,'Width':180,'Height':36,'Default':'ThisItem.Name'}),
+        colors,
+        c('ChosenPreview','Label',{'X':8,'Y':80,'Width':180,'Height':28,'Text':'Colors.Selected.Color'}),
+        c('ResetColors','Button',{'X':500,'Y':32,'Width':120,'Height':36,'Text':'"Reset colors"','OnSelect':'Reset(Colors)'}),
+        c('CurrentRow','Label',{'X':8,'Y':0,'Width':180,'Height':28,'Text':'If(ThisItem.IsSelected, "current", "other")'})])
+    controls=[outer,
+        c('Heading','Label',{'X':20,'Y':10,'Width':480,'Height':36,'Text':'"Nested color selections"'}),
+        c('SortParents','Button',{'X':20,'Y':50,'Width':140,'Height':36,'Text':'"Sort parents"','OnSelect':'Set(reverseRows, !reverseRows)'}),
+        c('ToggleSize','Button',{'X':180,'Y':50,'Width':140,'Height':36,'Text':'"Resize colors"','OnSelect':'Set(compact, !compact)'}),
+        c('Unrelated','Button',{'X':340,'Y':50,'Width':140,'Height':36,'Text':'"Update counter"','OnSelect':'Set(counter, counter + 1)'}),
+        c('ResetOuter','Button',{'X':500,'Y':50,'Width':140,'Height':36,'Text':'"Reset outer"','OnSelect':'Reset(OuterRows)'}),
+        c('ToggleColors','Button',{'X':660,'Y':50,'Width':140,'Height':36,'Text':'"Hide/show colors"','OnSelect':'Set(showColors, !showColors)'}),
+        c('SaveAll','Button',{'X':20,'Y':500,'Width':140,'Height':36,'Text':'"Save choices"','OnSelect':
+            'ForAll(OuterRows.AllItems As loaded, Patch(Parents, LookUp(Parents, ID = loaded.ID), {Name: OuterName.Text, Chosen: Colors.Selected.Color})); Set(saved, true)'}),
+        c('SelectedCaption','Label',{'X':180,'Y':500,'Width':430,'Height':36,'Text':'chosenCaption'})]
+    screen={'Nested':{'Control':'Screen','Properties':{'Width':'=920','Height':'=600'},'Children':controls}}
+    app={'App':{'Control':'AppHost','Properties':{'OnStart':'=Set(reverseRows, false); Set(compact, false); Set(counter, 0); Set(showColors, true); Set(parentCalls, 0); ClearCollect(Palette, {Value: 1, Color: "red"}, {Value: 2, Color: "green"}, {Value: 3, Color: "blue"})'}}}
+    sources={'DataSources':[{'Name':'Parents','Type':'StaticDataSourceInfo','Fields':[
+        {'name':'ID','type':'text'},{'name':'Name','type':'text'},{'name':'Chosen','type':'text'}],
+        'SampleData':[{'ID':'one','Name':'Survey','Chosen':'red'},{'ID':'two','Name':'Install','Chosen':'blue'}]}]}
+    return {'CanvasManifest.json':json.dumps({'Name':'FixtureNestedGallery','ScreenOrder':['Nested']}),
+        'src/App.pa.yaml':json.dumps(app),'src/Nested.pa.yaml':json.dumps(screen),
+        'DataSources/Parents.json':json.dumps(sources['DataSources'][0])}
+
+
 def timer_fixture_files() -> dict[str, str]:
     def control(name, kind, props):
         return {name: {"Control": kind, "Properties": {k: "=" + str(v) for k, v in props.items()}}}
@@ -1310,6 +1354,7 @@ def build_fixtures() -> None:
     _write_msapp(FIXTURE_DIR / "fixtureScopes.msapp", scope_fixture_files())
     _write_msapp(FIXTURE_DIR / "fixtureGallery.msapp", gallery_fixture_files())
     _write_msapp(FIXTURE_DIR / "fixtureFluentDates.msapp", fluent_dates_fixture_files())
+    _write_msapp(FIXTURE_DIR / "fixtureNestedGallery.msapp", nested_gallery_fixture_files())
     _write_msapp(FIXTURE_DIR / "fixtureTimer.msapp", timer_fixture_files())
     _write_msapp(FIXTURE_DIR / "fixtureStorage.msapp", storage_fixture_files())
     _write_msapp(FIXTURE_DIR / "fixtureDataverse.msapp", dataverse_fixture_files())

@@ -243,6 +243,26 @@ while ((cm = ctrlRe.exec(screensSrc)) !== null) {
   }
 }
 
+function galleryTemplate(source, offset) {
+  const start=source.indexOf('<template>',offset);
+  if (start < 0) return null;
+  const tags=/<\/?template>/g;
+  tags.lastIndex=start;
+  let depth=0,tag;
+  while ((tag=tags.exec(source))) {
+    depth+=tag[0]==='<template>'?1:-1;
+    if (depth===0) return {innerHTML:source.slice(start+10,tag.index).trim(),end:tags.lastIndex};
+  }
+  throw new Error('Unclosed generated gallery template');
+}
+function hydrateGallery(host, template) {
+  const rowsEl=makeEl('div',{class:'fx-rows'});
+  host.__fxRows=rowsEl;
+  host.querySelector=selector=>selector===':scope > template'?template
+    :selector===':scope > .fx-rows'?rowsEl:null;
+  return rowsEl;
+}
+
 function makeRow(markup) {
   const row = makeEl('div', { class: 'fx-row' });
   row.__controls = {};
@@ -253,10 +273,22 @@ function makeRow(markup) {
     child.type = child.attrs.type || '';
     row.__controls[match[3]] = child;
     child.__rowControls = row.__controls;
+    if ((child.attrs.class || '').split(' ').includes('fx-gallery')) {
+      const template=galleryTemplate(markup,matcher.lastIndex);
+      if (template) {hydrateGallery(child,template);matcher.lastIndex=template.end;}
+    }
   }
   row.querySelector = function (selector) {
     const match = selector.match(/^\[data-control="([^"]+)"\]/);
-    return match ? this.__controls[match[1]] || null : null;
+    if (!match) return null;
+    if (this.__controls[match[1]]) return this.__controls[match[1]];
+    for (const host of Object.values(this.__controls)) {
+      for (const childRow of host.__fxRows?.children || []) {
+        const found=childRow.querySelector(selector);
+        if (found) return found;
+      }
+    }
+    return null;
   };
   row.querySelectorAll = function (selector) {
     if (selector === 'input, textarea, select') return Object.values(this.__controls)
@@ -276,14 +308,9 @@ while ((gm = galleryRe.exec(screensSrc)) !== null) {
   const name = gm[1];
   const host = elements['ctrl:' + name];
   if (!host || galleryRows[name]) continue;
-  const templateStart = screensSrc.indexOf('<template>', galleryRe.lastIndex);
-  const templateEnd = screensSrc.indexOf('</template>', templateStart);
-  if (templateStart < 0 || templateEnd < 0) continue;
-  const rowMarkup = screensSrc.slice(templateStart + '<template>'.length, templateEnd).trim();
-  const template = { innerHTML: rowMarkup };
-  const rowsEl = makeEl('div', { class: 'fx-rows' });
-  host.querySelector = (selector) => selector === ':scope > template' ? template
-    : selector === ':scope > .fx-rows' ? rowsEl : null;
+  const template=galleryTemplate(screensSrc,galleryRe.lastIndex);
+  if (!template) continue;
+  const rowsEl=hydrateGallery(host,template);
   host.attrs = Object.assign(host.attrs, parseAttrs(gm[2]));
   host.__fxRows = rowsEl;
   galleryRows[name] = rowsEl;
@@ -310,7 +337,7 @@ async function runJourneys(journeys) {
     try {
       for (const step of journey.steps || []) {
         const target = step.gallery
-          ? ((galleryRows[step.gallery] || {}).children || [])[Number(step.row || 0)]?.__controls[step.control]
+          ? ((galleryRows[step.gallery] || {}).children || [])[Number(step.row || 0)]?.querySelector('[data-control="'+step.control+'"]')
           : elements['ctrl:' + step.control];
         if (step.action === 'wait') {
           const milliseconds = Number(step.milliseconds);

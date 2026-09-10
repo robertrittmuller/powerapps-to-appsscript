@@ -274,6 +274,65 @@ def check_fluent_dates(page, backend):
         expect(dates.nth(index)).to_have_value(value)
 
 
+def check_nested_gallery(page, backend):
+    rows=control(page,'OuterRows').locator(':scope > .fx-rows > .fx-row')
+    def child(index,name): return rows.nth(index).locator('[data-control="'+name+'"]')
+    expect(rows).to_have_count(2)
+    for index,color in enumerate(['red','blue']):
+        expect(child(index,'ChooseColor')).to_have_count(3)
+        expect(child(index,'ChosenPreview')).to_have_text(color)
+        expect(child(index,'ColorSelected').locator('visible=true')).to_have_count(1)
+    expect(child(0,'CurrentRow')).to_have_text('current')
+    control(page,'ToggleColors').click()
+    expect(child(1,'ChooseColor')).to_have_count(0)
+    control(page,'ToggleColors').click()
+    expect(child(1,'ChosenPreview')).to_have_text('blue')
+    child(1,'ChooseColor').nth(0).click()
+    expect(control(page,'SelectedCaption')).to_have_text('red for Install')
+    assert page.evaluate('[state.parentCaption,state.parentCalls]')==['Install',1]
+    expect(child(1,'ChosenPreview')).to_have_text('red')
+    expect(child(0,'ChosenPreview')).to_have_text('red')
+    note=child(1,'ColorNote').nth(1)
+    note.fill('green draft');note.press('Tab')
+    assert page.evaluate('state.lastNote')=='green draft for Install'
+    expect(child(1,'ChosenPreview')).to_have_text('green')
+    note.evaluate('el=>window.__nestedNote=el')
+    control(page,'Unrelated').click()
+    expect(note).to_have_value('green draft')
+    control(page,'ToggleSize').click()
+    assert child(1,'Colors').evaluate('el=>parseFloat(el.style.width)')==114
+    assert child(1,'ColorNote').nth(0).evaluate('el=>parseFloat(el.style.width)')==30
+    assert note.evaluate('el=>el===window.__nestedNote')
+    control(page,'SortParents').click()
+    expect(child(0,'OuterName')).to_have_value('Install')
+    expect(child(0,'ChosenPreview')).to_have_text('green')
+    expect(child(0,'ColorNote').nth(1)).to_have_value('green draft')
+    assert child(0,'ColorNote').nth(1).evaluate('el=>el===window.__nestedNote')
+    control(page,'ResetOuter').click()
+    expect(child(0,'CurrentRow')).to_have_text('current')
+    expect(child(0,'ChosenPreview')).to_have_text('green')
+    expect(child(0,'ColorNote').nth(1)).to_have_value('green draft')
+    assert page.evaluate('state.parentCalls')==1
+    child(0,'ResetColors').click()
+    expect(child(0,'ChosenPreview')).to_have_text('blue')
+    expect(child(1,'ChosenPreview')).to_have_text('red')
+    child(0,'ChooseColor').nth(0).click()
+    child(1,'ChooseColor').nth(1).focus()
+    child(1,'ChooseColor').nth(1).press('Enter')
+    child(0,'OuterName').fill('Install draft')
+    child(1,'OuterName').fill('Survey draft')
+    control(page,'SaveAll').click();page.wait_for_function('state.saved === true')
+    saved=backend({'fn':'api','args':['Parents','list',{}]})['result']
+    assert [(row['id'],row['name'],row['chosen']) for row in saved]==[
+        ('one','Survey draft','green'),('two','Install draft','red')],saved
+    page.screenshot(path=str(OUT/'nested-gallery/saved.png'))
+    page.reload()
+    expect(child(0,'OuterName')).to_have_value('Survey draft')
+    expect(child(0,'ChosenPreview')).to_have_text('green')
+    expect(child(1,'OuterName')).to_have_value('Install draft')
+    expect(child(1,'ChosenPreview')).to_have_text('red')
+
+
 def check_timers(page, _backend):
     expect(page.locator('[data-screen="LoadingScreen"]')).to_be_visible()
     page.wait_for_function("state.timerStarted === true")
@@ -1160,6 +1219,7 @@ def main():
              ("business-charts", REPO / "tests/fixtures/fixtureCharts.msapp", check_charts),
              ("record-scopes", REPO / "tests/fixtures/fixtureScopes.msapp", check_scopes)]
     cases.append(("editable-gallery", REPO / "tests/fixtures/fixtureGallery.msapp", check_gallery))
+    cases.append(('nested-gallery',REPO/'tests/fixtures/fixtureNestedGallery.msapp',check_nested_gallery))
     cases.append(('fluent-dates',REPO/'tests/fixtures/fixtureFluentDates.msapp',check_fluent_dates,
                   False,None,None,None,None,'America/New_York','2026-03-01T16:00:00+00:00'))
     cases.append(("timer-lifecycle", REPO / "tests/fixtures/fixtureTimer.msapp", check_timers, True))

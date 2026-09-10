@@ -38,8 +38,10 @@ The unchanged Milestones app previously created ownerless settings, missed them
 in its My Project User Setting view and repeated onboarding after every reload.
 It now passes 19 checks covering first-run dismissal, reload, a second simulated
 Google user and return to the first user, with separate persisted settings and
-zero runtime errors. Project creation remains a failed probe because editable
-milestone row values are not yet preserved correctly.
+zero runtime errors. Its project-creation probe now passes 39 checks with native
+Google People response fixtures, including separate edited milestone names,
+dates and nested color selections. Remaining project/work-item workflows and
+live Google execution remain unverified.
 See Microsoft's [default record ownership contract](https://learn.microsoft.com/en-us/dotnet/api/microsoft.xrm.sdk.iorganizationservice.create?view=dataverse-sdk-latest).
 
 ## Planner implementation scope

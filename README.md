@@ -210,9 +210,11 @@ Ratings, attachments, manager workflows and complete app usability remain unasse
 Milestones onboarding and persisted settings across two simulated Google users.
 All 19 checks pass. Its `--project` probe reaches project/member creation through
 native Google People fixtures and saves three distinct edited milestone names and dates.
-It passes 32 checks, including dates across the daylight-saving change, then fails
-because nested-picker colors still use fallback gray. This remains
-a failed workflow, with source/data hashes and records in `.artifacts/browser/`.
+All 39 checks pass, including dates across the daylight-saving change, opening
+the second nested color picker, selecting a different color, and preserving each
+milestone's name/date/color in storage. This proves the tested creation path with
+API fixtures; remaining settings/work-item workflows and complete app usability
+are unassessed. Source/data hashes and records are in `.artifacts/browser/`.
 The normal `./pfx2gas soak` enforces the existing
 required regression corpus, including failed required journeys and missing apps.
 It currently fails Editable Grid because its choice formulas reference the
@@ -319,7 +321,7 @@ Converted apps aim to match the original visually and behaviorally:
   TemplateWidth/TemplateHeight exist before rows mount, including empty
   galleries whose surrounding cards depend on their height. Circular or
   non-finite template formulas fail explicitly. Orientation, padding and
-  WrapCount currently require static values; nested gallery layouts need review.
+  WrapCount currently require static values; broader nested layouts still need review.
   Child handlers receive the item, preserving per-row actions. Row clicks
   expose record-valued `Selected` and `SelectedItems`. `AllItems` includes loaded
   records and each row's controls; `AllItemsCount` counts the loaded rows.
@@ -335,6 +337,15 @@ Converted apps aim to match the original visually and behaviorally:
 - **Selectors** — Dropdown, ComboBox, and ListBox options preserve their source
   records for `Selected`/`SelectedItems`; `DisplayFields`, default selections,
   and multi-select are wired into native selects.
+- **Nested galleries** — each outer row owns an independent child gallery,
+  with its own Default/Selected, ThisItem.IsSelected, current control values and
+  parent event routing. Node and Chromium check empty/repopulated items, pointer
+  and keyboard selection, nested edits retained through resize/sort, Reset
+  without recursively resetting children, and correct-row bulk saves/reload.
+  Button labels stay inside their source-sized rectangles, preventing transparent
+  text from intercepting neighboring color clicks. Loading remains eager;
+  cross-level record aliases, additional control types and full layout parity
+  still require review.
 - **Fluent date inputs** — Teams' `Microsoft_CoreControls_DatePicker` becomes a
   native date input. Its Value is a local-midnight Date; classic SelectedDate
   follows the same date contract. Defaults, independent gallery edits, Blank,

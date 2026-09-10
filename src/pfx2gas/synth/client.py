@@ -939,6 +939,154 @@ def _emit_form_registration(lines: list[str], form: ControlNode) -> bool:
     return True
 
 
+def _row_descendants(ctrl: ControlNode):
+    """Visit controls owned by this row, stopping at nested gallery templates."""
+    def visit(child):
+        yield child
+        if child.type != 'Gallery':
+            for descendant in child.children:
+                yield from visit(descendant)
+    for child in _gallery_row_controls(ctrl):
+        yield from visit(child)
+
+
+def _emit_gallery(lines: list[str], ctrl: ControlNode, parent_names: dict[str, str], nested: bool = False):
+    items = ctrl.properties.get("Items")
+    if items and items.js:
+        mark_emission(items)
+        row_fns = []
+        handlers = {}
+        gallery_select = ctrl.properties.get("OnSelect")
+        # Legacy exports store row selection on the structural
+        # GalleryTemplate. Its DOM wrapper is flattened, but its
+        # action must survive Select(Parent) from a row child.
+        selection_owner = ctrl
+        if not gallery_select or not gallery_select.raw:
+            templates = [child for child in ctrl.children if child.type == "GalleryTemplate"]
+            if len(templates) == 1:
+                selection_owner = templates[0]
+                gallery_select = selection_owner.properties.get("OnSelect")
+        if gallery_select and gallery_select.raw:
+            handlers[ctrl.name] = (parent_names.get(selection_owner.name), {"OnSelect": _behavior_js(gallery_select, f"{selection_owner.name}.OnSelect")})
+            mark_emission(gallery_select)
+        row_controls = list(_row_descendants(ctrl))
+        for child in row_controls:
+            if child.type == 'Gallery':
+                nested_lines=[]
+                _emit_gallery(nested_lines, child, parent_names, nested=True)
+            else:
+                nested_lines=[]
+            texpr = child.properties.get("Text")
+            row_properties: list[tuple[str, object]] = []
+            if texpr and texpr.js and _static_raw(texpr) is None:
+                row_properties.append(("text", texpr))
+            row_inputs = [('TemplateSize','templateSize')] if child.type == 'Gallery' else []
+            if child.type in {"Dropdown", "ComboBox", "ListBox"}:
+                display_property = "Value" if child.type == "Dropdown" and "Value" in child.properties else "DisplayFields"
+                row_inputs.extend([(display_property, "displayFields"), ("Items", "items"),
+                                   ("DefaultSelectedItems", "default")])
+            if child.type in {"TextInput", "TextArea", "Dropdown", "ComboBox", "ListBox",
+                              "CheckBox", "DatePicker", "FluentDatePicker", "Slider"}:
+                if "DefaultSelectedItems" not in child.properties:
+                    default_prop = 'Value' if child.type == 'FluentDatePicker' else 'DefaultDate' if child.type == 'DatePicker' else 'Default'
+                    row_inputs.append((default_prop, "default"))
+                row_inputs.extend([("DisplayMode", "disabled"), ("Reset", "reset")])
+            if child.type == 'FluentDatePicker':
+                row_inputs.append(('AcceptsFocus', 'acceptsFocus'))
+                row_inputs.extend([('AccessibleLabel', 'ariaLabel'), ('Tooltip', 'title')])
+            if child.type == "Image":
+                row_inputs.append(("Image", "src"))
+            if child.type in {'TextInput', 'TextArea'}:
+                row_inputs.insert(0, ('Mode', 'mode'))
+            for prop_name, runtime_key in row_inputs:
+                prop_expr = child.properties.get(prop_name)
+                if prop_expr and prop_expr.js and "await " not in prop_expr.js:
+                    # Static image assets/icons are resolved by the HTML renderer.
+                    if runtime_key == "src" and _static_raw(prop_expr) is not None:
+                        continue
+                    row_properties.append((runtime_key, prop_expr))
+            row_reactive = [
+                ("X", "left"), ("Y", "top"),
+                ("Width", "width"), ("Height", "height"),
+                ("Fill", "backgroundColor"), ("Color", "color"),
+                ("FontColor", "color"), ("Size", "fontSize"),
+                ("FontSize", "fontSize"), ("Visible", "display"),
+            ]
+            for prop_name, runtime_key in row_reactive:
+                prop_expr = child.properties.get(prop_name)
+                if not prop_expr or not prop_expr.js:
+                    continue
+                if prop_name in {"Fill", "Color", "FontColor"} \
+                        and _static_color(prop_expr) is not None:
+                    continue
+                if prop_name in {"X", "Y", "Width", "Height", "Size", "FontSize"} \
+                        and _static_px(prop_expr) is not None:
+                    continue
+                if prop_expr.js.startswith("'"):
+                    continue
+                row_properties.append((runtime_key, prop_expr))
+            if row_properties:
+                row_fns.append(
+                    f"        FXRuntime.rowControl(row, {child.name!r}, {parent_names.get(child.name)!r}, {{"
+                )
+                for runtime_key, prop_expr in row_properties:
+                    row_fns.append(
+                        f"          {runtime_key!r}: function (val, selfRef, parentRef) {{ return {prop_expr.js}; }},"
+                    )
+                    mark_emission(
+                        prop_expr,
+                        "approximated" if runtime_key in {"display", "src"} else "emitted",
+                        "gallery-row formula is evaluated in ThisItem/Self/Parent context",
+                    )
+                row_fns.append("        });")
+            row_fns.extend('      '+line for line in nested_lines)
+            if child.type == 'Gallery':
+                continue  # Its events belong to its own selected child row.
+            events = {}
+            for event in ("OnSelect", "OnChange"):
+                expr = child.properties.get(event)
+                if expr and expr.raw:
+                    events[event] = _behavior_js(expr, f"{child.name}.{event}")
+                    mark_emission(expr)
+            if events:
+                handlers[child.name] = (parent_names.get(child.name), events)
+        lines.append(f"  // {ctrl.name}.Items (gallery)")
+        lines.append("  FXRuntime.rowGallery(" if nested else "  FXRuntime.gallery(")
+        if nested:
+            lines.append("    row,")
+        lines.append(f"    {ctrl.name!r},")
+        read = "var val = function (name) { return FXRuntime.rowValue(row, name); }; " if nested else ""
+        lines.append(f"    function () {{ {read}var selfRef = val({ctrl.name!r}), parentRef = val({parent_names.get(ctrl.name)!r}); return {items.js}; }},")
+        lines.append("    function (item, row) {")
+        for rf in row_fns:
+            lines.append(rf)
+        lines.append("    },")
+        if handlers:
+            lines.append("    {")
+            for cname, (parent, events) in handlers.items():
+                lines.append(f"      {cname!r}: {{ parent: {parent!r},")
+                for event, js in events.items():
+                    lines.append(f"        {event!r}: async function (item, row, selectControl) {{")
+                    lines.append("          var val = function (name) { return FXRuntime.rowValue(row, name); };")
+                    lines.append(f"          var selfRef = val({cname!r}), parentRef = val({parent!r});")
+                    lines.append(f"          var resetControl = function (name) {{ return FXRuntime.resetRowControl(row, name === 'Self' ? {cname!r} : name === 'Parent' ? {parent!r} : name); }};")
+                    for stmt in js.splitlines():
+                        lines.append(f"          {stmt}")
+                    lines.append("        },")
+                lines.append("      },")
+            lines.append("    },")
+        else:
+            lines.append("    null,")
+        lines.append("    " + json.dumps({child.name: _snake(child.name) for child in row_controls}) + ",")
+        lines.append("    {")
+        default=ctrl.properties.get('Default')
+        if default and default.js and 'await ' not in default.js:
+            lines.append(f"      Default: function () {{ {read}var selfRef=val({ctrl.name!r}), parentRef=val({parent_names.get(ctrl.name)!r}); return {default.js}; }},")
+            mark_emission(default, 'approximated', 'gallery default selects its matching loaded row; otherwise the first loaded row is selected')
+        lines.append("    }")
+        lines.append("  );")
+
+
 def render_app_js(ir: AppIR) -> str:
     from ..data_contract import external_tables
     from ..services import service_contracts
@@ -1143,124 +1291,7 @@ def render_app_js(ir: AppIR) -> str:
                 lines.append("  });")
 
             if ctrl.type == "Gallery":
-                items = ctrl.properties.get("Items")
-                if items and items.js:
-                    mark_emission(items)
-                    row_fns = []
-                    handlers = {}
-                    gallery_select = ctrl.properties.get("OnSelect")
-                    # Legacy exports store row selection on the structural
-                    # GalleryTemplate. Its DOM wrapper is flattened, but its
-                    # action must survive Select(Parent) from a row child.
-                    selection_owner = ctrl
-                    if not gallery_select or not gallery_select.raw:
-                        templates = [child for child in ctrl.children if child.type == "GalleryTemplate"]
-                        if len(templates) == 1:
-                            selection_owner = templates[0]
-                            gallery_select = selection_owner.properties.get("OnSelect")
-                    if gallery_select and gallery_select.raw:
-                        handlers[ctrl.name] = (parent_names.get(selection_owner.name), {"OnSelect": _behavior_js(gallery_select, f"{selection_owner.name}.OnSelect")})
-                        mark_emission(gallery_select)
-                    row_controls = [descendant for child in _gallery_row_controls(ctrl)
-                                    for descendant in child.walk()]
-                    for child in row_controls:
-                        texpr = child.properties.get("Text")
-                        row_properties: list[tuple[str, object]] = []
-                        if texpr and texpr.js and _static_raw(texpr) is None:
-                            row_properties.append(("text", texpr))
-                        row_inputs = []
-                        if child.type in {"Dropdown", "ComboBox", "ListBox"}:
-                            display_property = "Value" if child.type == "Dropdown" and "Value" in child.properties else "DisplayFields"
-                            row_inputs.extend([(display_property, "displayFields"), ("Items", "items"),
-                                               ("DefaultSelectedItems", "default")])
-                        if child.type in {"TextInput", "TextArea", "Dropdown", "ComboBox", "ListBox",
-                                          "CheckBox", "DatePicker", "FluentDatePicker", "Slider"}:
-                            if "DefaultSelectedItems" not in child.properties:
-                                default_prop = 'Value' if child.type == 'FluentDatePicker' else 'DefaultDate' if child.type == 'DatePicker' else 'Default'
-                                row_inputs.append((default_prop, "default"))
-                            row_inputs.extend([("DisplayMode", "disabled"), ("Reset", "reset")])
-                        if child.type == 'FluentDatePicker':
-                            row_inputs.append(('AcceptsFocus', 'acceptsFocus'))
-                            row_inputs.extend([('AccessibleLabel', 'ariaLabel'), ('Tooltip', 'title')])
-                        if child.type == "Image":
-                            row_inputs.append(("Image", "src"))
-                        if child.type in {'TextInput', 'TextArea'}:
-                            row_inputs.insert(0, ('Mode', 'mode'))
-                        for prop_name, runtime_key in row_inputs:
-                            prop_expr = child.properties.get(prop_name)
-                            if prop_expr and prop_expr.js and "await " not in prop_expr.js:
-                                # Static image assets/icons are resolved by the HTML renderer.
-                                if runtime_key == "src" and _static_raw(prop_expr) is not None:
-                                    continue
-                                row_properties.append((runtime_key, prop_expr))
-                        row_reactive = [
-                            ("X", "left"), ("Y", "top"),
-                            ("Width", "width"), ("Height", "height"),
-                            ("Fill", "backgroundColor"), ("Color", "color"),
-                            ("FontColor", "color"), ("Size", "fontSize"),
-                            ("FontSize", "fontSize"), ("Visible", "display"),
-                        ]
-                        for prop_name, runtime_key in row_reactive:
-                            prop_expr = child.properties.get(prop_name)
-                            if not prop_expr or not prop_expr.js:
-                                continue
-                            if prop_name in {"Fill", "Color", "FontColor"} \
-                                    and _static_color(prop_expr) is not None:
-                                continue
-                            if prop_name in {"X", "Y", "Width", "Height", "Size", "FontSize"} \
-                                    and _static_px(prop_expr) is not None:
-                                continue
-                            if prop_expr.js.startswith("'"):
-                                continue
-                            row_properties.append((runtime_key, prop_expr))
-                        if row_properties:
-                            row_fns.append(
-                                f"        FXRuntime.rowControl(row, {child.name!r}, {parent_names.get(child.name)!r}, {{"
-                            )
-                            for runtime_key, prop_expr in row_properties:
-                                row_fns.append(
-                                    f"          {runtime_key!r}: function (val, selfRef, parentRef) {{ return {prop_expr.js}; }},"
-                                )
-                                mark_emission(
-                                    prop_expr,
-                                    "approximated" if runtime_key in {"display", "src"} else "emitted",
-                                    "gallery-row formula is evaluated in ThisItem/Self/Parent context",
-                                )
-                            row_fns.append("        });")
-                        events = {}
-                        for event in ("OnSelect", "OnChange"):
-                            expr = child.properties.get(event)
-                            if expr and expr.raw:
-                                events[event] = _behavior_js(expr, f"{child.name}.{event}")
-                                mark_emission(expr)
-                        if events:
-                            handlers[child.name] = (parent_names.get(child.name), events)
-                    lines.append(f"  // {ctrl.name}.Items (gallery)")
-                    lines.append("  FXRuntime.gallery(")
-                    lines.append(f"    {ctrl.name!r},")
-                    lines.append(f"    function () {{ var selfRef = val({ctrl.name!r}), parentRef = val({parent_names.get(ctrl.name)!r}); return {items.js}; }},")
-                    lines.append("    function (item, row) {")
-                    for rf in row_fns:
-                        lines.append(rf)
-                    lines.append("    },")
-                    if handlers:
-                        lines.append("    {")
-                        for cname, (parent, events) in handlers.items():
-                            lines.append(f"      {cname!r}: {{ parent: {parent!r},")
-                            for event, js in events.items():
-                                lines.append(f"        {event!r}: async function (item, row, selectControl) {{")
-                                lines.append("          var val = function (name) { return FXRuntime.rowValue(row, name); };")
-                                lines.append(f"          var selfRef = val({cname!r}), parentRef = val({parent!r});")
-                                lines.append(f"          var resetControl = function (name) {{ return FXRuntime.resetRowControl(row, name === 'Self' ? {cname!r} : name === 'Parent' ? {parent!r} : name); }};")
-                                for stmt in js.splitlines():
-                                    lines.append(f"          {stmt}")
-                                lines.append("        },")
-                            lines.append("      },")
-                        lines.append("    },")
-                    else:
-                        lines.append("    null,")
-                    lines.append("    " + json.dumps({child.name: _snake(child.name) for child in row_controls}))
-                    lines.append("  );")
+                _emit_gallery(lines, ctrl, parent_names)
 
             # --- chart rendering ------------------------------------------
             if ctrl.type in CHART_TYPES:
@@ -1445,7 +1476,7 @@ INDEX_CSS = """
     [data-screen] { position: relative; box-sizing: border-box; }
     [data-control] { box-sizing: border-box; }
     [data-screen] > [data-control] { position: absolute; }
-    button { cursor: pointer; }
+    button { cursor: pointer; overflow: hidden; }
     input, select, textarea { box-sizing: border-box; }
     .fx-gallery { overflow: auto; }
     .fx-component { position: absolute; overflow: hidden; }
