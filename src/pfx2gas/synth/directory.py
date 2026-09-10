@@ -164,7 +164,7 @@ function directoryProfile_(person, mapping) {
 }
 
 function directoryOperation_(operation, args) {
-  directorySession_();
+  var caller = directorySession_();
   var mappings = withDataWriteLock_(directoryMappings_);
   if (!mappings.configured) throw new Error('Directory migration is not configured; import source-to-Google identity mappings');
   if (operation === 'SearchUser') {
@@ -177,12 +177,15 @@ function directoryOperation_(operation, args) {
     if (limit !== undefined && (!Number.isInteger(limit) || limit < 1 || limit > 10000)) throw new Error('SearchUser top must be an integer from 1 to 10000');
     return directoryPages_(query,limit).map(function (person) { return directoryProfile_(person,directoryPerson_(person,mappings)); });
   }
-  var key = directoryText_(args[0],'User identity').trim().toLowerCase(), mapping = mappings.keys.get(key);
+  var ownProfile = operation === 'MyProfileV2';
+  var key = ownProfile ? caller : directoryText_(args[0],'User identity').trim().toLowerCase();
+  var mapping = mappings.keys.get(key);
   if (!mapping) throw new Error('User identity requires a migrated Google account mapping');
   var person = People.People.get(mapping.resource_name,{personFields:DIRECTORY_FIELDS_,sources:['READ_SOURCE_TYPE_PROFILE']});
   if (directoryPerson_(person,mappings) !== mapping) throw new Error('Google returned a different mapped identity');
-  if (operation === 'UserProfileV2') {
-    var profile = directoryProfile_(person,mapping), options = args[1] === undefined ? {} : args[1];
+  if (operation === 'UserProfileV2' || ownProfile) {
+    var suppliedOptions = args[ownProfile ? 0 : 1];
+    var profile = directoryProfile_(person,mapping), options = suppliedOptions === undefined ? {} : suppliedOptions;
     assertRecord(options,'UserProfileV2 options');
     if (Object.keys(options).some(function (key) { return key !== 'select'; })) throw new Error('Unsupported UserProfileV2 option');
     if (options.select === undefined) return profile;
@@ -253,7 +256,7 @@ people. Missing migration is an error. Re-conversion preserves your existing
 DirectoryMigration.gs. Mappings live in the reserved __pfx2gas_directory sheet,
 which is excluded from the generic data API. Workbook editors can change it.
 
-Supported calls: SearchUser (V1 array result), UserProfileV2, UserPhotoV2. Search
+Supported calls: SearchUser (V1 array result), MyProfileV2, UserProfileV2, UserPhotoV2. MyProfileV2 uses the accessing Google user's migrated identity. Search
 uses Google's prefix matching and caller-visible domain profiles, not Microsoft
 search semantics or personal contacts. Empty search lists the directory. Pages
 are read until completion or an explicit top limit; 10,000 results, 100 pages,

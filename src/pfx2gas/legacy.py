@@ -288,6 +288,11 @@ def _data_sources_from(zf: zipfile.ZipFile, names: list[str]) -> list[dict]:
             break
     if raw is None:
         return []
+    return decode_reference_sources(raw)
+
+
+def decode_reference_sources(raw: str | bytes) -> list[dict]:
+    """The exported References/DataSources contract is shared by both layouts."""
     try:
         data = json.loads(raw)
     except json.JSONDecodeError:

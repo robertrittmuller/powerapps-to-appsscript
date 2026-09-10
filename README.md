@@ -27,6 +27,8 @@ identified accessing user with domain directory sharing enabled. A Chromium
 journey covers search, profile/photo selection and persisted task assignment
 using explicit native API response fixtures. Live directory permissions and
 photo visibility remain deployment checks.
+`MyProfileV2` resolves the accessing Google user's mapped profile, including the
+source's optional selected fields; it requires the same explicit identity migration.
 
 Dataverse user/team-owned rows now default to the migrated Google caller when
 the source formula omits Owner. Import the source Users records with their
@@ -68,7 +70,10 @@ app.msapp ──▶ unpack ──▶ parse ──▶ analyze ──▶ synthesiz
 ```
 
 - **Unpack** — a `.msapp` is a ZIP archive; `src/*.pa.yaml` files are the app's
-  source (per Microsoft's canvas-app YAML format).
+  source (per Microsoft's canvas-app YAML format). App, screen and component
+  definitions are separated even in combined documents. Modern exports also
+  retain services, static seed data and Dataverse contracts from
+  `References/DataSources.json`.
 - **Parse** — controls, properties, and Power Fx expressions become a typed IR.
 - **Analyze** — discovers global variables (`Set`/`Collect`), infers data-source
   fields from mutations, references, and Form DataCards, and transpiles every formula
@@ -424,6 +429,16 @@ Converted apps aim to match the original visually and behaviorally:
   per instance with namespaced children and reactive custom inputs. This covers
   the corpus's MENU, TILES/BUSCADOR, and progress-bar components; static
   `HtmlText` interiors are preserved with executable markup removed.
+- **Modern canvas components** — `ComponentDefinitions` expand into independent
+  instance controls, including nested components. Definition formulas resolve
+  local control names without rewriting strings; instance input overrides keep
+  their host scope. Input/output properties, Reset/Select and per-instance Set
+  variables and collections have generated Node and Chromium evidence. Explicit
+  AccessAppScope retains shared app globals. Missing, recursive, colliding or
+  unsupported definitions render an error and fail runtime checks. Custom
+  actions/events/functions, OnReset and omitted native layout defaults remain
+  gaps. The public navigation sample now exposes its original menu and Google
+  profile data, but clipped container geometry still prevents a navigation click.
 - **Charts** — legacy pie/bar/line families render as SVG, including visible
   single-value pies; generated series labels/color sets feed separate Legend
   controls instead of rendering `No data`.

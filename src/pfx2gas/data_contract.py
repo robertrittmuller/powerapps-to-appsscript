@@ -86,7 +86,10 @@ def apply_source_contract(source: DataSource, raw: dict) -> None:
     state_model = {"defaultState": None, "states": [], "statuses": [],
                    "enforceTransitions": entity.get("EnforceStateTransitions")}
     for category in ("Boolean", "Picklist", "MultiSelectPicklist", "State", "Status"):
-        option_attributes = _document(definition.get(category + "OptionSetAttribute", {}), category + " options")
+        # Modern exports use JSON null when this category was not exported.
+        # Keep malformed non-null values as errors and never invent choices.
+        exported_options = definition.get(category + "OptionSetAttribute")
+        option_attributes = {} if exported_options is None else _document(exported_options, category + " options")
         for attr in option_attributes.get("value", []):
             if attr.get("LogicalName") and isinstance(attr.get("OptionSet"), dict):
                 choices[attr["LogicalName"]] = _options(attr["OptionSet"], category == "Boolean")

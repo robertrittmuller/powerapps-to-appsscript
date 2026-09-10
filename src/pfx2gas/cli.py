@@ -191,5 +191,15 @@ def _llm_fallback(ir, client) -> None:
         scope = {"definingScreen": screen.name if screen else None,
                  "localVariables": screen.context_vars if screen else [],
                  "globalVariables": ir.global_vars,
-                 "namedFormulas": list(ir.named_formulas)}
+                 "namedFormulas": list(ir.named_formulas),
+                 "componentOwner": expr.component_owner,
+                 "componentPrivate": expr.component_private,
+                 "controlAliases": expr.control_aliases}
+        if expr.component_owner:
+            scope['definingScreen'] = None
+            scope['localVariables'] = []
+            if expr.component_private:
+                # The model must not invent access to host globals or rename
+                # private mutable symbols without the deterministic compiler.
+                continue
         try_fix(expr, f"{screen_name}.{control}.{property_name}\nScope: {json.dumps(scope)}")

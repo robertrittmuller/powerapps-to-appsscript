@@ -68,6 +68,25 @@ def test_profile_keeps_source_id_and_maps_current_google_fields(directory_backen
         'result':{'id':'source-ada','display_name':'Ada Lovelace','department':'Research'}}
 
 
+def test_my_profile_uses_the_accessing_google_identity_and_retains_select_fields(directory_backend):
+    call = directory_backend
+    assert 'migration is not configured' in op(call,'MyProfileV2')['error']
+    imported(call)
+    call('__setStorageIdentity','script','ada@example.test')
+    responses(call,{'method':'get','result':ADA})
+    profile = op(call,'MyProfileV2')['result']
+    assert profile['id'] == 'source-ada' and profile['mail'] == 'ada@example.test'
+    assert call('__peopleRequests')['result'][0]['args'][0] == 'people/100'
+    call('__setStorageIdentity','script','grace@example.test')
+    responses(call,{'method':'get','result':GRACE})
+    assert op(call,'MyProfileV2',{'select':'mail,displayName'}, service='Microsoft365Users') == {
+        'result':{'mail':'grace@example.test','display_name':'Grace Hopper'}}
+    call('__setStorageIdentity','script','unknown@example.test')
+    assert 'migrated Google account mapping' in op(call,'MyProfileV2')['error']
+    call('__setEffectiveUser','owner@example.test')
+    assert 'owner-delegated' in op(call,'MyProfileV2')['error']
+
+
 def test_search_pages_and_top_preserve_records_and_exact_request_contract(directory_backend):
     call=directory_backend;imported(call)
     responses(call,{'method':'searchDirectoryPeople','result':{'people':[ADA],'nextPageToken':'page-two'}},

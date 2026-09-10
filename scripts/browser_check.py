@@ -607,6 +607,43 @@ def check_storage(page, backend):
     expect(count).to_have_text("0")
 
 
+def check_modern_components(page, _backend):
+    first, second = control(page,'First__EntryInput'), control(page,'Second__EntryInput')
+    expect(first).to_have_value('Host')
+    expect(second).to_have_value('Second')
+    expect(control(page,'Nested__Inner__EntryInput')).to_have_value('nested')
+    expect(control(page,'First__Title')).to_have_text('Host EntryInput')
+    expect(control(page,'First__Html').locator('b')).to_have_text('EntryInput')
+    assert abs(first.bounding_box()['width'] - 230) <= 1
+    assert abs(second.bounding_box()['width'] - 260) <= 1
+    first.fill('First draft'); second.fill('Second draft')
+    control(page,'First__ResetButton').click()
+    expect(first).to_have_value('Host'); expect(second).to_have_value('Second draft')
+    first.fill('First saved')
+    control(page,'First__SaveButton').click()
+    expect(control(page,'First__Counts')).to_have_text('1/1')
+    expect(control(page,'Second__Counts')).to_have_text('0/0')
+    expect(first).to_have_value('Host'); expect(second).to_have_value('Second draft')
+    control(page,'Second__SelectButton').click()
+    expect(control(page,'Second__Counts')).to_have_text('1/1')
+    expect(second).to_have_value('Second')
+    control(page,'Nested__Inner__SaveButton').click()
+    expect(control(page,'Nested__Inner__Counts')).to_have_text('1/1')
+    expect(control(page,'AppCounts')).to_have_text('900/1')
+    control(page,'SharedInstance__Increment').click()
+    expect(control(page,'AppCounts')).to_have_text('901/1')
+    expect(control(page,'Outputs')).to_have_text('1/1/Host/record')
+    control(page,'EntryInput').fill('Changed')
+    expect(control(page,'First__Title')).to_have_text('Changed EntryInput')
+    expect(first).to_have_value('Changed'); expect(second).to_have_value('Second')
+    records = page.evaluate('Object.entries(state).filter(([key]) => key.startsWith("__pfx_component_") && key.endsWith("_entries")).map(([,value])=>value[0].text).sort()')
+    assert records == ['First saved','Second draft','nested']
+    page.reload()
+    expect(control(page,'AppCounts')).to_have_text('900/1')
+    expect(control(page,'First__Counts')).to_have_text('0/0')
+    expect(control(page,'Second__Counts')).to_have_text('0/0')
+
+
 def check_named_formulas(page, backend):
     caption = control(page, 'TotalCaption')
     expect(caption).to_have_text('Total: 10')
@@ -1385,6 +1422,7 @@ def main():
     cases.append(('dataverse-state',REPO/'tests/fixtures/fixtureDataverseState.msapp',check_dataverse_state))
     cases.append(('checkbox-events',REPO/'tests/fixtures/fixtureCheckboxEvents.msapp',check_checkbox_events))
     cases.append(('named-formulas',REPO/'tests/fixtures/fixtureNamedFormulas.msapp',check_named_formulas))
+    cases.append(('modern-components',REPO/'tests/fixtures/fixtureModernComponents.msapp',check_modern_components))
     cases.append(('many-to-many-relationships', REPO / 'tests/fixtures/fixtureRelationships.msapp', check_relationships))
     cases.append(("source-formulas", REPO / "tests/fixtures/fixtureSourceFormulas.msapp", check_source_formulas))
     cases.append(("responsive-canvas", REPO / "tests/fixtures/fixtureCanvas.msapp", check_canvas))

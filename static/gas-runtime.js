@@ -944,7 +944,9 @@
   }
 
   function rowValue(row, name) {
-    return val(name, rowElement(row, name));
+    // Standalone input bindings use document as their scope. Passing an
+    // explicit element there would bypass global/component property getters.
+    return row === document ? val(name) : val(name, rowElement(row, name));
   }
 
   function inputMode(el, mode) {

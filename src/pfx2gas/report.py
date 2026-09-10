@@ -115,6 +115,9 @@ def _followups(ir: AppIR) -> str:
             if ctrl.type == "CanvasComponent" or (
                 len(ctrl.type) >= 24 and all(ch in "0123456789abcdefABCDEF" for ch in ctrl.type)
             ):
+                if ctrl.component_error:
+                    items.append(f'- [ ] **unsupported component** `{screen.name}.{ctrl.name}` — {ctrl.component_error}')
+                    continue
                 if ctrl.type == "CanvasComponent" and ctrl.children:
                     emulated_components.append(f"{screen.name}.{ctrl.name}")
                 else:

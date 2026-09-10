@@ -21,6 +21,19 @@ require('../../static/fx-stdlib.js');
 require('../../static/gas-runtime.js');
 const RT = global.FXRuntime;
 
+test('document-scoped input reads retain lazy component properties', () => {
+  const previous = document.querySelector;
+  const host = {tagName:'DIV',style:{},textContent:'',getAttribute:()=>null};
+  let caption = 'First';
+  document.querySelector = selector => selector.includes('ComponentPropertyHost') ? host : null;
+  try {
+    RT.registerControlProps('ComponentPropertyHost', null, {caption:() => caption});
+    assert.strictEqual(RT.rowValue(document, 'ComponentPropertyHost').caption, 'First');
+    caption = 'Changed';
+    assert.strictEqual(RT.rowValue(document, 'ComponentPropertyHost').caption, 'Changed');
+  } finally { document.querySelector = previous; }
+});
+
 test('named values remain lazy, immutable and reactive, with forward references and cycle recovery', () => {
   assert.strictEqual(RT.registerNamedFormulas.length, 1);
   let base = 2, reads = 0, broken = true;

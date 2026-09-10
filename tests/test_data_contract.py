@@ -296,6 +296,19 @@ def test_invalid_exported_metadata_does_not_silently_become_an_empty_table():
             apply_source_contract(DataSource(name="Broken"), {"Type": "NativeCDSDataSourceInfo", "TableDefinition": definition})
 
 
+@pytest.mark.parametrize('category', ['Boolean','Picklist','MultiSelectPicklist','State','Status'])
+def test_non_null_malformed_option_categories_are_not_treated_as_absent(category):
+    from pfx2gas.data_contract import apply_source_contract
+    from pfx2gas.ir import DataSource
+    definition = {'EntityMetadata':{'PrimaryIdAttribute':'rowid','Attributes':[
+        {'LogicalName':'rowid','AttributeType':'Uniqueidentifier'}]}}
+    for invalid in ([], False, 0, '', 'null'):
+        definition[category+'OptionSetAttribute'] = invalid
+        with pytest.raises(ValueError, match='[Ee]xported '+category):
+            apply_source_contract(DataSource(name='Broken'), {'Type':'NativeCDSDataSourceInfo',
+                'TableDefinition':definition})
+
+
 def test_validator_gates_contract_loss_and_alias_collisions(native_ir, tmp_path):
     out = synthesize(native_ir, tmp_path / "Native")
     contract = json.loads((out / "data-contract.json").read_text())

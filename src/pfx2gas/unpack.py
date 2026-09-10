@@ -28,6 +28,7 @@ class UnpackedApp:
     layout: dict = field(default_factory=dict)
     app_yaml: dict = field(default_factory=dict)
     screens: dict[str, dict] = field(default_factory=dict)  # name -> yaml dict
+    component_definitions: dict[str, dict] = field(default_factory=dict)
     data_sources: list[dict] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     media_resources: dict[str, str] = field(default_factory=dict)
@@ -197,12 +198,6 @@ def unpack(msapp_path: str | Path) -> UnpackedApp:
         return "src" in parts and n.lower().endswith(".pa.yaml")
 
     src_files = sorted(n for n in entries if is_src(n))
-    # Archive entry order = screen creation order (Power Apps shows the first
-    # screen); used when no explicit ScreenOrder metadata exists.
-    archive_screen_order = [
-        n.rsplit("/", 1)[-1].removesuffix(".pa.yaml")
-        for n in entries if is_src(n)
-    ]
     if not src_files:
         has_legacy = any(n.lower().replace("\\", "/").startswith("controls/")
                          and n.lower().endswith(".json") for n in entries)
@@ -227,16 +222,32 @@ def unpack(msapp_path: str | Path) -> UnpackedApp:
 
     out = UnpackedApp(app_name=str(app_name), layout=layout, power_fx_v1=power_fx_v1)
     out.media_resources = _extract_media_resources(entries, raw_entries, out.warnings)
+    source_screen_names = {}
     for name in src_files:
         base = name.rsplit("/", 1)[-1]
         if base.startswith("_"):  # _EditorState.pa.yaml etc. are auxiliary
             out.warnings.append(f"skipped auxiliary source file: {name}")
             continue
         data = _load_yaml(entries[name])
-        if base.lower() == "app.pa.yaml":
+        if isinstance(data.get('ComponentDefinitions'), dict):
+            for component, definition in data['ComponentDefinitions'].items():
+                if str(component).casefold() in {key.casefold() for key in out.component_definitions}:
+                    raise UnpackError('duplicate canvas component definition: ' + str(component))
+                out.component_definitions[str(component)] = definition
+        elif 'ComponentDefinitions' in data:
+            raise UnpackError('invalid ComponentDefinitions in ' + name)
+        if 'App' in data or base.lower() == "app.pa.yaml":
             out.app_yaml = data
-        else:
+        if isinstance(data.get('Screens'), dict):
+            source_screen_names[name] = []
+            for screen, node in data['Screens'].items():
+                if str(screen).casefold() in {key.casefold() for key in out.screens}:
+                    raise UnpackError('duplicate canvas screen: ' + str(screen))
+                out.screens[str(screen)] = {'Screens': {str(screen): node}}
+                source_screen_names[name].append(str(screen))
+        elif not any(key in data for key in ('App', 'ComponentDefinitions', 'EditorState', 'DataSources')) and base.lower() != 'app.pa.yaml':
             out.screens[base.removesuffix(".pa.yaml")] = data
+            source_screen_names[name] = [base.removesuffix('.pa.yaml')]
 
     # --- data sources + connection warnings ---
     for name, content in entries.items():
@@ -252,6 +263,21 @@ def unpack(msapp_path: str | Path) -> UnpackedApp:
     if any("connections/" in f"/{n.lower()}" for n in entries):
         out.warnings.append("connection metadata present; data source credentials are NOT migrated")
 
+    reference_sources = read('References/DataSources.json')
+    if reference_sources:
+        from .legacy import decode_reference_sources
+        direct = {source['Name'].casefold(): source for source in out.data_sources}
+        for source in decode_reference_sources(reference_sources):
+            key = source['Name'].casefold()
+            if key in direct:
+                existing = direct[key]
+                merged = dict(source, **existing)
+                existing.clear()
+                existing.update(merged)
+            else:
+                out.data_sources.append(source)
+                direct[key] = source
+
     if not out.screens and not out.app_yaml:
         raise UnpackError("pa.yaml sources found but none contained parseable app/screen definitions")
 
@@ -266,6 +292,6 @@ def unpack(msapp_path: str | Path) -> UnpackedApp:
         except json.JSONDecodeError:
             pass
     if not order:
-        order = archive_screen_order
+        order = [screen for name in entries for screen in source_screen_names.get(name, [])]
     out.screen_order = [s for s in order if s in out.screens]
     return out

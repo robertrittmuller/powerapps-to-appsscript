@@ -32,6 +32,7 @@ _CONTROL_ALIASES = {
     "dropdowndatafield": "Dropdown",
     "moderntablecontrol": "DataTable",
     "fluidgrid": "FluidGrid",
+    "htmlviewer": "HtmlText",
 }
 
 
@@ -68,6 +69,8 @@ def _parse_control(name: str, node: dict) -> ControlNode:
             children.append(_parse_control(str(child_name), child_node))
     return ControlNode(name=name, type=ctrl_type, variant=variant if isinstance(variant, str) else None,
                        primary_output=node.get("PrimaryOutput"),
+                       component_name=node.get('ComponentName'),
+                       component_library=node.get('ComponentLibraryUniqueName'),
                        component_template=(str(node["ComponentTemplate"])
                                            if node.get("ComponentTemplate") else None),
                        component_inputs=[str(p) for p in node.get("ComponentInputs", [])],
@@ -159,6 +162,9 @@ def parse(unpacked: UnpackedApp) -> AppIR:
                 controls=_controls_of(screen_yaml),
             )
         )
+
+    from .components import expand_components
+    expand_components(ir, unpacked.component_definitions)
 
     for ds in unpacked.data_sources:
         # Sources arriving via the modern unpacker carry explicit markers;

@@ -22,6 +22,11 @@ class FxExpr(BaseModel):
     fidelity_note: str = ""
     blocked_dependencies: list[str] = Field(default_factory=list)
     approximations: list[str] = Field(default_factory=list)
+    # Names in a reusable definition resolve within its particular instance.
+    # Keep the source formula intact: strings, comments and row fields are not renamed.
+    control_aliases: dict[str, str] = Field(default_factory=dict)
+    component_owner: str | None = None
+    component_private: bool = False
 
 
 class SupportEntry(BaseModel):
@@ -71,6 +76,9 @@ class ControlNode(BaseModel):
     # adapter expands the definition's child tree under the instance and keeps
     # the declared input names so synthesis can expose them to child formulas.
     component_template: str | None = None
+    component_name: str | None = None
+    component_library: str | None = None
+    component_error: str | None = None
     component_inputs: list[str] = Field(default_factory=list)
     properties: dict[str, FxExpr] = Field(default_factory=dict)
     children: list["ControlNode"] = Field(default_factory=list)

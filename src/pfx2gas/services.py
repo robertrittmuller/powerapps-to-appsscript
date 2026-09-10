@@ -16,6 +16,7 @@ PLANNER_LIMITATION = ('Planner uses a Google Sheets task board in the converted 
     'Native Google Tasks UI, Planner roles, assignment audit metadata, ordering hints and external notifications are not reproduced.')
 
 PROFILE_OPERATIONS = {
+    'MyProfileV2': {'arity': [0, 1], 'write': False},
     'SearchUser': {'arity': [0, 1], 'write': False},
     'UserProfileV2': {'arity': [1, 2], 'write': False},
     'UserPhotoV2': {'arity': [1], 'write': False},

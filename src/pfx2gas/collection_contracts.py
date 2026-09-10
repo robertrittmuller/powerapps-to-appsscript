@@ -1,6 +1,6 @@
 """Carry exported column aliases through explicit collection/table lineage."""
 from . import fx
-from .analyze import behavior_formulas, named_target, walk_formula
+from .analyze import behavior_formulas, scoped_target, walk_formula
 from .data_contract import field_aliases
 from .fx.naming import snake
 
@@ -8,12 +8,12 @@ from .fx.naming import snake
 def infer_collection_contracts(ir):
     sources = {source.name:source for source in ir.data_sources}
     lineage = {name:set() for name,source in sources.items() if source.origin == 'collection'}
-    def source_of(node):
+    def source_of(expr, node):
         if node.kind == 'alias':
-            return source_of(node.children[0])
+            return source_of(expr, node.children[0])
         if node.kind == 'call' and node.value in {'Filter','Search','Sort','SortByColumns','FirstN','LastN','AddColumns'} and node.children:
-            return source_of(node.children[0])
-        return named_target(node)
+            return source_of(expr, node.children[0])
+        return scoped_target(expr, node)
     for expr in behavior_formulas(ir):
         try:
             roots = fx.lexer.parse_formula(expr.raw)
@@ -22,10 +22,10 @@ def infer_collection_contracts(ir):
         for node in (node for root in roots for node in walk_formula(root)):
             if node.kind != 'call' or node.value not in {'Collect','ClearCollect'} or not node.children:
                 continue
-            target = named_target(node.children[0])
+            target = scoped_target(expr, node.children[0])
             if target in lineage:
                 lineage[target].update(name for arg in node.children[1:]
-                    if (name := source_of(arg)) in sources and name != target)
+                    if (name := source_of(expr, arg)) in sources and name != target)
     for _ in range(len(lineage)):
         changed = False
         for names in lineage.values():

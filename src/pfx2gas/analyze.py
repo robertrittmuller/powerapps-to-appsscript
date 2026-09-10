@@ -46,6 +46,12 @@ def named_target(node) -> str | None:
     return None
 
 
+def scoped_target(expr: FxExpr, node) -> str | None:
+    from .fx.naming import component_symbol
+    name = named_target(node)
+    return component_symbol(expr.component_owner, name) if name is not None and expr.component_owner and expr.component_private else name
+
+
 def collect_global_vars(ir: AppIR) -> list[str]:
     """App-wide identifiers assigned via Set/Collect, excluding screen locals."""
     names: set[str] = set()
@@ -60,7 +66,7 @@ def collect_global_vars(ir: AppIR) -> list[str]:
         for st in (node for root in stmts for node in walk_formula(root)):
             if st.kind == "call" and st.value in {"Set", "Collect", "ClearCollect"}:
                 t = st.children[0] if st.children else None
-                name = named_target(t) if t is not None else None
+                name = scoped_target(formula, t) if t is not None else None
                 if name is not None:
                     names.add(name)
 
@@ -74,7 +80,7 @@ def collect_context_vars(ir: AppIR, control_screens: dict[str, str]) -> None:
     by_name = {screen.name: screen for screen in ir.screens}
     names = {name: set() for name in by_name}
     def scan(expr, owner):
-        if not expr or not expr.raw:
+        if not expr or not expr.raw or expr.component_owner:
             return
         try:
             roots = lx.parse_formula(expr.raw)
@@ -126,7 +132,7 @@ def infer_local_collections(ir: AppIR) -> None:
             if node.kind != "call" or node.value not in {"Collect", "ClearCollect"} or not node.children:
                 continue
             target = node.children[0]
-            name = named_target(target)
+            name = scoped_target(expr, target)
             if name is not None and name not in known:
                 ir.data_sources.append(DataSource(name=name, origin="collection"))
                 known.add(name)
@@ -249,7 +255,7 @@ def infer_data_source_fields(ir: AppIR) -> None:
         for st in (node for root in stmts for node in walk_formula(root)):
             if st.kind != "call" or not st.children:
                 continue
-            ds_name = named_target(st.children[0])
+            ds_name = scoped_target(expr, st.children[0])
             ds = by_name.get(ds_name)
             if ds is None:
                 continue
@@ -336,14 +342,15 @@ def analyze(ir: AppIR, uncovered: list[dict] | None = None, solution=None) -> Ap
             return
         try:
             res = transpile(expr.raw, behavior=(expr.kind == "behavior"),
-                            row_fields=row_fields, control_names=control_names,
-                            collections=collections, screen_names=screen_names,
+                            row_fields=row_fields, control_names=set(expr.control_aliases.values()) if expr.component_private else control_names,
+                            collections=collections, screen_names=set() if expr.component_private else screen_names,
                             global_names=set(ir.global_vars) | {ds.name for ds in ir.data_sources} | set(ir.named_formulas),
                             media_resources=ir.media_resources, row_alias=row_alias,
-                            screen_name=screen_name, control_screens=control_screens, view_sets=ir.view_sets,
+                            screen_name=None if expr.component_owner else screen_name, control_screens=control_screens, view_sets=ir.view_sets,
                             relationship_keys=relationship_keys,
                             service_adapters=adapters, power_fx_v1=ir.power_fx_v1,
-                            named_formulas=set(ir.named_formulas))
+                            named_formulas=set(ir.named_formulas), control_aliases=expr.control_aliases,
+                            component_owner=expr.component_owner, component_private=expr.component_private)
             expr.js = res.js
             expr.translation_status = "stubbed" if res.unmapped else "rule"
             expr.blocked_dependencies = [name for name in res.unmapped if name.startswith('Dataverse view')]

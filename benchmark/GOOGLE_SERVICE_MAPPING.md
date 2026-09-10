@@ -12,7 +12,7 @@ is missing. Empty successful responses cannot stand in for an unmigrated service
 | Planner shared plans, buckets and assigned tasks | Google Sheets and Apps Script task-board adapter | Implemented for eight operations below. Explicit Google-user mapping and plan/task migration are required. Generated-server and Chromium tests preserve IDs, membership checks, buckets, assignments, progress, dates and description writes. |
 | Personal task lists and tasks that fit the native API | Google Tasks | Candidate native adapter; shared assignments, bucket semantics and due-time fidelity must not be claimed. |
 | Teams team/channel selectors and notifications | Native Google Chat | Implemented four operations with explicit source-ID/space mappings, native membership checks and deterministic HTML-to-Markdown translation. Generated-server, Chromium and unchanged Employee Ideas notification tests use native API fixtures; live delivery remains unverified. |
-| Office365Users/Microsoft365Users search, profiles and photos | Native Google People domain directory plus migrated user mapping | Implemented SearchUser, UserProfileV2 and UserPhotoV2. Generated-server and Chromium assignment tests use explicit native API fixtures; live domain access remains unverified. |
+| Office365Users/Microsoft365Users search, profiles and photos | Native Google People domain directory plus migrated user mapping | Implemented SearchUser, MyProfileV2, UserProfileV2 and UserPhotoV2. Generated-server and Chromium assignment/profile tests use explicit native API fixtures; live domain access remains unverified. |
 | Files and attachments | Google Drive | Candidate storage and access adapter with upload/download evidence. |
 
 ## Dataverse ownership and Google callers
@@ -131,6 +131,9 @@ and [web-app execution modes](https://developers.google.com/apps-script/guides/w
 Both exported service names route to Google People: V1 SearchUser returns a
 profile array through searchDirectoryPeople/listDirectoryPeople pagination;
 UserProfileV2 and UserPhotoV2 resolve mapped identities through People.get.
+MyProfileV2 resolves the identified accessing Google caller through that same
+mapping and supports the exported optional select fields. Modern source imports
+now retain these service declarations from `References/DataSources.json`.
 Returned IDs retain the original Microsoft identity, while mail/principal names
 use the mapped Google email. Names, organization, location and phones come from
 native primary fields. A custom photo returns its Google HTTPS URL; an absent
@@ -153,6 +156,9 @@ task. Keyboard activation, input labeling, visible geometry and image decoding
 are checked. Native API responses and the photo image are authored test fixtures;
 live Google authorization, visibility, URL lifetime and quotas remain unverified.
 No full real-app workflow is inferred from this fixture.
+The unchanged public navigation sample displays its MyProfileV2 mail field using
+an explicit Google People response fixture. Its subsequent navigation click
+still fails due to clipped layout; this is partial service evidence only.
 
 Contracts: Microsoft's [Office 365 Users connector](https://learn.microsoft.com/en-us/connectors/office365users/),
 Google's [directory guide](https://developers.google.com/people/v1/directory),

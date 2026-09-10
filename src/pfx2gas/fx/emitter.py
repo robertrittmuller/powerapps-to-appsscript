@@ -75,7 +75,9 @@ class Emitter:
                  row_alias: str | None = None, screen_name: str | None = None,
                  control_screens: dict[str, str] | None = None, view_sets: dict | None = None,
                  relationship_keys: set[str] | None = None, service_adapters: dict | None = None,
-                 power_fx_v1: bool = False, named_formulas: set[str] | None = None):
+                 power_fx_v1: bool = False, named_formulas: set[str] | None = None,
+                 control_aliases: dict[str, str] | None = None,
+                 component_owner: str | None = None, component_private: bool = False):
         self.res = res
         self.behavior = behavior
         self.view_sets = view_sets or {}
@@ -87,6 +89,9 @@ class Emitter:
         self.known_controls = control_names is not None
         self.global_names = global_names or set()
         self.named_formulas = {name.casefold(): name for name in named_formulas or ()}
+        self.control_aliases = {name.casefold(): value for name, value in (control_aliases or {}).items()}
+        self.component_owner = component_owner
+        self.component_private = component_private
         self.media_resources = media_resources or {}
         # Data-source names that are Power Apps collections (client-side
         # state arrays); data calls against them run locally, not server-side.
@@ -109,13 +114,20 @@ class Emitter:
     def state_ref(name: str) -> str:
         return f"state.{name}" if re.fullmatch(r"[A-Za-z_]\w*", name) else f"state[{_q(name)}]"
 
-    @staticmethod
-    def source_name(node) -> str | None:
+    def source_name(self, node) -> str | None:
         if node.kind in {"ident", "global"}:
             parts = lx.reference_parts(str(node.value))
             if len(parts) == 1:
-                return parts[0]
+                return self.scope_symbol(parts[0])
         return None
+
+    def scope_symbol(self, name: str) -> str:
+        from .naming import component_symbol
+        return component_symbol(self.component_owner, name) if self.component_private and self.component_owner else name
+
+    def control_name(self, name: str) -> str:
+        parts = lx.reference_parts(name)
+        return self.control_aliases.get(parts[0].casefold(), parts[0]) if len(parts) == 1 else name
 
     def scoped_source(self, node, variable: str):
         alias = str(node.value) if node.kind == "alias" else None
@@ -186,6 +198,7 @@ class Emitter:
 
     def ident(self, name: str, global_only: bool = False) -> str:
         base, *members = lx.reference_parts(name)
+        control_base = self.control_aliases.get(base.casefold(), base)
         if base in self.view_sets:
             reason = f'Dataverse view {name}: must be a direct Filter argument'
             self.res.unmapped.append(reason)
@@ -230,9 +243,9 @@ class Emitter:
             control = bool(members)
         elif base in self.media_resources:
             access = _q(self.media_resources[base])
-        elif base in self.control_names or (members and not self.known_controls
+        elif control_base in self.control_names or (members and not self.known_controls
                                            and base not in self.global_names and base[:1].isupper()):
-            access = f"val({_q(base)})"
+            access = f"val({_q(control_base)})"
             control = True
             # AllItems includes controls in each loaded gallery record. Keep
             # ordinary record-scope precedence, with the global/owning-row
@@ -242,7 +255,7 @@ class Emitter:
                           f"{_q(_snake(base))}, () => {access})")
                 control = False  # explicit Blank in a record remains Blank
         else:
-            canonical = self.named_formulas.get(base.casefold(), base)
+            canonical = self.scope_symbol(base) if self.component_private else self.named_formulas.get(base.casefold(), base)
             fallback = _q(base.lower()) if base in NAMED_COLORS else self.state_ref(canonical)
             if self.screen_name is not None and not global_only and base not in NAMED_COLORS:
                 fallback = f"FXRuntime.variable({_q(self.screen_name)}, {_q(base)}, () => {fallback})"
@@ -353,6 +366,8 @@ class Emitter:
             self.res.approximations.append('Relate/Unrelate supports exported one-to-many lookups and many-to-many links with idempotent target retries; unmatched Unrelate is a no-op, cascades and Dataverse permissions require adapters')
             return f"await apiRelate({self.expr(args[0])}, {self.expr(args[1])}, {'true' if name == 'Unrelate' else 'false'})"
         if name == "UpdateContext":
+            if self.component_owner:
+                raise lx.FxSyntaxError('UpdateContext is not supported inside a canvas component')
             if not args or args[0].kind != "record":
                 raise lx.FxSyntaxError("UpdateContext requires a record")
             fields = ", ".join(
@@ -364,8 +379,9 @@ class Emitter:
             if not 1 <= len(args) <= 3:
                 raise lx.FxSyntaxError("Navigate requires a destination, optional transition and context record")
             target = args[0]
-            if self.source_name(target) in self.control_screens:
-                destination = _q(self.control_screens[self.source_name(target)])
+            target_control = self.control_name(str(target.value)) if target.kind == 'ident' else None
+            if target_control in self.control_screens and (not self.component_private or target_control in self.control_names):
+                destination = _q(self.control_screens[target_control])
             elif target.kind == "ident" and self.screen_names is None \
                     and "." not in str(target.value):
                 destination = _q(str(target.value))
@@ -457,15 +473,15 @@ class Emitter:
             return f"FXRuntime.setState({{{_q(source)}: []}})"
         if name == "SubmitForm":
             target = args[0]
-            ctrl = str(target.value) if target.kind == "ident" else self.expr(target)
+            ctrl = self.control_name(str(target.value)) if target.kind == "ident" else self.expr(target)
             return f"await submitForm({_q(ctrl)})"
         if name == "ResetForm":
             target = args[0]
-            ctrl = str(target.value) if target.kind == "ident" else self.expr(target)
+            ctrl = self.control_name(str(target.value)) if target.kind == "ident" else self.expr(target)
             return f"resetForm({_q(ctrl)})"
         if name in {"Reset", "Select", "SetFocus"}:
             target = args[0]
-            ctrl = str(target.value) if target.kind == "ident" else self.expr(target)
+            ctrl = self.control_name(str(target.value)) if target.kind == "ident" else self.expr(target)
             fn = {"Select": "selectControl", "Reset": "resetControl", "SetFocus": "FXRuntime.focusControl"}[name]
             return f"{fn}({_q(ctrl)})"
         if name == "Search":

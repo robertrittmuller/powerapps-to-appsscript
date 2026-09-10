@@ -1431,7 +1431,56 @@ def named_formula_fixture_files() -> dict[str, str]:
     return files
 
 
+def modern_component_fixture_files() -> dict[str, str]:
+    def control(name, kind, props, **extra):
+        return {name: {'Control': kind, 'Properties': {key:'='+str(value) for key,value in props.items()}, **extra}}
+    definitions = {
+        'CounterCard': {'DefinitionType':'CanvasComponent', 'AccessAppScope':False,
+            'CustomProperties': {
+                'Caption':{'PropertyKind':'Input','DataType':'Text','Default':'="default"'},
+                'Total':{'PropertyKind':'Output','DataType':'Number','Default':'=Coalesce(count,0)'},
+                'SavedCount':{'PropertyKind':'Output','DataType':'Number','Default':'=CountRows(Entries)'},
+                'InputText':{'PropertyKind':'Output','DataType':'Text','Default':'=EntryInput.Text'},
+                'ScopedText':{'PropertyKind':'Output','DataType':'Text','Default':'=With({EntryInput:{Text:"record"}},EntryInput.Text)'},
+            },
+            'Properties':{'Width':'=240','Height':'=240'},
+            'Children':[
+                control('Title','Label',{'Text':'CounterCard.Caption & " EntryInput"','X':10,'Y':5,'Width':'Parent.Width-20','Height':25}),
+                control('EntryInput','TextInput',{'Default':'CounterCard.Caption','X':10,'Y':35,'Width':'Parent.Width-20','Height':35}),
+                control('SaveButton','Button',{'Text':'"Save"','X':10,'Y':80,'Width':90,'Height':35,
+                    'OnSelect':'Set(Count,Coalesce(count,0)+1);Collect(Entries,{Text:EntryInput.Text});Reset(EntryInput)'}),
+                control('ResetButton','Button',{'Text':'"Reset"','X':110,'Y':80,'Width':90,'Height':35,'OnSelect':"Reset('entryinput')"}),
+                control('SelectButton','Button',{'Text':'"Select SaveButton"','X':10,'Y':125,'Width':200,'Height':35,'OnSelect':"Select('savebutton')"}),
+                control('Counts','Label',{'Text':'CounterCard.Total & "/" & CounterCard.SavedCount','X':10,'Y':170,'Width':200,'Height':30}),
+                control('Html','HtmlViewer@2.1.0',{'HtmlText':'"<b>EntryInput</b>"','X':10,'Y':205,'Width':200,'Height':30}),
+            ]},
+        'Wrapper': {'DefinitionType':'CanvasComponent','AccessAppScope':False,
+            'CustomProperties':{'Caption':{'PropertyKind':'Input','DataType':'Text','Default':'="nested"'}},
+            'Properties':{'Width':'=280','Height':'=240'},
+            'Children':[control('Inner','CanvasComponent',{'Caption':'Wrapper.Caption','Width':'Parent.Width','Height':240},ComponentName='CounterCard')]},
+        'Shared': {'DefinitionType':'CanvasComponent','AccessAppScope':True,
+            'Properties':{'Width':'=220','Height':'=50'},
+            'Children':[control('Increment','Button',{'Text':'"Change app count"','Width':200,'Height':40,'OnSelect':'Set(count,count+1)'})]},
+    }
+    home = {'Properties':{},'Children':[
+        control('EntryInput','TextInput',{'Default':'"Host"','X':20,'Y':10,'Width':250,'Height':40}),
+        control('AppCounts','Label',{'Text':'count & "/" & CountRows(Entries)','X':300,'Y':10,'Width':300,'Height':40}),
+        control('First','CanvasComponent',{'Caption':'EntryInput.Text','X':20,'Y':70,'Width':250,'Height':240},ComponentName='CounterCard'),
+        control('Second','CanvasComponent',{'Caption':'"Second"','X':290,'Y':70,'Width':280,'Height':240},ComponentName='CounterCard'),
+        control('Nested','CanvasComponent',{'X':610,'Y':70,'Width':280,'Height':240},ComponentName='Wrapper'),
+        control('SharedInstance','CanvasComponent',{'X':20,'Y':360,'Width':220,'Height':50},ComponentName='Shared'),
+        control('Outputs','Label',{'Text':'First.Total & "/" & Second.Total & "/" & First.InputText & "/" & First.ScopedText','X':20,'Y':430,'Width':800,'Height':40}),
+    ]}
+    # Definition files precede screens in the archive and must not become
+    # screens. A combined document also exercises the actual schema topology.
+    return {'CanvasManifest.json':json.dumps({'Name':'ModernComponents'}),
+        'Src/Components/Definitions.pa.yaml':json.dumps({'ComponentDefinitions':definitions}),
+        'Src/App.pa.yaml':json.dumps({'App':{'Properties':{'OnStart':'=Set(count,900);ClearCollect(Entries,{Text:"global"})'}}}),
+        'Src/Combined.pa.yaml':json.dumps({'Screens':{'Home':home,'Other':{'Properties':{}}}})}
+
+
 def build_fixtures() -> None:
+    _write_msapp(FIXTURE_DIR / 'fixtureModernComponents.msapp', modern_component_fixture_files())
     _write_msapp(FIXTURE_DIR / 'fixtureNamedFormulas.msapp', named_formula_fixture_files())
     _write_msapp(FIXTURE_DIR/'fixtureCheckboxEvents.msapp',checkbox_event_fixture_files())
     _write_msapp(FIXTURE_DIR/'fixtureDataverseState.msapp',state_fixture_files())
