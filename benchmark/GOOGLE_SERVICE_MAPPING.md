@@ -11,7 +11,7 @@ is missing. Empty successful responses cannot stand in for an unmigrated service
 | Dataverse/SharePoint structured records | Google Sheets and Apps Script | Existing typed storage, source keys, relationships and migration ledger. |
 | Planner shared plans, buckets and assigned tasks | Google Sheets and Apps Script task-board adapter | Implemented for eight operations below. Explicit Google-user mapping and plan/task migration are required. Generated-server and Chromium tests preserve IDs, membership checks, buckets, assignments, progress, dates and description writes. |
 | Personal task lists and tasks that fit the native API | Google Tasks | Candidate native adapter; shared assignments, bucket semantics and due-time fidelity must not be claimed. |
-| Teams spaces/channels/messages | Google Chat | Candidate space/channel mapping and message adapter; membership and authorization must be explicit. |
+| Teams team/channel selectors and notifications | Native Google Chat | Implemented four operations with explicit source-ID/space mappings, native membership checks and deterministic HTML-to-Markdown translation. Generated-server, Chromium and unchanged Employee Ideas notification tests use native API fixtures; live delivery remains unverified. |
 | Office365Users/Microsoft365Users search, profiles and photos | Native Google People domain directory plus migrated user mapping | Implemented SearchUser, UserProfileV2 and UserPhotoV2. Generated-server and Chromium assignment tests use explicit native API fixtures; live domain access remains unverified. |
 | Files and attachments | Google Drive | Candidate storage and access adapter with upload/download evidence. |
 
@@ -96,6 +96,51 @@ Google's [directory guide](https://developers.google.com/people/v1/directory),
 [directory listing](https://developers.google.com/people/api/rest/v1/people/listDirectoryPeople),
 [person lookup](https://developers.google.com/people/api/rest/v1/people/get), and
 [Apps Script People service](https://developers.google.com/apps-script/advanced/people).
+
+## Native Google Chat implementation
+
+The six pinned Microsoft exports contain four Teams operations: GetAllTeams,
+GetTeam, GetChannelsForGroup and PostMessageToChannelV3. GetAllTeams lists joined
+teams. Each source team maps to a named Chat anchor space; each channel maps to a
+named space, optionally its own team's anchor. IDs stay unchanged in formulas,
+while names/descriptions come from Google. The converted UI retains the logical
+hierarchy; native Google Chat has no equivalent team/channel hierarchy.
+
+The private ChatMigration.gs import validates all mappings before one write,
+refuses re-import and preserves operator edits across reconversion. The manifest
+enables Chat v1 and the chat.spaces.readonly/chat.messages.create scopes alongside
+People when both are declared. Deploy as the identified accessing user with the
+Chat API, Cloud project and OAuth configuration completed. Workbook editors can
+change mappings; native joined-space membership and posting permissions remain
+the final access check. Missing migration, unknown IDs, pagination limits, denied
+membership and native API errors cannot become empty success.
+
+Notifications use user-authenticated text messages with explicit CommonMark
+syntax, generally available since August 7, 2026. Subjects become a bold first
+paragraph. A bounded deterministic parser preserves source text, line breaks,
+simple emphasis, paragraphs and HTTP(S)/mailto links; unsupported markup and
+options fail before posting. Literal text is escaped against unintended formatting
+or mentions. Payload size is checked in UTF-8 bytes. Each post makes one create
+request with a request ID; uncertain outcomes require inspection before manual
+retry. Native message IDs are returned. Rich HTML, attachments, native Teams
+roles/settings, connector aliases and other message operations remain gaps.
+
+The Chromium fixture selects teams/channels by readable labels while preserving
+source IDs, checks dropdown Value in ordinary controls and gallery rows, posts a
+notification, reloads, rejects unsupported content and recovers from denied API
+calls. The unchanged Employee Ideas mobile app also passes 31 checks with explicit
+space mappings and an active settings record: its actual Teams formula reaches
+native Chat create, retains submitted data, and does not repost after reload.
+Both use explicit API response fixtures; no real messages were sent. Live Google
+authorization, native message rendering and complete app usability remain open.
+
+Contracts: [Microsoft Teams connector](https://learn.microsoft.com/en-us/connectors/teams/),
+[Apps Script Chat service](https://developers.google.com/apps-script/advanced/chat),
+[joined spaces](https://developers.google.com/workspace/chat/api/reference/rest/v1/spaces/list),
+[message creation](https://developers.google.com/workspace/chat/api/reference/rest/v1/spaces.messages/create),
+[message formatting](https://developers.google.com/workspace/chat/format-messages),
+[Chat release notes](https://developers.google.com/workspace/chat/release-notes), and
+[dropdown Value](https://learn.microsoft.com/en-us/power-apps/maker/canvas-apps/controls/control-drop-down).
 
 The remaining candidate adapters above are planned. No real app has complete
 conversion acceptance; current evidence is in

@@ -1150,7 +1150,8 @@ def render_app_js(ir: AppIR) -> str:
                             row_properties.append(("text", texpr))
                         row_inputs = []
                         if child.type in {"Dropdown", "ComboBox", "ListBox"}:
-                            row_inputs.extend([("DisplayFields", "displayFields"), ("Items", "items"),
+                            display_property = "Value" if child.type == "Dropdown" and "Value" in child.properties else "DisplayFields"
+                            row_inputs.extend([(display_property, "displayFields"), ("Items", "items"),
                                                ("DefaultSelectedItems", "default")])
                         if child.type in {"TextInput", "TextArea", "Dropdown", "ComboBox", "ListBox",
                                           "CheckBox", "DatePicker", "Slider"}:
@@ -1265,7 +1266,8 @@ def render_app_js(ir: AppIR) -> str:
                 items_expr = ctrl.properties.get("Items")
                 if items_expr and items_expr.js:
                     mark_emission(items_expr)
-                    display_expr = (ctrl.properties.get("DisplayFields")
+                    display_expr = ((ctrl.properties.get("Value") if ctrl.type == "Dropdown" else None)
+                                    or ctrl.properties.get("DisplayFields")
                                     or ctrl.properties.get("SearchFields"))
                     default_selected = ctrl.properties.get("DefaultSelectedItems")
                     needs_async = "await " in items_expr.js

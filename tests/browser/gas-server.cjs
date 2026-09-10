@@ -66,6 +66,19 @@ function directoryCall(method, args) {
   if (next.args && JSON.stringify(next.args)!==JSON.stringify(args)) throw new Error('Unexpected Google People arguments');
   return clone(next.result);
 }
+let chatResponses = [], chatRequests = [], chatMessages = [];
+const connectorRequests = [];
+function chatCall(method,args) {
+  if (lockHeld) throw new Error('Native Chat request occurred while holding the workbook lock');
+  chatRequests.push({method,args:clone(args)});
+  const next=chatResponses.shift();
+  if (!next) throw new Error('No configured Google Chat test response');
+  if (next.method!==method) throw new Error('Unexpected Google Chat method: '+method);
+  if (next.args && JSON.stringify(next.args)!==JSON.stringify(args)) throw new Error('Unexpected Google Chat arguments');
+  if (next.error) throw new Error(next.error);
+  if (method==='create') chatMessages.push({request:clone(args),response:clone(next.result)});
+  return clone(next.result);
+}
 const context = vm.createContext({
   HtmlService: {
     createHtmlOutputFromFile(name) {
@@ -108,7 +121,8 @@ const context = vm.createContext({
       lockHeld=false; lockEvents.push('released');
     },
   })},
-  Utilities: { getUuid: () => 'test-record-' + (++sequence) },
+  Utilities: { getUuid: () => 'test-record-' + (++sequence),
+    newBlob: value => ({getBytes:()=>Array.from(Buffer.from(value,'utf8'))}) },
   Session: { getActiveUser: () => ({ getEmail: () => storageUser }),
     getEffectiveUser: () => ({getEmail: () => effectiveUser === null ? storageUser : effectiveUser}) },
   People: {People:{
@@ -116,6 +130,7 @@ const context = vm.createContext({
     searchDirectoryPeople:(...args)=>directoryCall('searchDirectoryPeople',args),
     listDirectoryPeople:(...args)=>directoryCall('listDirectoryPeople',args),
   }},
+  Chat:{Spaces:{list:(...args)=>chatCall('list',args),Messages:{create:(...args)=>chatCall('create',args)}}},
   ScriptApp: { getScriptId: () => storageAppId },
 });
 for (const file of ['Code.gs', 'DataInit.gs']) {
@@ -124,8 +139,13 @@ for (const file of ['Code.gs', 'DataInit.gs']) {
 vm.runInContext('setup()', context, {timeout: 10000});
 setupComplete = true;
 readline.createInterface({input: process.stdin}).on('line', line => {
+  let tracedConnector;
   try {
     const request = JSON.parse(line);
+    if (request.fn === '__connectorRequests') {
+      process.stdout.write(JSON.stringify({result:connectorRequests})+'\n'); return;
+    }
+    if (request.fn === 'connector') { tracedConnector={args:clone(request.args)};connectorRequests.push(tracedConnector); }
     if (request.fn === '__failNextMutation') { failNext = true; process.stdout.write('{"result":true}\n'); return; }
     if (request.fn === '__failNextLock') { failNextLock = true; process.stdout.write('{"result":true}\n'); return; }
     if (request.fn === '__failNextFlush') { failNextFlush = true; process.stdout.write('{"result":true}\n'); return; }
@@ -151,19 +171,28 @@ readline.createInterface({input: process.stdin}).on('line', line => {
     if (request.fn === '__peopleRequests') {
       process.stdout.write(JSON.stringify({result:directoryRequests})+'\n'); return;
     }
+    if (request.fn === '__chatResponses') {
+      chatResponses=clone(request.args[0]); chatRequests=[];
+      process.stdout.write('{"result":true}\n'); return;
+    }
+    if (request.fn === '__chatRequests' || request.fn === '__chatMessages') {
+      process.stdout.write(JSON.stringify({result:request.fn==='__chatRequests' ? chatRequests : chatMessages})+'\n'); return;
+    }
     // Test-only administrative hooks; private Apps Script functions are never RPC endpoints.
     const administrative = {__importPlanner:'importPlanner_', __plannerSnapshot:'plannerDocument_', __setup:'setup',
-      __importDirectory:'importDirectory_'};
+      __importDirectory:'importDirectory_',__importChat:'importChat_'};
     const admin = Object.prototype.hasOwnProperty.call(administrative, request.fn) && administrative[request.fn];
     if (!admin && !['api', 'apiChoices', 'whoami', 'doGet', 'connector'].includes(request.fn)) throw new Error('unknown test endpoint');
-    mutationRequest = request.fn === '__importPlanner' || request.fn === '__importDirectory' || request.fn === 'connector' ||
+    mutationRequest = request.fn === '__importPlanner' || request.fn === '__importDirectory' || request.fn === '__importChat' || request.fn === 'connector' ||
       (request.fn === 'api' && !['list', 'links', 'relationshipSnapshot'].includes(request.args[1]));
     if (admin) request.fn = admin;
     context.requestJSON = JSON.stringify(request);
     const result = vm.runInContext(
       '(function(){var r=JSON.parse(requestJSON); return globalThis[r.fn].apply(null,r.args);})()',
       context, {timeout: 10000});
+    if (tracedConnector) tracedConnector.result=clone(result);
     process.stdout.write(JSON.stringify({result: request.fn === 'doGet' ? result.getContent() : result}) + '\n');
-  } catch (error) { process.stdout.write(JSON.stringify({error: error.message}) + '\n'); }
+  } catch (error) { if (tracedConnector) tracedConnector.error=error.message;
+    process.stdout.write(JSON.stringify({error: error.message}) + '\n'); }
   finally {mutationRequest=false;}
 });

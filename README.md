@@ -28,6 +28,14 @@ journey covers search, profile/photo selection and persisted task assignment
 using explicit native API response fixtures. Live directory permissions and
 photo visibility remain deployment checks.
 
+MicrosoftTeams team/channel selectors and notifications now use native Google
+Chat. `ChatMigration.gs` and `chat-migration.md` map original IDs to named Google
+spaces, with an anchor space representing each logical team. The accessing user
+must belong to the mapped spaces. Supported source HTML becomes escaped Chat
+Markdown; unsupported content fails before posting. Generated-server and Chromium
+tests use explicit API fixtures. Live authorization and native rendering remain
+unverified; tests send no real messages.
+
 It is a deterministic transpiler pipeline (unpack → parse → analyze →
 synthesize → validate) with an optional LLM fallback for formulas the rule
 engine can't map. The LLM never writes files; it can only propose a
@@ -178,11 +186,15 @@ These are partial workflow checks; complete usability remains unproven.
 campaign/user/question records through generated Code.gs before startup. Its 29 checks
 pass: campaign filtering/order/search/selection, mobile field layout and labels,
 required-title validation, single/multiline custom responses, campaign idea counts, submission,
-persistence, reload and reopening. The unsupported Teams post follows the source
+persistence, reload and reopening. The unmigrated Teams post follows the source
 warning/recovery path. Adding `--voting` persists a count of one, but fails the
 membership assertion: the exported Concurrent runs both Relate and an
 unconditional Unrelate, leaving no voter link in this run. That source ordering
 risk is ledgered; the converter preserves the source actions.
+Adding `--chat` imports reviewed example space mappings and an explicitly active
+notification settings record. Its 31 checks include the unchanged source's native
+Chat request, preserved team/channel IDs, successful submission and reload without
+reposting. Google API responses are fixtures; this is partial workflow evidence.
 The browser gate waits for dispatched server calls and includes errors that
 arrive during capture before assigning a verdict.
 Ratings, attachments, manager workflows and complete app usability remain unassessed.
@@ -196,7 +208,7 @@ dependency failure instead of returning an empty successful response.
 galleries, timer lifecycles, launch parameters, local drafts, Dataverse record
 contracts, complete source timestamp/URL-validation formulas, responsive and
 scaled canvases, card grids, static horizontal gallery templates/wrapping, the migrated Planner task board,
-native Google directory assignments, typed collection aliases and conditional draft
+native Google directory assignments, Chat selectors/notifications, typed collection aliases and conditional draft
 updates in Chromium, plus HelpDesk
 when its local export is present. It runs
 generated `doGet`/client/server code against a Sheets test double to check save,

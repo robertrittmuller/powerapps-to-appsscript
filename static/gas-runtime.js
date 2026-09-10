@@ -639,7 +639,7 @@
       }
       return null;
     }
-    var preferred = Array.isArray(displayFields) ? displayFields : [];
+    var preferred = Array.isArray(displayFields) ? displayFields : typeof displayFields === 'string' ? [displayFields] : [];
     var label = first(preferred.concat(['name', 'Name', 'label', 'Label', 'title', 'Title',
       'value', 'Value', 'category', 'Category', 'type', 'Type']));
     if (label === null) {
@@ -902,6 +902,29 @@
       }
       return typeof item + ':' + String(item);
     }
+    function valueKey(item) {
+      // Formula-created records can be equal values but new objects on each
+      // evaluation. Match only JSON-like Power Fx data, with typed dates and
+      // sorted record fields; never merge unsupported/cyclic values by accident.
+      var seen = new Set();
+      function encode(value) {
+        if (value === null) return ['blank'];
+        if (typeof value === 'number' && !Number.isFinite(value)) throw new Error('nonfinite value');
+        if (['string','boolean','number'].includes(typeof value)) return [typeof value,value];
+        if (value instanceof Date) {
+          if (!Number.isFinite(value.getTime())) throw new Error('invalid date');
+          return ['date',value.toISOString()];
+        }
+        if (!value || typeof value !== 'object' || seen.has(value)) throw new Error('unsupported value');
+        if (!Array.isArray(value) && Object.prototype.toString.call(value) !== '[object Object]') throw new Error('unsupported record');
+        seen.add(value);
+        var result = Array.isArray(value) ? ['table',value.map(encode)] :
+          ['record',Object.keys(value).sort().map(function (key) { return [key,encode(value[key])]; })];
+        seen.delete(value);
+        return result;
+      }
+      try { return JSON.stringify(encode(item)); } catch (_) { return null; }
+    }
     function choose(row) {
       controlValues[name] = Object.assign({}, controlValues[name] || {}, {
         selected: row.__fxItem, selected_items: [row.__fxItem],
@@ -958,12 +981,31 @@
         var restoreFocus = focused && typeof rowsEl.contains === 'function' && rowsEl.contains(focused);
         var selectionStart = restoreFocus ? focused.selectionStart : null;
         var selectionEnd = restoreFocus ? focused.selectionEnd : null;
-        var used = new Map(), next = new Map();
-        var renderedRows = items.map(function (item, index) {
+        var used = new Map(), next = new Map(), retainedRows = new Set();
+        var rowKeys = items.map(function (item) {
           var base = identity(item), occurrence = used.get(base) || 0;
           used.set(base, occurrence + 1);
-          var key = base + ':' + occurrence;
+          return base + ':' + occurrence;
+        });
+        var requestedKeys = new Set(rowKeys), reusable = new Map();
+        if (rowKeys.some(function (key) { return key.startsWith('object:') && !mounted.has(key); })) {
+          mounted.forEach(function (row,key) {
+            // Reserve existing object identities before matching new equal
+            // records, so a clone cannot steal a later row's unsaved controls.
+            if (!key.startsWith('object:') || requestedKeys.has(key)) return;
+            var signature = valueKey(row.__fxItem);
+            if (signature === null) return;
+            if (!reusable.has(signature)) reusable.set(signature,[]);
+            reusable.get(signature).push(row);
+          });
+        }
+        var renderedRows = items.map(function (item, index) {
+          var key = rowKeys[index];
           var row = mounted.get(key);
+          if (!row && key.startsWith('object:')) {
+            var candidates = reusable.get(valueKey(item));
+            if (candidates && candidates.length) row = candidates.shift();
+          }
           if (!row) {
             var holder = document.createElement('div');
             holder.innerHTML = rowMarkup;
@@ -994,12 +1036,13 @@
           }
           row.__fxItem = item;
           next.set(key, row);
+          retainedRows.add(row);
           // Avoid moving an already correctly placed node: moving a focused
           // input's ancestor blurs it in Chromium even if the node is reused.
           if (rowsEl.children[index] !== row) rowsEl.insertBefore(row, rowsEl.children[index] || null);
           return row;
         });
-        mounted.forEach(function (row, key) { if (!next.has(key)) row.remove(); });
+        mounted.forEach(function (row) { if (!retainedRows.has(row)) row.remove(); });
         mounted = next;
         var templateSize = parseFloat(host.getAttribute('data-template-size'));
         var templatePadding = parseFloat(host.getAttribute('data-template-padding'));

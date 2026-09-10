@@ -41,8 +41,22 @@ def seed(backend):
             'sha256':hashlib.sha256(json.dumps(RECORDS, sort_keys=True).encode()).hexdigest()}
 
 
-def main(voting=False):
-    name = NAME + ('-voting' if voting else '')
+def seed_chat(backend):
+    evidence=seed(backend)
+    settings={'msft_employeeidea_settingsid':'settings-chat','msft_name':'Migrated Facilities notifications',
+              'msft_parameterteamid':'team-a','msft_parameternotificationchannelid':'repairs',
+              'msdyn_isenablednotifications':True,'statecode':0}
+    result=backend({'fn':'api','args':['Employee Idea Settings','create',{'record':settings}]})
+    assert 'error' not in result,result
+    data=json.loads((REPO/'tests/fixtures/google-chat.json').read_text())
+    assert backend({'fn':'__importChat','args':[data['migration']]})=={'result':{'ok':True,'teams':2,'channels':3}}
+    evidence.update(notificationSettings=settings,chatMigration=data['migration'],
+                    googleChat='explicit native API fixtures; no live messages or authorization')
+    return evidence
+
+
+def main(voting=False,chat=False):
+    name = NAME + ('-voting' if voting else '') + ('-chat' if chat else '')
     steps = []
     def check(name, action):
         try:
@@ -103,6 +117,10 @@ def main(voting=False):
         fields.nth(3).press('Tab')
         page.screenshot(path=str(OUT / name / 'custom-responses-entered.png'), timeout=10000)
         check('valid-title-enables-submit', lambda: expect(submit).to_be_enabled())
+        if chat:
+            data=json.loads((REPO/'tests/fixtures/google-chat.json').read_text())
+            backend({'fn':'__chatResponses','args':[[{'method':'list','result':{'spaces':data['spaces']}},
+                {'method':'create','result':{'name':'spaces/REPAIRS/messages/employee.1'}}]]})
         check('submit-idea', lambda: submit.click())
         check('submission-success-screen', lambda: expect(page.locator('[data-screen="Mobile Success Screen"]')).to_be_visible())
         def saved_idea():
@@ -124,7 +142,23 @@ def main(voting=False):
             ideas = backend({'fn':'api','args':['Employee Ideas','list',{}]})['result']
             assert all(row['idea']['employee__idea'] == ideas[0]['employee__idea'] for row in rows), rows
         check('generated-server-saved-custom-responses', saved_responses)
-        check('source-posting-failure-warning', lambda: expect(page.locator('#fx-toast')).to_contain_text('Message was not posted'))
+        if chat:
+            def saved_notification():
+                requests=backend({'fn':'__chatRequests','args':[]})['result']
+                messages=backend({'fn':'__chatMessages','args':[]})['result']
+                trace=backend({'fn':'__connectorRequests','args':[]})['result']
+                (OUT/name/'native-chat-evidence.json').write_text(json.dumps({'requests':requests,'messages':messages,'connectorCalls':trace},indent=2)+'\n')
+                assert [r['method'] for r in requests]==['list','create'],trace
+                assert len(trace)==1 and trace[0]['args'][2][:2]==['team-a','repairs'] and 'error' not in trace[0],trace
+                assert len(messages)==1,messages
+                message,parent,options=messages[0]['request']
+                assert parent=='spaces/REPAIRS' and set(options)=={'requestId'},messages
+                assert message=={'text':'**Shorter meetings with written decisions**\n\nA new employee idea has been created\\!  \n  \n**Description**  \nShare an agenda, time\\-box discussion, and retain the decision notes\\.',
+                                 'markupSyntax':'MARKUP_SYNTAX_MARKDOWN'},message
+            check('native-google-chat-notification-created-once',saved_notification)
+            check('no-source-posting-failure-warning',lambda: expect(page.locator('#fx-toast').filter(has_text='Message was not posted')).to_have_count(0))
+        else:
+            check('source-posting-failure-warning', lambda: expect(page.locator('#fx-toast')).to_contain_text('Message was not posted'))
         check('return-to-campaign', lambda: control(page,'btnMobileCampaignIdeaControls_Return').click())
         ideas = control(page,'galMobileCampaignDetailsIdeas')
         check('saved-idea-listed', lambda: expect(ideas).to_contain_text('Shorter meetings with written decisions'))
@@ -141,6 +175,8 @@ def main(voting=False):
         check('source-title-overflow-boundary', lambda: expect(control(page,'lblMobileCampaignIdeaCard_Title')).to_have_css('overflow','hidden'))
         check('server-record-retained-after-reload', saved_idea)
         check('custom-responses-retained-after-reload', saved_responses)
+        if chat:
+            check('native-notification-retained-without-repost-after-reload',saved_notification)
         def reopened_responses():
             expect(responses.locator('[data-control="lblMobileIdeaResponseRating_Instructions"]')).to_have_text([
                 'Who will benefit?','How would you measure success?'])
@@ -184,12 +220,13 @@ def main(voting=False):
         browser = p.chromium.launch()
         result = run_case(browser, name, REPO / 'samples/microsoft/employee-ideas.msapp', journey,
             launch_parameters={'hostClientType':'ios'}, viewport={'width':390,'height':844},
-            solution=REPO / 'samples/microsoft/EmployeeIdeas.solution.zip', setup_backend=seed)
+            solution=REPO / 'samples/microsoft/EmployeeIdeas.solution.zip', setup_backend=seed_chat if chat else seed)
         browser.close()
     result.update(sourceAppId='employee-ideas', steps=steps,
-        assessmentScope='populated campaign browsing, custom text questions, idea submission, reload and reopening' + ('; voting probe' if voting else ''),
+        assessmentScope='populated campaign browsing, custom text questions, idea submission, reload and reopening' + ('; voting probe' if voting else '') + ('; native Chat notification fixtures' if chat else ''),
         completeUsability='unassessed', mutationAndSubmission='assessed by individual steps',
-        externalPosting='unsupported; source warning/recovery path is exercised')
+        externalPosting=('native Google Chat create with explicit API fixtures; live delivery unverified' if chat else
+                         'unmigrated; source warning/recovery path is exercised'))
     (OUT / name / 'result.json').write_text(json.dumps(result, indent=2) + '\n')
     print(json.dumps({'status':result['status'], 'steps':steps}, indent=2))
     return int(result['status'] != 'pass')
@@ -199,4 +236,6 @@ if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--voting', action='store_true', help='Continue into the currently unsupported voting workflow')
-    raise SystemExit(main(voting=parser.parse_args().voting))
+    parser.add_argument('--chat',action='store_true',help='Import explicit Chat mappings and exercise native notification API fixtures')
+    args=parser.parse_args()
+    raise SystemExit(main(voting=args.voting,chat=args.chat))

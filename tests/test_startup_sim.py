@@ -178,6 +178,12 @@ def test_fixture_a_startup_clean(ir_a=None):
     }
 
 
+def test_chat_source_fixture_starts_without_fabricated_native_responses():
+    verdict=_simulate(FIXTURES/'fixtureChat.msapp')
+    assert verdict['visible']==['ChatBoard'] and verdict['refErrors']==[]
+    assert verdict['totalConsoleErrors']==0
+
+
 def test_fixture_b_startup_clean():
     """Data app with a gallery: row-scoped children must not leak to top level."""
     verdict = _simulate(FIXTURES / "fixtureB.msapp")

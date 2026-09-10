@@ -1086,6 +1086,43 @@ def directory_fixture_files() -> dict[str, str]:
             {'Name':name,'Type':'ServiceInfo'} for name in ['Planner','Office365Users','Microsoft365Users']]})}
 
 
+def chat_fixture_files() -> dict[str,str]:
+    """Source-shaped team/channel selectors and Employee Ideas notification."""
+    def control(name,kind,y,props):
+        return {'Name':name,'Template':{'Name':kind},'Rules':[
+            {'Property':key,'InvariantScript':str(value)} for key,value in
+            {'X':20,'Y':y,'Width':440,'Height':44,**props}.items()]}
+    controls=[
+        control('ChatLoadTeams','button',20,{'Text':'"Load teams"','OnSelect':
+            'IfError(ClearCollect(chatTeams, MicrosoftTeams.GetAllTeams().value); Set(chatStatus, "teams ready"), Set(chatStatus, "teams failed"))'}),
+        control('ChatTeam','dropdown',80,{'Items':'chatTeams','Value':'"displayName"','AccessibleLabel':'"Choose team"'}),
+        control('ChatLoadChannels','button',140,{'Text':'"Load channels"','OnSelect':
+            'IfError(Set(chatTeam, MicrosoftTeams.GetTeam(ChatTeam.Selected.id)); '
+            'ClearCollect(chatChannels, MicrosoftTeams.GetChannelsForGroup(ChatTeam.Selected.id).value); '
+            'Set(chatStatus, "channels ready"), Set(chatStatus, "channels failed"))'}),
+        control('ChatChannel','dropdown',200,{'Items':'chatChannels','Value':'"displayName"','AccessibleLabel':'"Choose channel"'}),
+        control('ChatSubject','text',260,{'Default':'""','AccessibleLabel':'"Notification subject"'}),
+        control('ChatDescription','text',320,{'Default':'""','AccessibleLabel':'"Idea description"'}),
+        control('ChatPost','button',380,{'Text':'"Post notification"','OnSelect':
+            'IfError(Set(chatMessage, MicrosoftTeams.PostMessageToChannelV3(ChatTeam.Selected.id, ChatChannel.Selected.id, '
+            '{content:"A new employee idea has been created!<br><br><b>Description</b><br>" & ChatDescription.Text, contentType:"html"}, '
+            '{subject:ChatSubject.Text})); Set(chatStatus, "sent"), Set(chatStatus, "send failed"))'}),
+        control('ChatStatus','label',440,{'Text':'chatStatus'}),
+        control('ChatMessageId','label',500,{'Text':'chatMessage.id','Width':700}),
+        control('ChatTeamName','label',80,{'X':500,'Text':'chatTeam.displayName'}),
+        control('ChatPreviewId','label',320,{'X':500,'Text':'chatPreviewId'}),
+    ]
+    preview=control('ChatDestinationPreview','gallery',200,{'X':500,'Width':460,'Height':100,'TemplateSize':80,
+        'TemplatePadding':0,'Items':'Table({Name:"Destination preview"})'})
+    preview['Children']=[control('ChatRowChannel','dropdown',0,{'X':0,'Width':440,'Items':'chatChannels',
+        'Value':'"displayName"','AccessibleLabel':'"Channel in gallery"','OnChange':'Set(chatPreviewId, Self.Selected.id)'})]
+    controls.append(preview)
+    return {'Properties.json':json.dumps({'Name':'FixtureChat'}),
+        'Controls\\1.json':json.dumps({'TopParent':control('App','appinfo',0,{'OnStart':'Set(chatStatus, "ready")'})}),
+        'Controls\\2.json':json.dumps({'TopParent':{**control('ChatBoard','screen',0,{'Width':1000,'Height':600}),'Children':controls}}),
+        'References\\DataSources.json':json.dumps({'DataSources':[{'Name':'MicrosoftTeams','Type':'ServiceInfo'}]})}
+
+
 def horizontal_gallery_fixture_files() -> dict[str,str]:
     def control(name,kind,props,children=None):
         return {'Name':name,'Template':{'Name':kind},'Children':children or [],'Rules':[
@@ -1190,6 +1227,7 @@ def build_fixtures() -> None:
     _write_msapp(FIXTURE_DIR / 'fixtureCollectionAliases.msapp', collection_alias_fixture_files())
     _write_msapp(FIXTURE_DIR / 'fixturePlanner.msapp', planner_fixture_files())
     _write_msapp(FIXTURE_DIR / 'fixtureDirectory.msapp', directory_fixture_files())
+    _write_msapp(FIXTURE_DIR / 'fixtureChat.msapp', chat_fixture_files())
     _write_msapp(FIXTURE_DIR / 'fixtureHorizontalGallery.msapp', horizontal_gallery_fixture_files())
     _write_msapp(FIXTURE_DIR / 'fixtureViews.msapp', view_fixture_files())
     _write_msapp(FIXTURE_DIR / 'fixtureViews.solution.zip', {'customizations.xml':

@@ -226,6 +226,7 @@ function connector(service, operation, args) {
   if (!Array.isArray(args) || !adapter.operations[operation].arity.includes(args.length))
     throw new Error('Wrong number of connector arguments: ' + operation);
   if (adapter.target === 'google-people-directory') return directoryOperation_(operation,args);
+  if (adapter.target === 'google-chat') return chatOperation_(operation,args);
   if (adapter.target !== 'google-sheets-task-board' || service !== 'Planner') throw new Error('Unsupported Google adapter');
   // Lock reads too, so the permission check and mutation see the same board.
   return withDataWriteLock_(function () { return plannerOperation_(operation,args); });

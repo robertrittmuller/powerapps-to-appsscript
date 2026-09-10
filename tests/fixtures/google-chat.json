@@ -1,0 +1,16 @@
+{
+  "migration": {
+    "teams": [{"id":"team-a","space_name":"spaces/ANCHOR"},{"id":"team-b","space_name":"spaces/OTHER"}],
+    "channels": [
+      {"id":"general","team_id":"team-a","space_name":"spaces/ANCHOR"},
+      {"id":"repairs","team_id":"team-a","space_name":"spaces/REPAIRS"},
+      {"id":"general","team_id":"team-b","space_name":"spaces/OTHER"}
+    ]
+  },
+  "spaces": [
+    {"name":"spaces/ANCHOR","spaceType":"SPACE","displayName":"Facilities"},
+    {"name":"spaces/REPAIRS","spaceType":"SPACE","displayName":"Repairs"},
+    {"name":"spaces/OTHER","spaceType":"SPACE","displayName":"Operations"},
+    {"name":"spaces/UNRELATED","spaceType":"SPACE","displayName":"Unrelated space"}
+  ]
+}

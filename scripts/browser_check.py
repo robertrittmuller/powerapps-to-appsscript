@@ -958,6 +958,80 @@ def check_directory(page,backend):
     assert backend({'fn':'__plannerSnapshot','args':[]})['result']['tasks'][-1]==task
 
 
+def setup_chat(backend):
+    data=json.loads((REPO/'tests/fixtures/google-chat.json').read_text())
+    assert backend({'fn':'__importChat','args':[data['migration']]})=={'result':{'ok':True,'teams':2,'channels':3}}
+    return {'source':'authored source-ID to Google space mappings',
+            'googleChat':'explicit native API response fixtures; no real messages or live authorization'}
+
+
+def check_chat(page,backend):
+    data=json.loads((REPO/'tests/fixtures/google-chat.json').read_text())
+    spaces={'method':'list','result':{'spaces':data['spaces']}}
+    created={'method':'create','result':{'name':'spaces/REPAIRS/messages/idea.1'}}
+    def responses(*items):
+        backend({'fn':'__chatResponses','args':[list(items)]})
+    def requests():
+        return backend({'fn':'__chatRequests','args':[]})['result']
+    def messages():
+        return backend({'fn':'__chatMessages','args':[]})['result']
+    expect(control(page,'ChatStatus')).to_have_text('ready')
+    for name,label in [('ChatTeam','Choose team'),('ChatChannel','Choose channel'),
+                       ('ChatSubject','Notification subject'),('ChatDescription','Idea description')]:
+        expect(control(page,name)).to_have_attribute('aria-label',label)
+    responses({'method':'list','error':'403 Chat is disabled'})
+    control(page,'ChatLoadTeams').click()
+    expect(control(page,'ChatStatus')).to_have_text('teams failed')
+    responses(spaces)
+    control(page,'ChatLoadTeams').click()
+    expect(control(page,'ChatStatus')).to_have_text('teams ready')
+    expect(control(page,'ChatTeam').locator('option')).to_have_text(['Facilities','Operations'])
+    control(page,'ChatTeam').select_option(index=0)
+    responses(spaces,spaces)
+    control(page,'ChatLoadChannels').click()
+    expect(control(page,'ChatStatus')).to_have_text('channels ready')
+    expect(control(page,'ChatTeamName')).to_have_text('Facilities')
+    expect(control(page,'ChatChannel').locator('option')).to_have_text(['Facilities','Repairs'])
+    expect(control(page,'ChatRowChannel').locator('option')).to_have_text(['Facilities','Repairs'])
+    control(page,'ChatRowChannel').select_option(index=1)
+    expect(control(page,'ChatPreviewId')).to_have_text('repairs')
+    expect(control(page,'ChatRowChannel')).to_have_value('repairs')
+    page.evaluate('window.__chatRow=document.querySelector("[data-control=ChatRowChannel]")')
+    control(page,'ChatChannel').select_option(index=1)
+    assert page.evaluate('val("ChatTeam").selected.id')=='team-a'
+    assert page.evaluate('val("ChatChannel").selected.id')=='repairs'
+    control(page,'ChatSubject').fill('Repair door')
+    control(page,'ChatDescription').fill('Replace hinge & tighten bolts')
+    responses(spaces,{'method':'create','error':'403 Posting permission revoked'})
+    control(page,'ChatPost').click()
+    expect(control(page,'ChatStatus')).to_have_text('send failed')
+    assert messages()==[] and [r['method'] for r in requests()]==['list','create']
+    responses(spaces,created)
+    control(page,'ChatPost').focus();page.keyboard.press('Enter')
+    expect(control(page,'ChatStatus')).to_have_text('sent')
+    expect(control(page,'ChatMessageId')).to_have_text('spaces/REPAIRS/messages/idea.1')
+    expect(control(page,'ChatRowChannel')).to_have_value('repairs')
+    assert page.evaluate('window.__chatRow===document.querySelector("[data-control=ChatRowChannel]")')
+    saved=messages();assert len(saved)==1
+    message,parent,options=saved[0]['request']
+    assert parent=='spaces/REPAIRS' and set(options)=={'requestId'}
+    assert message=={'text':'**Repair door**\n\nA new employee idea has been created\\!  \n  \n**Description**  \nReplace hinge \\& tighten bolts',
+                     'markupSyntax':'MARKUP_SYNTAX_MARKDOWN'}
+    page.screenshot(path=str(OUT/'google-chat/native-notification.png'))
+    responses()
+    control(page,'ChatDescription').fill('<at>Everyone</at>')
+    control(page,'ChatPost').click()
+    expect(control(page,'ChatStatus')).to_have_text('send failed')
+    assert requests()==[] and messages()==saved
+    for name in ['ChatTeam','ChatChannel','ChatPost','ChatMessageId']:
+        expect(control(page,name)).to_be_visible()
+        box=control(page,name).bounding_box()
+        assert box['width']>0 and box['height']>0 and box['x']>=0 and box['x']+box['width']<=page.viewport_size['width'],box
+    page.reload()
+    expect(control(page,'ChatStatus')).to_have_text('ready')
+    assert messages()==saved
+
+
 def check_horizontal_gallery(page,_backend):
     for name,wrap,count in [('LoadingLogos',1,3),('WrappedLogos',2,6)]:
         gallery=control(page,name)
@@ -1001,6 +1075,8 @@ def main():
                   False,None,None,None,setup_planner,'UTC'))
     cases.append(('google-directory', REPO/'tests/fixtures/fixtureDirectory.msapp', check_directory,
                   False,None,None,None,setup_directory,'UTC'))
+    cases.append(('google-chat', REPO/'tests/fixtures/fixtureChat.msapp', check_chat,
+                  False,None,None,None,setup_chat,'UTC'))
     cases.append(('horizontal-gallery',REPO/'tests/fixtures/fixtureHorizontalGallery.msapp',check_horizontal_gallery))
     cases.append(("saved-views", REPO / "tests/fixtures/fixtureViews.msapp", check_views,
                   False, None, None, REPO / 'tests/fixtures/fixtureViews.solution.zip'))

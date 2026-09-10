@@ -420,6 +420,8 @@ test('record-valued dropdown options choose a readable scalar label', () => {
   assert.deepStrictEqual(RT.optionRecord('plain'), { value: 'plain', label: 'plain' });
   assert.deepStrictEqual(RT.optionRecord({ first_name: 'Ada' }, ['FirstName']),
     { value: 'Ada', label: 'Ada' });
+  assert.deepStrictEqual(RT.optionRecord({id:'source-team',display_name:'Facilities'}, 'displayName'),
+    {value:'source-team',label:'Facilities'});
 });
 
 test('Dropdown Selected and ComboBox SelectedItems preserve source records', () => {
@@ -525,6 +527,37 @@ test('gallery row selection exposes Selected and AllItems records', () => {
   assert.strictEqual(rows[0].child.style.left,'82px');
   global.document.querySelector = original;
   global.document.createElement = originalCreate;
+});
+
+test('formula-created unkeyed gallery records retain controls without stealing existing identities', () => {
+  const original=global.document.querySelector, create=global.document.createElement;
+  const rows=[];
+  const rowsEl={children:rows,style:{},insertBefore(row,before) {
+    const prior=rows.indexOf(row);if(prior>=0) rows.splice(prior,1);
+    rows.splice(before ? rows.indexOf(before) : rows.length,0,row);
+  }};
+  function rowElement() { return {style:{},draft:'',addEventListener(){},querySelectorAll:()=>[],
+    remove(){const index=rows.indexOf(this);if(index>=0)rows.splice(index,1);}}; }
+  const host={tagName:'DIV',style:{},getAttribute:()=>null,querySelector:selector=>
+    selector===':scope > template' ? {innerHTML:'<div></div>'} : selector===':scope > .fx-rows' ? rowsEl : null};
+  global.document.querySelector=selector=>selector.includes('FreshRecords') ? host : null;
+  global.document.createElement=()=>({firstElementChild:rowElement()});
+  const first={name:'same',info:{active:true,day:new Date('2026-09-09T00:00:00Z')}},second={...first};
+  let items=[first,second];
+  try {
+    RT.gallery('FreshRecords',()=>items,null,{});RT.updateBindings();
+    const retained=rows.slice();retained[0].draft='first unsaved';retained[1].draft='second unsaved';
+    // A new equal record must not take the control of the existing later object.
+    items=[{info:{day:new Date('2026-09-09T00:00:00Z'),active:true},name:'same'},second];
+    RT.updateBindings();assert.deepStrictEqual(rows,retained);
+    items=items.map(item=>({name:item.name,info:{...item.info}}));
+    RT.updateBindings();assert.deepStrictEqual(rows,retained);
+    assert.deepStrictEqual(rows.map(row=>row.draft),['first unsaved','second unsaved']);
+    items.reverse();RT.updateBindings();assert.deepStrictEqual(rows,[retained[1],retained[0]]);
+    // A date and its text spelling are different typed values.
+    items=[{name:'same',info:{active:true,day:'2026-09-09T00:00:00.000Z'}}];
+    RT.updateBindings();assert.strictEqual(rows.length,1);assert.ok(!retained.includes(rows[0]));
+  } finally {global.document.querySelector=original;global.document.createElement=create;}
 });
 
 test('renderChart exposes SeriesLabels for a separate Legend control', () => {
