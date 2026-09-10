@@ -502,7 +502,7 @@ def _static_style(ctrl: ControlNode, in_flex: bool, rules: list[str], parent: Co
 def _static_text(ctrl: ControlNode) -> str:
     expr = ctrl.properties.get("Text")
     text = _static_raw(expr)
-    if text is not None and ctrl.type in {"Button", "Label"}:
+    if text is not None and ctrl.type in {"Button", "Label", "Timer"}:
         mark_emission(expr)
         return html.escape(text)
     return ""
@@ -1325,7 +1325,10 @@ def render_app_js(ir: AppIR) -> str:
                 properties = [(key, ctrl.properties[prop]) for prop, key in inputs
                               if prop in ctrl.properties and ctrl.properties[prop].js
                               and "await " not in ctrl.properties[prop].js]
-                if properties:
+                if properties or ctrl.type != 'Button':
+                    # Every editable value participates in reactive formulas,
+                    # including controls that use only native defaults and
+                    # have neither an authored Default nor OnChange behavior.
                     lines.append(f"  FXRuntime.inputControl({ctrl.name!r}, {parent_names.get(ctrl.name)!r}, {{")
                     for key, expr in properties:
                         lines.append(f"    {key!r}: function (val, selfRef, parentRef) {{ return {expr.js}; }},")

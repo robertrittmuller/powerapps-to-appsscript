@@ -730,6 +730,50 @@ def check_selection_defaults(page, _backend):
     expect(single.locator('option:checked')).to_have_text(['Gamma'])
 
 
+def check_svg_text(page, _backend):
+    for name,fit,fill in [('Direct','contain','rgba(0, 0, 0, 0)'),('Nested','fill','rgb(255, 0, 0)'),('Cdata','cover','rgba(0, 255, 0, 0.5)')]:
+        expect(control(page,name)).to_have_css('object-fit',fit)
+        expect(control(page,name)).to_have_css('background-color',fill)
+    def assert_images(value):
+        for name in ['Direct','Nested','Cdata']:
+            state=control(page,name).evaluate('''async image => {
+                await image.decode();
+                const doc=new DOMParser().parseFromString(decodeURIComponent(image.src.split(',').slice(1).join(',')),'image/svg+xml');
+                if(doc.querySelector('parsererror')) throw new Error('Malformed SVG');
+                return {text:doc.querySelector('text').textContent,width:image.naturalWidth,height:image.naturalHeight};
+            }''')
+            assert state=={'text':value,'width':500,'height':50},(name,state,value)
+    assert_images('Hello SVG')
+    for value in ['R&D <teams> "ready"',"'yes'",'Café 東京','&amp;','<tspan>literal markup</tspan>','']:
+        control(page,'Caption').fill(value)
+        assert_images(value)
+    page.reload();assert_images('Hello SVG')
+
+
+def check_bare_inputs(page, _backend):
+    summary=control(page,'Summary');slider=control(page,'BareSlider')
+    expect(summary).to_have_text('50//false/blank')
+    slider.focus();slider.press('Home');expect(summary).to_have_text('0//false/blank')
+    slider.press('End');expect(summary).to_have_text('100//false/blank')
+    slider.press('ArrowLeft');expect(summary).to_have_text('99//false/blank')
+    control(page,'BareText').fill('Edited without OnChange')
+    expect(summary).to_have_text('99/Edited without OnChange/false/blank')
+    control(page,'BareCheck').check()
+    expect(summary).to_have_text('99/Edited without OnChange/true/blank')
+    control(page,'BareDate').fill('2026-09-10')
+    expect(summary).to_have_text('99/Edited without OnChange/true/2026-09-10')
+    expect(control(page,'Clock')).to_have_text('00:00:00')
+    expect(control(page,'AuthoredClock')).to_have_text('Authored timer')
+    page.clock.run_for(2500)
+    expect(control(page,'Clock')).to_have_text('00:00:02')
+    expect(control(page,'Elapsed')).to_have_text('2500/false')
+    page.clock.run_for(2500)
+    expect(control(page,'Clock')).to_have_text('00:00:05')
+    expect(control(page,'Elapsed')).to_have_text('5000/true')
+    page.clock.run_for(1000);expect(control(page,'Elapsed')).to_have_text('5000/true')
+    page.reload();expect(summary).to_have_text('50//false/blank')
+
+
 def check_dependent_layout(page, _backend):
     draft=control(page,'RowDraft').nth(1)
     draft.fill('Keep this edit through resizing')
@@ -1611,6 +1655,8 @@ def main():
     cases.append(('selection-defaults',REPO/'tests/fixtures/fixtureSelectionDefaults.msapp',check_selection_defaults))
     cases.append(('modern-selection-defaults',REPO/'tests/fixtures/fixtureModernSelectionDefaults.msapp',check_selection_defaults))
     cases.append(('dependent-layout',REPO/'tests/fixtures/fixtureDependentLayout.msapp',check_dependent_layout))
+    cases.append(('bare-inputs',REPO/'tests/fixtures/fixtureBareInputs.msapp',check_bare_inputs,True))
+    cases.append(('svg-text',REPO/'tests/fixtures/fixtureSvgText.msapp',check_svg_text))
     cases.append(('native-layout',REPO/'tests/fixtures/fixtureNativeLayout.msapp',check_native_layout))
     cases.append(('scaled-native-layout',REPO/'tests/fixtures/fixtureScaledNativeLayout.msapp',check_native_layout))
     cases.append(('many-to-many-relationships', REPO / 'tests/fixtures/fixtureRelationships.msapp', check_relationships))

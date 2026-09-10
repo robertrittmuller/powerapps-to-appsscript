@@ -248,6 +248,12 @@
     concatStr: function (a, b) {
       return (a == null ? '' : String(a)) + (b == null ? '' : String(b));
     },
+    // Used only by the ledgered static-SVG text interpolation repair.
+    xmlText: function (value) {
+      return (value == null ? '' : String(value)).replace(/[&<>"']/g, function (char) {
+        return {'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&apos;'}[char];
+      });
+    },
     // Power Fx treats a field read from Blank()/a missing record as Blank.
     // Raw JavaScript member access throws instead, so emitted nullable reads
     // route through this helper.

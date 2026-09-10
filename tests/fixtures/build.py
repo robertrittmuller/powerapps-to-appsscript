@@ -1479,6 +1479,59 @@ def modern_component_fixture_files() -> dict[str, str]:
         'Src/Combined.pa.yaml':json.dumps({'Screens':{'Home':home,'Other':{'Properties':{}}}})}
 
 
+def svg_text_fixture_files():
+    import yaml
+    def quote(value):
+        return '"' + value.replace('"', '""') + '"'
+    def ctrl(name,kind,props):
+        return {name:{'Control':kind,'Properties':{key:'='+str(value) for key,value in props.items()}}}
+    children=[ctrl('Caption','TextInput',{'X':20,'Y':20,'Width':500,'Height':40,'Default':quote('Hello SVG'),'AccessibleLabel':quote('SVG caption')})]
+    for index,(name,before,after) in enumerate([
+        ('Direct','<text x="5" y="30">','</text>'),
+        ('Nested','<text x="5" y="30"><tspan>','</tspan></text>'),
+        ('Cdata','<text x="5" y="30"><![CDATA[',']]></text>'),
+    ]):
+        opening='<svg xmlns="http://www.w3.org/2000/svg" width="500" height="50">'+before
+        image=quote('data:image/svg+xml;utf8,')+' & EncodeUrl('+quote(opening)+' & Caption.Text & '+quote(after+'</svg>')+')'
+        properties={'X':20,'Y':80+index*125,'Width':500,'Height':100,'Image':image}
+        if name=='Nested':properties.update(ImagePosition='ImagePosition.Stretch',Fill='RGBA(255,0,0,1)')
+        children.append(ctrl(name,'Image@2.2.3',properties))
+    native=[{'Name':name,'Template':{'Name':'image','Version':'2.2.3'},'Rules':[
+        {'Property':'ImagePosition','InvariantScript':'ImagePosition.Fill' if name=='Cdata' else 'ImagePosition.Fit'},
+        {'Property':'Fill','InvariantScript':'RGBA(0,255,0,0.5)' if name=='Cdata' else 'RGBA(0,0,0,0)'},
+    ]} for name in ['Direct','Nested','Cdata']]
+    return {'Src/App.pa.yaml':yaml.safe_dump({'App':{'Properties':{}}},sort_keys=False),
+            'Src/Home.pa.yaml':yaml.safe_dump({'Screens':{'Home':{'Children':children}}},sort_keys=False),
+            'Controls/Home.json':json.dumps({'TopParent':{'Name':'Home','Template':{'Name':'screen'},'Children':native}})}
+
+
+def bare_inputs_fixture_files():
+    import yaml
+    def ctrl(name,kind,props):
+        return {name:{'Control':kind,'Properties':{key:'='+str(value) for key,value in props.items()}}}
+    children=[
+        ctrl('BareSlider','Slider@2.1.0',{'X':20,'Y':20,'Width':350,'Height':40}),
+        ctrl('BareText','TextInput',{'X':20,'Y':80,'Width':350,'Height':40}),
+        ctrl('BareCheck','CheckBox',{'X':20,'Y':140,'Width':32,'Height':32}),
+        ctrl('BareDate','DatePicker',{'X':20,'Y':190,'Width':350,'Height':40}),
+        ctrl('Summary','Label',{'X':20,'Y':250,'Width':650,'Height':40,
+            'Text':'BareSlider.Value & "/" & BareText.Text & "/" & BareCheck.Value & "/" & If(IsBlank(BareDate.SelectedDate), "blank", Text(BareDate.SelectedDate, "yyyy-mm-dd"))'}),
+        ctrl('Clock','Timer@2.1.0',{'X':20,'Y':320,'Width':220,'Height':40,'Duration':5000,'AutoStart':'true','OnTimerEnd':'Set(ended, true)'}),
+        ctrl('AuthoredClock','Timer@2.1.0',{'X':260,'Y':320,'Width':220,'Height':40,'Text':'"Authored timer"'}),
+        ctrl('Elapsed','Label',{'X':20,'Y':380,'Width':650,'Height':40,'Text':'Clock.Value & "/" & ended'}),
+    ]
+    native=[]
+    for name in ['Clock','AuthoredClock']:
+        native.append({'Name':name,'Template':{'Name':'timer','Version':'2.1.0'},'Rules':[
+            {'Property':'Text','InvariantScript':'Text(Time(0, 0, Self.Value/1000), "hh:mm:ss")'},
+            {'Property':'Repeat','InvariantScript':'false'},
+            {'Property':'OnSelect','InvariantScript':'Set(inventedAction, true)'},
+        ]})
+    return {'Src/App.pa.yaml':yaml.safe_dump({'App':{'Properties':{'OnStart':'=Set(ended, false)'}}},sort_keys=False),
+            'Src/Home.pa.yaml':yaml.safe_dump({'Screens':{'Home':{'Children':children}}},sort_keys=False),
+            'Controls/Home.json':json.dumps({'TopParent':{'Name':'Home','Template':{'Name':'screen'},'Children':native}})}
+
+
 def dependent_layout_fixture_files():
     import yaml
     def ctrl(name,kind,props,children=None):
@@ -1661,6 +1714,8 @@ def build_fixtures() -> None:
     _write_msapp(FIXTURE_DIR / 'fixtureScaledFlexibleGallery.msapp', flexible_gallery_fixture_files(True))
     _write_msapp(FIXTURE_DIR / 'fixtureNativeLayout.msapp', native_layout_fixture_files())
     _write_msapp(FIXTURE_DIR / 'fixtureDependentLayout.msapp', dependent_layout_fixture_files())
+    _write_msapp(FIXTURE_DIR / 'fixtureBareInputs.msapp', bare_inputs_fixture_files())
+    _write_msapp(FIXTURE_DIR / 'fixtureSvgText.msapp', svg_text_fixture_files())
     _write_msapp(FIXTURE_DIR / 'fixtureScaledNativeLayout.msapp', native_layout_fixture_files(True))
     _write_msapp(FIXTURE_DIR / 'fixtureModernComponents.msapp', modern_component_fixture_files())
     _write_msapp(FIXTURE_DIR / 'fixtureNamedFormulas.msapp', named_formula_fixture_files())

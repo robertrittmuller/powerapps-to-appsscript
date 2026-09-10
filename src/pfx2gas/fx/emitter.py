@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from . import lexer as lx
 from .function_map import FUNCTION_MAP
 from .naming import snake as _snake
+from .svg import literal_text_fragments
 
 
 class TranspileResult:
@@ -317,6 +318,32 @@ class Emitter:
     def call(self, node) -> str:
         name = str(node.value)
         args = node.children
+        if name == 'EncodeUrl' and len(args) == 1:
+            def is_control_text(part):
+                if part.kind == 'ident':
+                    reference = str(part.value)
+                elif part.kind == 'member' and part.children[0].kind == 'ident':
+                    reference = f'{part.children[0].value}.{part.value}'
+                else:
+                    return False
+                base, *members = lx.reference_parts(reference)
+                control = self.control_aliases.get(base.casefold(), base)
+                return (members == ['Text'] and control in self.control_names
+                        and self.expr(part) == f"val({_q(control)}).text")
+
+            repair = literal_text_fragments(args[0], is_control_text)
+            if repair:
+                fragments, escaped = repair
+                values = [f'FX.xmlText({self.expr(part)})' if i in escaped else self.expr(part)
+                          for i, part in enumerate(fragments)]
+                value = values[0]
+                for right in values[1:]:
+                    value = f'FX.concatStr({value}, {right})'
+                self.res.approximations.append(
+                    'SVG literal text repair: XML-escape direct control Text values inside static SVG text/tspan elements; '
+                    'markup supplied through those text values is displayed literally instead of interpreted. '
+                    'Attributes, CDATA and dynamic SVG builders are unchanged and require separate review.')
+                return f'encodeURIComponent({value})'
         if name in {'Set', 'Collect', 'ClearCollect', 'Clear', 'Remove', 'RemoveIf', 'Update', 'UpdateIf', 'Patch', 'Refresh', 'LoadData'} and args:
             target = self.source_name(args[0])
             if target and target.casefold() in self.named_formulas:

@@ -266,6 +266,22 @@ tenant-side sequence population remain unverified.
 Broader workflows, source-imposed column clipping and
 complete app usability remain open. Source/data hashes,
 records and screenshots are in `.artifacts/browser/`.
+
+`./pfx2gas browser scripts/assess_svg_workflow.py` exercises the pinned SVG app's
+reachable screen: text changes, all slider color boundaries, five rating values,
+timer completion/pause/resume, reload, painted SVG pixels and keyboard controls
+at 1440×900 and 1024×768. Inputs now refresh dependent formulas even without an
+authored Default or OnChange. Matching native timer captions and image fit/fill
+properties survive modern YAML omissions; authored YAML retains precedence.
+Direct control text concatenated with static SVG text/tspan fragments inside
+EncodeUrl is XML-escaped as a ledgered repair, so punctuation works and supplied
+markup appears literally.
+Attributes, CDATA, complete SVG variables and dynamic markup builders retain
+their original behavior. Full SVG app usability remains unassessed: three source
+inputs lack accessible names, and Screen2–Screen5 have no navigation from the
+source's starting screen. No routes or missing custom-service implementation
+are invented by this assessment.
+
 The normal `./pfx2gas soak` enforces the existing
 required regression corpus, including failed required journeys and missing apps.
 It currently fails Editable Grid because its choice formulas reference the

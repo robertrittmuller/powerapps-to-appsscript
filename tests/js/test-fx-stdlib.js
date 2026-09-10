@@ -3,6 +3,14 @@ const test = require('node:test');
 const assert = require('node:assert');
 const FX = require('../../static/fx-stdlib.js');
 
+test('XML text escapes metacharacters once while preserving literal entities and Unicode', () => {
+  assert.strictEqual(FX.xmlText('R&D <teams> "ready" \'yes\' Café 東京'), 'R&amp;D &lt;teams&gt; &quot;ready&quot; &apos;yes&apos; Café 東京');
+  assert.strictEqual(FX.xmlText('&amp;'), '&amp;amp;');
+  assert.strictEqual(FX.xmlText(null), '');
+  assert.strictEqual(FX.xmlText(false), 'false');
+  assert.strictEqual(FX.xmlText(0), '0');
+});
+
 test('control primary outputs survive gallery copies and stay out of record fields and JSON', () => {
   const ref = FX.controlReference({text:'',value:false},'text');
   const copied = Object.assign({},ref);

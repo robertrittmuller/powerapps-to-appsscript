@@ -397,6 +397,26 @@ remain open.
 
 ## Current evidence and its limits
 
+The SVG slice makes standalone inputs reactive even when they have no authored
+Default/OnChange formula. Modern timer behavior/captions and image fit/fill rules
+are recovered from the corresponding native control at the same version;
+authored YAML remains authoritative. Static timer captions render as well as
+dynamic ones. This restores the real SVG app's timer caption and prevents fitted,
+transparent images from stretching over a placeholder background.
+
+A bounded, deterministic SVG repair XML-escapes direct control Text references
+concatenated with static SVG text/tspan fragments inside EncodeUrl. Its ledger
+explicitly records that input markup now renders literally. The matcher requires a valid SVG scaffold and
+known control references; URLs, attributes, CDATA, unknown expressions, DTDs and
+dynamic SVG builders keep their original behavior. Unit, generated-runtime and
+Chromium regressions cover punctuation, literal entities, Unicode, native
+property precedence/version matching, slider/text/checkbox/date changes, timer
+captions and reload. The real-app assessment also observes painted pixels and
+source CSS animation results, rather than relying only on decoded SVG strings.
+Screen-reader usability for three unnamed source inputs and the exported
+unreachable screens remain unassessed; this slice does not increase the complete
+ten-app acceptance count.
+
 The selection-default slice restores only the exported template's boolean
 `SelectMultiple`, matched by name and version, for both native and modern apps.
 Explicit rules and dynamic properties win, including blank formulas; provenance
@@ -427,14 +447,15 @@ complete Milestones usability and live Google access remain unassessed.
 
 | Evidence | Latest result | What remains unproven |
 |---|---|---|
-| Unit/runtime tests | 564 Python pass, 3 skip; 110 JS pass; bare globals, FX, FXRuntime and FX.collections emitter/runtime consistency passes | Complete deployed workflows and broader control semantics |
-| Current real-app soak | 5/5 valid code and generated-server initialization; 3/5 Bootable; 3,286 formulas | Editable Grid requests unexported Student Tracker choices; expanded navigation requires directory migration. Usability unassessed; five historical local exports are absent |
-| Current regression translation/wiring | 3,281 translated; 2,385 emitted, 251 approximated, 650 ignored/unsupported | The census includes modern component, button and native layout formulas. Translation does not establish runtime behavior |
+| Unit/runtime tests | 592 Python pass, 3 skip; 111 JS pass; bare globals, FX, FXRuntime and FX.collections emitter/runtime consistency passes | Complete deployed workflows and broader control semantics |
+| Current real-app soak | 5/5 valid code and generated-server initialization; 3/5 Bootable; 3,321 formulas | Editable Grid requests unexported Student Tracker choices; expanded navigation requires directory migration. Usability unassessed; five historical local exports are absent |
+| Current regression translation/wiring | 3,316 translated; 2,419 emitted, 251 approximated, 651 ignored/unsupported | The census now includes recovered native timer and image properties. Translation does not establish runtime behavior |
 | Historical ten-app corpus | Previously 10/10 Bootable; 23,746 formulas | Not reproduced in this workspace; those results did not establish usability |
 | HelpDesk generated-app journeys | HOME → NEW → HOME; dashboard row text, logo URI, pie and legend output pass | All-screen interactions, image decoding/layout in CI, persistence |
 | HelpDesk @14 live browser | Ticket cards, decoded 64×64 logos, pie/bar/legend SVGs, readable fonts/labels, HOME → NEW → HOME | Same-state original comparison, user name/avatar, complete workflow coverage |
 | Chromium: business form | Actual generated client + Code.gs: edit/create, required validation, write failure, delete and page reload pass against a persistent Sheets test double | Real Google authorization/Sheets writes and another user/session |
-| Chromium regression suite | 37/37 fixtures pass, including native/modern selection defaults, keyboard multi-selection, row-specific resets, dynamic enabled states and labels; reversed geometry dependencies and negative positions across resizes; button icons/layout/accessibility and flexible/scaled gallery sizing; native layout and container dimensions; components and named formulas; checkbox transitions and persisted row updates; Dataverse defaults and reload; nested galleries; Fluent dates; native Google Chat/directory, imported Planner tasks, relationships and saved views. Three intentional failure gates preserve failed verdicts | Real Google services, remaining real-app critical workflows and broader UI usability; HelpDesk is absent here. Original visual comparisons belong to the separate High fidelity grade |
+| Chromium regression suite | 39/39 fixtures pass, including bare reactive inputs, native timer captions, SVG literal text and native image fit/fill; native/modern selection defaults, keyboard multi-selection, row-specific resets, dynamic enabled states and labels; reversed geometry dependencies and negative positions across resizes; button icons/layout/accessibility and flexible/scaled gallery sizing; native layout and container dimensions; components and named formulas; checkbox transitions and persisted row updates; Dataverse defaults and reload; nested galleries; Fluent dates; native Google Chat/directory, imported Planner tasks, relationships and saved views. Three intentional failure gates preserve failed verdicts | Real Google services, remaining real-app critical workflows and broader UI usability; HelpDesk is absent here. Original visual comparisons belong to the separate High fidelity grade |
+| SVG reachable workflow/UI | 41 checks cover five decoded/fitted images, text punctuation/Unicode, slider color boundaries, all ratings, actual painted pixels/animations, timer completion/pause/resume, reload and keyboard/geometry at 1440×900 and 1024×768 | Complete usability remains unassessed: three source inputs lack accessible names; Screen2–Screen5, including custom Environment and offline-host actions, are unreachable from the original UI. Mobile layouts, broader dynamic SVG builders and original visual comparisons remain separate gaps |
 | Expandable Navigation critical workflow/UI | 75/75 checks pass with generated code/server validation and zero runtime errors. Every source destination and Home return, keyboard expansion/collapse, menu geometry, glyphs/names, mapped profile/no-photo fallback, reload and Exit feedback are tested at 1440×900, 1000×700 and 520×700 | Source canvas minimum size causes scrolling in smaller windows. Native Google access and original visual comparison remain unverified; this does not repair the other nine acceptance apps or promote the identity-free soak result |
 | Planner to Google adapter | Eight operations use generated Code.gs and a reserved Sheets task-board store. Chromium lists plans/buckets/tasks, creates and assigns, writes descriptions, selects/updates, reloads and recovers from failed writes. Labels and geometry pass. Missing migration, unknown/unmapped identity, denied membership, invalid dates and oversized records fail explicitly | Native Tasks UI, Planner roles/audit metadata, ordering hints, categories, notifications, aliases/additional operations and complete real-app workflows. Workbook editors bypass API membership checks; live identity and storage access require deployment verification |
 | Office365Users/Microsoft365Users to Google | SearchUser, MyProfileV2, UserProfileV2 and UserPhotoV2 use native Google People with explicit source-ID/account mappings and manifest scopes. Chromium searches, selects profiles/photos, persists assignment and recovers from failures. The real navigation source displays its mapped current-user mail field | Native responses/images are authored fixtures. Live access/photo visibility, unsupported fields, exact search semantics and complete workflows remain unverified. Owner-delegated access is denied |

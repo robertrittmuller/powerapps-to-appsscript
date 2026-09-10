@@ -16,6 +16,15 @@ LAYOUT_PROPERTIES = {
     'TemplateSize','TemplatePadding','WrapCount',
 }
 
+# These formulas come from the corresponding native control, never from a
+# template's sample action/data. Modern YAML can omit default-valued properties
+# that still define timer behavior/captions and image fitting/transparency.
+CONTROL_PROPERTIES = {
+    'timer': {'Text','Duration','Start','Repeat','AutoStart','AutoPause','Reset',
+              'AccessibleLabel','Tooltip','DisplayMode'},
+    'image': {'ImagePosition','Fill'},
+}
+
 
 def restore_layout_defaults(app, entries):
     from .unpack import UnpackError
@@ -47,6 +56,7 @@ def restore_layout_defaults(app, entries):
 
     recovered = []
     recovered_selection = []
+    recovered_controls = []
     def restore(kind, name, modern):
         pair = sources.get((kind,name.casefold()))
         if not pair or not isinstance(modern,dict):
@@ -76,15 +86,16 @@ def restore_layout_defaults(app, entries):
                     rules.extend((prop.get('Rule'),'DynamicProperties') for prop in match.get('DynamicProperties') or []
                                  if isinstance(prop,dict))
                     defaults = {}
+                    control_properties = CONTROL_PROPERTIES.get(str(template.get('Name','')).lower(),set())
                     for rule,origin in rules:
                         if not isinstance(rule,dict): continue
                         prop,script = rule.get('Property'),rule.get('InvariantScript')
-                        if prop not in LAYOUT_PROPERTIES | {'SelectMultiple'}: continue
+                        if prop not in LAYOUT_PROPERTIES | {'SelectMultiple'} | control_properties: continue
                         if not isinstance(script,str):
                             if prop=='SelectMultiple':
                                 raise UnpackError('invalid native selection property: ' + str(control_name))
                             continue
-                        if not script.strip() and prop!='SelectMultiple': continue
+                        if not script.strip() and prop!='SelectMultiple' and prop not in control_properties: continue
                         if prop in defaults and defaults[prop][0] != script:
                             raise UnpackError('conflicting native layout property: ' + str(control_name) + '.' + prop)
                         defaults[prop] = (script,origin)
@@ -106,6 +117,8 @@ def restore_layout_defaults(app, entries):
                             if origin=='Template.defaultValue':
                                 evidence.update(templateName=template['Name'],templateVersion=template['Version'],**factory)
                             recovered_selection.append(evidence)
+                        elif prop in control_properties:
+                            recovered_controls.append(evidence)
                         else:
                             recovered.append(evidence)
             for child in node.get('Children') or []:
@@ -122,3 +135,5 @@ def restore_layout_defaults(app, entries):
         app.source_metadata['nativeLayoutDefaults'] = recovered
     if recovered_selection:
         app.source_metadata['nativeSelectionDefaults'] = recovered_selection
+    if recovered_controls:
+        app.source_metadata['nativeControlDefaults'] = recovered_controls

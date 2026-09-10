@@ -62,3 +62,11 @@ retains its source and assessment-script hashes, source-default provenance,
 Google migration fixtures and screenshots. Complete app usability remains
 unassessed; searchable native selectors, broader task variants and source column
 clipping are still open. This does not increase the complete-app count.
+
+SVG has a separate partial assessment: `./pfx2gas browser
+scripts/assess_svg_workflow.py` checks its reachable text/slider/rating/timer SVG
+states, decoded and painted output, source image fitting/transparency, reload
+and keyboard/geometry at two landscape sizes. Its result retains the source
+hash, converter fingerprint and property provenance. Literal SVG text repair is
+ledgered. Unnamed source inputs and unreachable exported screens still require
+assessment before a complete usability claim; it is not a second accepted app.
