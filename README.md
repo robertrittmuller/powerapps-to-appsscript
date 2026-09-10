@@ -1,5 +1,10 @@
 # pfx2gas — Power Apps → Google Apps Script converter
 
+Current checkpoint: **v0.2.0-rc.1**. See the [release notes](RELEASE_NOTES.md)
+for verified behavior, reproduction commands and remaining acceptance failures.
+This release candidate freezes the tested implementation; complete ten-app
+acceptance and live Google-service validation remain open.
+
 `pfx2gas` converts a Microsoft Power Apps **canvas app** (`.msapp` file) into a
 runnable **Google Apps Script web app**: an HtmlService single-page UI, a
 `google.script.run` server API, and a Google Sheets data layer — plus an

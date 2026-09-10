@@ -1,6 +1,6 @@
 [project]
 name = "pfx2gas"
-version = "0.1.0"
+version = "0.2.0rc1"
 description = "Convert Microsoft PowerApps canvas apps to Google Apps Script web apps"
 requires-python = ">=3.11"
 dependencies = [
