@@ -47,6 +47,7 @@ MATCH_PATTERNS = {"Any": ".", "Comma": ",", "Digit": r"\d", "Hyphen": r"\-",
                   "MultipleSpaces": r"\s+", "OptionalSpaces": r"\s*", "NonSpace": r"\S",
                   "MultipleNonSpaces": r"\S+", "OptionalNonSpaces": r"\S*"}
 MATCH_OPTIONS = {"BeginsWith", "Complete", "Contains", "EndsWith", "IgnoreCase", "Multiline", "NumberedSubMatches"}
+TIME_UNITS = {'Milliseconds', 'Seconds', 'Minutes', 'Hours', 'Days', 'Months', 'Quarters', 'Years'}
 
 # Legacy component exports sometimes serialize Color.White/Color.Black as
 # bare reserved names. Treat the Power Apps constants as colors rather than
@@ -191,6 +192,10 @@ class Emitter:
             return _q(base)
         if base == "ScreenSize" and len(members) == 1 and members[0] in {"Small", "Medium", "Large", "ExtraLarge"}:
             return str({"Small": 1, "Medium": 2, "Large": 3, "ExtraLarge": 4}[members[0]])
+        if base == 'TimeUnit' and members:
+            if len(members) != 1 or members[0] not in TIME_UNITS:
+                raise lx.FxSyntaxError('Unsupported TimeUnit member: ' + '.'.join(members))
+            return _q(members[0])
         if base in ENUM_TYPES and members:
             return _q(".".join(members))
         if alias is not None and not global_only:

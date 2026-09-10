@@ -289,9 +289,49 @@
         throw new Error('Dataverse current-user view requires one migrated user record matching the Google account email');
       return String(FX.field(matches[0], key)).toLowerCase();
     },
-    applyView: function (table, query, userId) {
+    applyView: function (table, query, userId, dateContext) {
       if (!query || query.error) throw new Error(query && query.error || 'Dataverse view definition is missing');
       var blank = function (value) { return value === null || value === undefined || value === ''; };
+      // One clock reading and timezone per query, shared by every condition.
+      // Compare civil dates rather than subtracting 24-hour durations: local
+      // days across a DST transition can be 23 or 25 hours long.
+      var relativeContext;
+      var instant = function (value) {
+        if (Object.prototype.toString.call(value) !== '[object Date]') {
+          var match = typeof value === 'string' && /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,7})?(Z|[+-](\d{2}):(\d{2}))$/i.exec(value);
+          if (!match) throw new Error('Relative Dataverse view date requires an ISO timestamp with an explicit timezone');
+          var calendar = new Date(0);
+          calendar.setUTCFullYear(+match[1], +match[2] - 1, +match[3]);
+          if (calendar.getUTCFullYear() !== +match[1] || calendar.getUTCMonth() !== +match[2] - 1 ||
+              calendar.getUTCDate() !== +match[3] || +match[4] > 23 || +match[5] > 59 || +match[6] > 59 ||
+              (match[8] && (+match[8] > 23 || +match[9] > 59)))
+            throw new Error('Invalid date in relative Dataverse view');
+        }
+        var result = new Date(value).getTime();
+        if (!Number.isFinite(result)) throw new Error('Invalid date in relative Dataverse view');
+        return result;
+      };
+      var relative = function () {
+        if (relativeContext) return relativeContext;
+        var context = dateContext || {};
+        var now = context.now === undefined ? Date.now() : typeof context.now === 'number' ? context.now : instant(context.now);
+        if (!Number.isFinite(now) || !Number.isFinite(new Date(now).getTime()))
+          throw new Error('Invalid relative Dataverse view clock');
+        var zone = context.timeZone === undefined ? new Intl.DateTimeFormat().resolvedOptions().timeZone : context.timeZone;
+        if (typeof zone !== 'string' || !zone) throw new Error('Relative Dataverse view timezone is missing');
+        var formatter = new Intl.DateTimeFormat('en-US-u-ca-gregory-nu-latn', {
+          timeZone: zone, year: 'numeric', month: '2-digit', day: '2-digit'
+        });
+        var day = function (value) {
+          var parts = {};
+          formatter.formatToParts(new Date(value)).forEach(function (part) { parts[part.type] = part.value; });
+          var date = new Date(0);
+          date.setUTCFullYear(+parts.year, +parts.month - 1, +parts.day);
+          return date.getTime() / 86400000;
+        };
+        relativeContext = {now: now, today: day(now), day: day};
+        return relativeContext;
+      };
       var typed = function (value, type) {
         if (blank(value)) return null;
         if (type === 'date') {
@@ -328,6 +368,24 @@
               ? FX.field(reference, query.identity.key) || reference.id : reference;
             if (blank(id)) return false;
             return op === 'eq-userid' ? String(id).toLowerCase() === userId : String(id).toLowerCase() !== userId;
+          };
+        }
+        if (['last-seven-days','last-x-days','today','yesterday','tomorrow'].indexOf(op) >= 0) {
+          if (condition.type !== 'date' || condition.dateBehavior !== 'UserLocal')
+            throw new Error('Relative Dataverse view requires exported UserLocal date behavior');
+          if (!Array.isArray(condition.values) || condition.values.length !== (op === 'last-x-days' ? 1 : 0))
+            throw new Error('Wrong number of relative Dataverse view values');
+          var count = op === 'last-seven-days' ? 7 : condition.values[0];
+          if (op === 'last-x-days' && (!Number.isInteger(count) || count < 1 || count > 2147483647))
+            throw new Error('last-x-days requires a positive 32-bit integer');
+          var clock = relative();
+          var targetDay = clock.today + (op === 'yesterday' ? -1 : op === 'tomorrow' ? 1 : 0);
+          return function (row) {
+            var value = FX.field(row, condition.field);
+            if (blank(value)) return false;
+            var time = instant(value), rowDay = clock.day(time);
+            return op === 'last-seven-days' || op === 'last-x-days'
+              ? rowDay >= clock.today - count && time < clock.now : rowDay === targetDay;
           };
         }
         if (['eq','ne','gt','ge','lt','le','in','not-in','null','not-null'].indexOf(op) < 0)

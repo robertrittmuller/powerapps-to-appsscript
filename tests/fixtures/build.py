@@ -971,6 +971,44 @@ def view_fixture_files() -> dict[str, str]:
     return files
 
 
+RELATIVE_VIEW_QUERY = '''<fetch><entity name="msft_project"><filter>
+<condition attribute="msft_start" operator="last-seven-days"/>
+</filter><order attribute="msft_start" descending="true"/></entity></fetch>'''
+
+
+def relative_view_fixture_files() -> dict[str, str]:
+    files = view_fixture_files()
+    sources = json.loads(files['References\\DataSources.json'])['DataSources']
+    table = sources[0]
+    definition = json.loads(table['TableDefinition'])
+    entity = json.loads(definition['EntityMetadata'])
+    attr = next(a for a in entity['Attributes'] if a['LogicalName'] == 'msft_start')
+    attr.update(DateTimeBehavior={'Value':'UserLocal'}, Format='DateAndTime')
+    definition['EntityMetadata'] = json.dumps(entity)
+    table['TableDefinition'] = json.dumps(definition)
+    rows = json.loads(table['Data'])
+    for row, date in zip(rows, ['2026-03-01T04:59:59.999Z','2026-03-01T05:00:00Z','2026-03-08T15:00:00Z']):
+        row['msft_start'] = date
+    rows.extend([
+        {'msft_projectid':'project-future','msft_name':'Future project','msft_start':'2026-03-08T17:00:00Z'},
+        {'msft_projectid':'project-undated','msft_name':'Undated project'},
+    ])
+    table['Data'] = json.dumps(rows)
+    next(s for s in sources if s['Type']=='ViewInfo')['ViewInfoNameMapping'] = {VIEW_ID:'Recent projects'}
+    files['References\\DataSources.json'] = json.dumps({'DataSources':sources})
+    screen = json.loads(files['Controls\\2.json'])
+    button = next(c for c in screen['TopParent']['Children'] if c['Name']=='OpenSecond')
+    for rule in button['Rules']:
+        if rule['Property']=='Text':
+            rule['InvariantScript']='"Start first project"'
+        if rule['Property']=='OnSelect':
+            rule['InvariantScript']='Patch(Projects, {msft_projectid:"project-one",msft_start:DateAdd(Now(), -1, TimeUnit.Minutes)})'
+    files['Controls\\2.json'] = json.dumps(screen).replace("'Open by budget'", "'Recent projects'")
+    # Same UI journey wiring, different exported saved-query contract.
+    files['Properties.json'] = json.dumps({'Name':'FixtureRelativeViews'})
+    return files
+
+
 def build_fixtures() -> None:
     # Fixture A: navigation + globals, all rule-transpilable
     _write_msapp(
@@ -1056,6 +1094,9 @@ def build_fixtures() -> None:
     _write_msapp(FIXTURE_DIR / 'fixtureViews.msapp', view_fixture_files())
     _write_msapp(FIXTURE_DIR / 'fixtureViews.solution.zip', {'customizations.xml':
         f'<ImportExportXml><Entities><Entity><savedqueries><savedquery><savedqueryid>{{{VIEW_ID}}}</savedqueryid><fetchxml>{VIEW_QUERY}</fetchxml></savedquery></savedqueries></Entity></Entities></ImportExportXml>'})
+    _write_msapp(FIXTURE_DIR / 'fixtureRelativeViews.msapp', relative_view_fixture_files())
+    _write_msapp(FIXTURE_DIR / 'fixtureRelativeViews.solution.zip', {'customizations.xml':
+        f'<ImportExportXml><savedquery><savedqueryid>{VIEW_ID}</savedqueryid><fetchxml>{RELATIVE_VIEW_QUERY}</fetchxml></savedquery></ImportExportXml>'})
 
 
 if __name__ == "__main__":

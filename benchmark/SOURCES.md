@@ -48,10 +48,13 @@ Reproduce with Docker:
 ```
 
 The solution-aware September 9 assessment exits **1**: all six generate valid
-code and pass generated-server setup/read checks, but only Employee Ideas passes
-the short startup check. Previously silent view filters now expose missing
-migrated identities and unsupported relative-date queries. All three default
-first-action probes fail. The separate populated Employee Ideas probe supplies
+code and pass generated-server setup/read checks. Employee Ideas and Inspection
+pass the short startup check. Inspection's seven/thirty/sixty-day views now use
+exported UserLocal behavior with ledgered browser-clock/timezone assumptions.
+Its primary action reaches Items Screen, but an unsupported Planner call keeps
+the overall probe failed. Missing identities, layout errors and connector
+dependencies remain; all three default first-action probes fail.
+The separate populated Employee Ideas probe supplies
 one authored user, four campaigns and three questions through generated Code.gs:
 29 checks pass for active filtering/order/search, campaign selection, mobile
 fields and labels, required-title validation, single/multiline custom responses,

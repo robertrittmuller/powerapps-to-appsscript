@@ -85,6 +85,14 @@ matching the actual Google session email. Startup awaits User() before running
 source initialization. Template-stored legacy gallery actions now survive row
 flattening. A native Chromium fixture verifies filtering/search, saved changes,
 reload and selection through the original template action.
+Relative day filters now support exported UserLocal columns for last-seven-days,
+positive last-x-days, today, yesterday and tomorrow. They use the browser clock
+and timezone; this migration assumption and recent-range boundary equivalence
+remain ledgered. DateOnly/TimeZoneIndependent, missing subtype metadata and other
+relative operators fail explicitly. Boundary tests include both DST changes;
+the generated browser fixture checks save/reload and membership at the next
+midnight. `TimeUnit` constants now retain the intended DateAdd unit instead of
+silently reading an unset variable and defaulting to days.
 
 Native FluidGrid and Form cards now interpret X/Y as order/row coordinates,
 wrap minimum widths, expand WidthFit cards and use row heights. A generated
@@ -151,11 +159,13 @@ a nonempty error list. Deliberate pending-callback and late-capture errors now
 fail their regression probes, alongside the existing screenshot-failure gate.
 
 Eleven pinned source exports are available here: five public regression apps
-and six Microsoft business apps. **All eleven generate valid code; six pass
+and six Microsoft business apps. **All eleven generate valid code; seven pass
 the short startup check. None has complete usability acceptance evidence.**
-The solution-aware checks expose previously silent relative-date view filters
-and missing identity mappings, so five Microsoft apps now fail short startup
-and all three default first-action probes fail. With one explicitly authored
+Inspection's recent-date views now pass startup; its primary action reaches
+Items Screen, but the source's Planner.ListMyPlansV2 call still fails. Missing
+identity mappings, layout errors and connector dependencies leave four Microsoft
+apps failing short startup, and all three default first-action probes still fail.
+With one explicitly authored
 user, four campaigns and three questions, Employee Ideas now passes 29 checks covering active
 filtering/order/search, selected detail, mobile field geometry/labels,
 required-title validation, single/multiline responses, submission, persistence,
@@ -225,16 +235,16 @@ the implementation order.
 
 | Evidence | Latest result | What remains unproven |
 |---|---|---|
-| Unit/runtime tests | 306 Python pass, 3 skip; 92 JS pass; bare globals, FX, FXRuntime and FX.collections emitter/runtime consistency passes | Complete deployed workflows and broader control semantics |
+| Unit/runtime tests | 340 Python pass, 3 skip; 92 JS pass; bare globals, FX, FXRuntime and FX.collections emitter/runtime consistency passes | Complete deployed workflows and broader control semantics |
 | Current real-app soak | 5/5 Bootable; 1,145 formulas, including previously dropped App/screen properties | Usability unassessed; the other five historical local exports are absent |
 | Current regression translation/wiring | 1,140 translated; 970 emitted, 14 approximated, 161 ignored/unsupported | Translation does not establish runtime behavior |
 | Historical ten-app corpus | Previously 10/10 Bootable; 23,746 formulas | Not reproduced in this workspace; those results did not establish usability |
 | HelpDesk generated-app journeys | HOME → NEW → HOME; dashboard row text, logo URI, pie and legend output pass | All-screen interactions, image decoding/layout in CI, persistence |
 | HelpDesk @14 live browser | Ticket cards, decoded 64×64 logos, pie/bar/legend SVGs, readable fonts/labels, HOME → NEW → HOME | Same-state original comparison, user name/avatar, complete workflow coverage |
 | Chromium: business form | Actual generated client + Code.gs: edit/create, required validation, write failure, delete and page reload pass against a persistent Sheets test double | Real Google authorization/Sheets writes and another user/session |
-| Chromium regression suite | 15/15 fixtures pass, including persisted many-to-many membership, one-to-many reassignment/unlinking and related-record refresh; three intentional failure gates preserve their failed verdicts | Real Google services, real-app critical workflows and original visual comparisons; HelpDesk is absent here |
+| Chromium regression suite | 16/16 fixtures pass, including persisted relationships and relative-date view save/reload across a day boundary; three intentional failure gates preserve their failed verdicts | Real Google services, real-app critical workflows and original visual comparisons; HelpDesk is absent here |
 | Microsoft generated-server initialization | Six exports: setup and reads across 124 tables and 302 choice fields pass in the Sheets test double | Tenant data migration, real Google writes, source defaults, calculations, relationships and permissions |
-| Microsoft business baseline | 6/6 convert and validate; 1/6 passes short startup (Employee Ideas) | Saved-view relative dates, migrated identities and Teams/Planner dependencies fail prerequisites |
+| Microsoft business baseline | 6/6 convert and validate; 2/6 pass short startup (Employee Ideas, Inspection) | Migrated identities, layout errors and Teams/Planner dependencies still fail prerequisites |
 | Microsoft first actions | All three default probes fail with source views now enforced. Populated Employee Ideas passes 29 checks through mobile validation, custom text questions, submission, persistence, reload, reopening and campaign idea counts, plus the source posting-warning path. Optional voting persists its count but the exported Concurrent removes the voter link, failing membership | Source voting ordering, alternate-key relationships, ratings, attachments, complete workflows, real Google persistence, target identities and UI parity; partial success never promotes an app to Usable |
 | CI configuration | Existing tests plus required-app/journey gates and new Chromium artifact job | Browser job configured and locally tested, not yet verified in remote CI; local HelpDesk remains optional |
 
@@ -383,7 +393,7 @@ The decoder now retains `NativeCDSDataSourceInfo.TableDefinition` attributes,
 keys, choices, relationships, views and logical/display-name mappings in
 `data-contract.json`. OptionSetInfo constants initialize typed client values;
 services remain explicit adapter dependencies. Saved views now accept companion
-solution FetchXML for a bounded deterministic subset. Relative dates, joins,
+solution FetchXML for a bounded deterministic subset. Other relative dates, joins,
 aggregates, paging/limits and localized choice-label ordering fail explicitly;
 numeric choice ordering requires exported `useraworderby="true"`. Tenant text
 collation and implicit primary-key ordering are ledgered approximations.
@@ -392,6 +402,11 @@ stored snapshots, not live relationships. Source defaults/calculated fields,
 permissions, implicit localized choice-to-text conversion and complete typed
 date comparisons remain unimplemented or unverified. These are converter gaps,
 not missing export evidence. Source inspection artifacts are under `.artifacts/`.
+Inspection also uses legacy bare `Minutes` in DateDiff. Contextual bare-unit
+resolution and DateDiff's whole-unit boundaries need follow-up; the current
+duration helper still returns fractions for subday units and has incomplete
+millisecond/quarter semantics. The new explicit TimeUnit enum mapping does not
+establish complete date-arithmetic parity.
 
 ### R1 — P0: make regression evidence enforceable and reproducible
 

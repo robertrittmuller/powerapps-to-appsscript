@@ -71,6 +71,24 @@ def test_matching_constants_and_deferred_errors_survive_emission():
             transpile(raw)
 
 
+def test_every_dateadd_timeunit_executes_as_a_constant_in_generated_formulas():
+    from pfx2gas.fx.emitter import TIME_UNITS
+    expected = {'Milliseconds':'2026-01-15T12:00:00.001Z', 'Seconds':'2026-01-15T12:00:01.000Z',
+        'Minutes':'2026-01-15T12:01:00.000Z', 'Hours':'2026-01-15T13:00:00.000Z',
+        'Days':'2026-01-16T12:00:00.000Z', 'Months':'2026-02-15T12:00:00.000Z',
+        'Quarters':'2026-04-15T12:00:00.000Z', 'Years':'2027-01-15T12:00:00.000Z'}
+    assert set(expected) == TIME_UNITS
+    for member, timestamp in expected.items():
+        assert execute(f'DateAdd(Now(), 1, TimeUnit.{member})',
+            "process.env.TZ='UTC';const state={TimeUnit:{Minutes:'days'}};FX.now=()=>new Date('2026-01-15T12:00:00Z');",
+            screen_name='Screen', global_names={'TimeUnit'}) == timestamp
+    assert execute('DateAdd(Now(), -1, TimeUnit.Minutes)',
+        "FX.now=()=>new Date('2026-03-08T16:00:00Z');", screen_name='Screen') == '2026-03-08T15:59:00.000Z'
+    for invalid in ['TimeUnit.Weeks','TimeUnit.Minutes.Unknown']:
+        with pytest.raises(FxSyntaxError,match='Unsupported TimeUnit'):
+            transpile(f'DateAdd(Now(), 1, {invalid})')
+
+
 def test_retained_formulas_match_pinned_original_exports_when_available():
     from pfx2gas.parse import parse
     from pfx2gas.unpack import unpack

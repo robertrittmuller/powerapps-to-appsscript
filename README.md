@@ -335,8 +335,16 @@ Converted apps aim to match the original visually and behaviorally:
   Current-user filters match the Google session email to exactly one migrated
   `systemuser` record; missing/ambiguous mappings fail. Startup loads `User()`
   before source initialization can capture its email. This is a functional
-  identity mapping, not Dataverse authorization. Relative dates, joins,
-  aggregates, paging/limits and localized choice ordering remain unsupported;
+  identity mapping, not Dataverse authorization. `last-seven-days`, `last-x-days`
+  (positive 32-bit day count), `today`, `yesterday` and `tomorrow` work on columns
+  with explicitly exported `UserLocal` date behavior. They use the browser clock
+  and timezone, with calendar boundaries across daylight saving changes.
+  Recent-day ranges start at local midnight N days ago and exclude the query
+  instant and future timestamps. These ranges remain ledgered approximations:
+  source-tenant boundary equivalence, server clock and per-user timezone settings
+  are unverified. Migrated timestamps must include an explicit timezone.
+  Missing date behavior, `DateOnly`/`TimeZoneIndependent` relative filters, other
+  relative operators, joins, aggregates, paging/limits and localized choice ordering remain unsupported;
   choice ordering is numeric only when FetchXML explicitly requests
   `useraworderby="true"`. Tenant text collation and implicit primary-key order
   are ledgered approximations. Missing queries fail even on empty tables and

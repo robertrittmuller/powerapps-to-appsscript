@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import hashlib
 import re
+from datetime import datetime
 from pathlib import Path
 import subprocess
 import sys
@@ -238,7 +239,7 @@ def check_timers(page, _backend):
     page.screenshot(path=str(OUT / "timer-lifecycle/ready.png"))
 
 
-def run_case(browser, name, source, journey, clock=False, launch_parameters=None, viewport=None, solution=None, setup_backend=None):
+def run_case(browser, name, source, journey, clock=False, launch_parameters=None, viewport=None, solution=None, setup_backend=None, timezone_id=None, fixed_time=None):
     ir = analyze(parse(unpack(source)), solution=solution)
     project = synthesize(ir, OUT / name / "project")
     validation = validate_project(project)
@@ -252,7 +253,7 @@ def run_case(browser, name, source, journey, clock=False, launch_parameters=None
         if not line:
             raise RuntimeError("generated server test process stopped")
         return json.loads(line)
-    context = browser.new_context(viewport=viewport or {"width": 1440, "height": 900}, locale="en-US")
+    context = browser.new_context(viewport=viewport or {"width": 1440, "height": 900}, locale="en-US", timezone_id=timezone_id)
     context.expose_function("__gasCall", backend)
     context.add_init_script(path=str(REPO / "tests/browser/bridge.js"))
     # No app-generated external requests are permitted in this local test.
@@ -270,6 +271,8 @@ def run_case(browser, name, source, journey, clock=False, launch_parameters=None
     if clock:
         page.clock.install(time=0)
         page.clock.pause_at(1)
+    if fixed_time:
+        page.clock.set_fixed_time(datetime.fromisoformat(fixed_time))
     errors = []
     page.on("pageerror", lambda error: errors.append(str(error)))
     page.on("console", lambda msg: errors.append(msg.text) if msg.type == "error" else None)
@@ -278,6 +281,8 @@ def run_case(browser, name, source, journey, clock=False, launch_parameters=None
               "inputSha256": hashlib.sha256(source.read_bytes()).hexdigest(),
               "sourceMetadata": ir.source_metadata,
               "converterSourceSha256": converter_fingerprint(), "browserVersion": browser.version}
+    if fixed_time or timezone_id:
+        result['dateContext'] = {'now':fixed_time,'timeZone':timezone_id}
     try:
         if setup_backend:
             result['dataSetup'] = setup_backend(backend)
@@ -699,6 +704,33 @@ def check_views(page, backend):
     page.screenshot(path=str(OUT / 'saved-views/filtered-and-reloaded.png'))
 
 
+def check_relative_views(page, backend):
+    names = control(page,'ViewRows')
+    expect(names).to_have_text('Third project, Second project')
+    control(page,'ViewSearch').fill('SECOND')
+    expect(names).to_have_text('Second project')
+    control(page,'ViewSearch').fill('')
+    buttons = control(page,'ProjectGallery').locator('[data-control="SelectProject"]')
+    expect(buttons).to_have_text(['Third project','Second project'])
+    buttons.nth(1).click()
+    expect(control(page,'SelectedProject')).to_have_text('Second project')
+    control(page,'OpenSecond').click()
+    expect(names).to_have_text('First project, Third project, Second project')
+    rows = backend({'fn':'api','args':['Projects','list',{}]})['result']
+    assert next(row for row in rows if row['project']=='project-one')['start__date']=='2026-03-08T15:59:00.000Z'
+    page.reload()
+    expect(names).to_have_text('First project, Third project, Second project')
+    expect(buttons).to_have_text(['First project','Third project','Second project'])
+    page.screenshot(path=str(OUT/'relative-saved-views/saved-and-reloaded.png'))
+    # At the next local midnight, the oldest row leaves the seven-day range
+    # and the formerly future row enters. Persisted dates remain unchanged.
+    page.clock.set_fixed_time(datetime.fromisoformat('2026-03-09T04:00:00+00:00'))
+    page.reload()
+    expect(names).to_have_text('Future project, First project, Third project')
+    expect(buttons).to_have_text(['Future project','First project','Third project'])
+    assert backend({'fn':'api','args':['Projects','list',{}]})['result']==rows
+
+
 def check_relationships(page, backend):
     names, count, reverse, status = [control(page,name) for name in ['RelatedNames','RelatedCount','InverseCount','RelatedStatus']]
     expect(control(page,'RelatedProject')).to_have_text('Second project')
@@ -813,6 +845,9 @@ def main():
     cases.append(('collection-aliases', REPO / 'tests/fixtures/fixtureCollectionAliases.msapp', check_collection_aliases))
     cases.append(("saved-views", REPO / "tests/fixtures/fixtureViews.msapp", check_views,
                   False, None, None, REPO / 'tests/fixtures/fixtureViews.solution.zip'))
+    cases.append(('relative-saved-views', REPO/'tests/fixtures/fixtureRelativeViews.msapp', check_relative_views,
+                  False, None, None, REPO/'tests/fixtures/fixtureRelativeViews.solution.zip', None,
+                  'America/New_York', '2026-03-08T16:00:00+00:00'))
     helpdesk = REPO / "samples/real/helpdesk.msapp"
     if helpdesk.exists():
         cases.append(("helpdesk", helpdesk, check_helpdesk))

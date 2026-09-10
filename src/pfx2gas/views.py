@@ -15,6 +15,7 @@ from .data_contract import _document
 from .fx.naming import snake
 
 MAX_XML_BYTES = 32 * 1024 * 1024
+RELATIVE_DAY_OPERATORS = {'last-seven-days', 'last-x-days', 'today', 'yesterday', 'tomorrow'}
 
 
 def _xml(payload):
@@ -94,16 +95,36 @@ def compile_view(text: str, source) -> dict:
         if node.tag != 'condition' or set(node.attrib) - {'attribute', 'operator', 'value'}:
             raise ValueError('unsupported FetchXML condition or related-column comparison')
         op = node.get('operator')
-        if op not in {'eq', 'ne', 'gt', 'ge', 'lt', 'le', 'in', 'not-in', 'null', 'not-null', 'eq-userid', 'ne-userid'}:
+        if op not in {'eq', 'ne', 'gt', 'ge', 'lt', 'le', 'in', 'not-in', 'null', 'not-null', 'eq-userid', 'ne-userid'} | RELATIVE_DAY_OPERATORS:
             raise ValueError('unsupported FetchXML operator: ' + str(op))
         result = {**field_contract(node.get('attribute'), op in {'eq-userid','ne-userid'}), 'op': op}
         if any(child.tag != 'value' or child.attrib or len(child) for child in node):
             raise ValueError('unsupported FetchXML condition values')
         values = [node.get('value')] if 'value' in node.attrib else [child.text or '' for child in node]
-        expected = 0 if op in {'null', 'not-null', 'eq-userid', 'ne-userid'} else None if op in {'in', 'not-in'} else 1
+        expected = 0 if op in {'null', 'not-null', 'eq-userid', 'ne-userid'} | (RELATIVE_DAY_OPERATORS - {'last-x-days'}) else None if op in {'in', 'not-in'} else 1
         if (expected is not None and len(values) != expected) or (expected is None and not values) or ('value' in node.attrib and len(node)):
             raise ValueError('wrong number of FetchXML condition values')
-        if result['type'] in {'number', 'choice'}:
+        if op in RELATIVE_DAY_OPERATORS:
+            if result['type'] != 'date':
+                raise ValueError('relative date operator requires a date field')
+            attr = next((attr for attr in source.metadata.get('attributes', [])
+                         if attr.get('LogicalName') == node.get('attribute')), {})
+            behavior = attr.get('DateTimeBehavior')
+            behavior = behavior.get('Value') if isinstance(behavior, dict) else behavior
+            # Format=DateOnly does not imply DateOnly storage behavior. Missing
+            # subtype metadata must not be guessed from the display format.
+            if behavior != 'UserLocal':
+                raise ValueError('relative date view requires exported UserLocal DateTimeBehavior; '
+                                 + str(behavior or 'missing behavior') + ' is unsupported')
+            result['dateBehavior'] = behavior
+            if op == 'last-x-days':
+                if not values[0].isascii() or not values[0].isdigit() or not 1 <= int(values[0]) <= 2147483647:
+                    raise ValueError('last-x-days requires a positive 32-bit integer')
+                values = [int(values[0])]
+            limitations.add('Relative saved views use the browser clock and timezone; Dataverse per-user timezone settings and server clock are not migrated')
+            if op in {'last-seven-days', 'last-x-days'}:
+                limitations.add('Recent-day view ranges run from local midnight N days ago through the instant before query evaluation; source-tenant boundary equivalence remains unverified')
+        elif result['type'] in {'number', 'choice'}:
             values = [float(value) for value in values]
             if any(not math.isfinite(value) for value in values):
                 raise ValueError('nonfinite FetchXML number')
