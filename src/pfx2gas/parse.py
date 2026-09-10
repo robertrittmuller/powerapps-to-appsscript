@@ -6,7 +6,7 @@ from .ir import AppIR, ControlNode, DataSource, FieldDef, FxExpr, ScreenNode
 from .unpack import UnpackedApp
 
 BEHAVIOR_PROPS = {"OnSelect", "OnChange", "OnCheck", "OnUncheck", "OnVisible", "OnHidden", "OnStart", "OnSuccess", "OnFailure",
-                  "OnTimerStart", "OnTimerEnd"}
+                  "OnTimerStart", "OnTimerEnd", "OnSelectLogo"}
 
 # Control types that can hold child item templates in a gallery.
 GALLERY_TYPES = {"Gallery", "VerticalGallery", "HorizontalGallery", "GalleryTemplate"}
@@ -28,7 +28,8 @@ _CONTROL_ALIASES = {
     "text": "Label",          # modern 'Text' control is a text block
     "textlabel": "Label",
     "badge": "Label",
-    "moderncard": "GroupContainer",
+    "moderncard": "ModernCard",
+    "header": "Header",
     "dropdowndatafield": "Dropdown",
     "moderntablecontrol": "DataTable",
     "fluidgrid": "FluidGrid",

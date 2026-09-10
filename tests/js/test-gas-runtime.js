@@ -238,6 +238,20 @@ test('responsive gallery TemplateSize resolves before rows and updates without s
   assert.equal(ctx.val('ResponsiveRows').template_width,1);
 });
 
+test('explicit gallery wrapping allocates cross-axis space and padding to each template',()=>{
+  const vm=require('node:vm'),fs=require('node:fs');
+  const attrs={'data-template-size':'180','data-template-padding':'10','data-wrap-count':'2'};
+  const host={tagName:'DIV',style:{width:'630px',height:'240px'},textContent:'',getAttribute:key=>attrs[key]??null};
+  const ctx=vm.createContext({document:{...global.document,querySelector:()=>host}});ctx.window=ctx;
+  vm.runInContext(fs.readFileSync(require.resolve('../../static/gas-runtime.js'),'utf8'),ctx);
+  assert.equal(ctx.val('Wrapped').template_width,300);
+  attrs['data-wrap-count']='1';assert.equal(ctx.val('Wrapped').template_width,610);
+  attrs['data-wrap-count']='0';assert.equal(ctx.val('Wrapped').template_width,610);
+  attrs['data-template-padding']='20';host.style.width='640px';assert.equal(ctx.val('Wrapped').template_width,600);
+  attrs['data-gallery-layout']='horizontal';assert.equal(ctx.val('Wrapped').template_width,180);
+  assert.equal(ctx.val('Wrapped').template_height,200);
+});
+
 test('startup waits for session identity before source OnStart snapshots User()', async () => {
   const vm = require('node:vm'), fs = require('node:fs');
   let ready, success;

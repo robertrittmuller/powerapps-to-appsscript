@@ -730,6 +730,77 @@ def check_selection_defaults(page, _backend):
     expect(single.locator('option:checked')).to_have_text(['Gamma'])
 
 
+def check_composite_controls(page,backend,case_name):
+    header=control(page,'PageHeader');card=control(page,'PreviewCard');rows=control(page,'ProductCard')
+    part=lambda root,name:root.locator('[data-fx-part="'+name+'"]')
+    expect(part(header,'title')).to_have_text('Alpha product catalog')
+    expect(part(header,'title')).to_have_attribute('aria-level','2')
+    expect(part(header,'initials')).to_have_text('AP')
+    expect(part(card,'title')).to_have_text('Alpha product')
+    expect(part(card,'subtitle')).to_have_text('Source subtitle')
+    expect(part(card,'description')).to_have_text('A detailed product summary')
+    expect(part(card,'title')).to_have_css('color','rgb(255, 255, 255)')
+    expect(part(card,'title')).to_have_css('font-size','24px')
+    expect(rows).to_have_count(2)
+    expect(part(rows.nth(1),'title')).to_have_text('Second product')
+    def images():
+        values=page.locator('[data-fx-composite] img[src]').evaluate_all('''async els=>{
+            await Promise.all(els.map(el=>el.decode()));return els.map(el=>({width:el.naturalWidth,height:el.naturalHeight}));
+        }''')
+        assert len(values)==7 and all(value['width']>0 and value['height']>0 for value in values),values
+    images()
+    control(page,'TitleInput').fill('R&D <teams>')
+    expect(part(card,'title')).to_have_text('R&D <teams>')
+    expect(part(header,'title')).to_have_text('R&D <teams> catalog')
+    expect(part(card,'title').locator('*')).to_have_count(0)
+    part(header,'title').click();expect(control(page,'Selection')).to_contain_text('logo: 0')
+    part(header,'logo-action').focus();part(header,'logo-action').press('Enter')
+    expect(control(page,'Selection')).to_contain_text('logo: 1')
+    card.focus();card.press('Space');expect(control(page,'Selection')).to_have_text('Selected: preview / clicks: 1 / logo: 1')
+    rows.nth(1).focus();rows.nth(1).press('Enter')
+    expect(control(page,'Selection')).to_have_text('Selected: 2 / clicks: 2 / logo: 1')
+    saved=backend({'fn':'api','args':['Products','list',{}]})['result']
+    assert [(row['id'],row['selected']) for row in saved]==[('1',False),('2',True)],saved
+    control(page,'LayoutToggle').click()
+    expect(card).to_have_attribute('data-fx-direction','horizontal')
+    boxes=card.locator('[data-fx-part="preview"], [data-fx-part="card-content"]').evaluate_all('els=>els.map(el=>{const r=el.getBoundingClientRect();return {x:r.x,width:r.width};})')
+    assert boxes[0]['x']>=boxes[1]['x']+boxes[1]['width'],boxes
+    control(page,'StateToggle').click()
+    expect(card).to_be_disabled();expect(rows.nth(1)).to_be_disabled()
+    expect(part(header,'logo-action')).to_be_hidden();expect(part(header,'profile')).to_be_hidden();expect(part(card,'description')).to_be_hidden()
+    card.dispatch_event('click');rows.nth(1).dispatch_event('click')
+    expect(control(page,'Selection')).to_have_text('Selected: 2 / clicks: 2 / logo: 1')
+    control(page,'StateToggle').click();expect(card).to_be_enabled();expect(part(header,'logo-action')).to_be_visible()
+    geometry={}
+    for width in [1280,640]:
+        page.set_viewport_size({'width':width,'height':960})
+        expect(header).to_have_css('width',str(width-40)+'px')
+        geometry[str(width)]=[]
+        for composite in page.locator('[data-fx-composite]').all():
+            composite.scroll_into_view_if_needed()
+            geometry[str(width)].append(composite.evaluate('''el=>{
+                const r=el.getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height,
+                    hit:el.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)),scrollWidth:el.scrollWidth,clientWidth:el.clientWidth};
+            }'''))
+        for box in geometry[str(width)]:
+            assert box['x']>=0 and box['x']+box['width']<=width+1 and box['width']>0 and box['height']>0 and box['hit'],box
+            assert box['scrollWidth']<=box['clientWidth']+1,box
+        rows.nth(0).focus();expect(rows.nth(0)).to_be_focused()
+        wraps=2 if width>=740 else 1
+        expect(control(page,'ProductsGallery')).to_have_attribute('data-wrap-count',str(wraps))
+        # The narrow source formula yields zero; the ledgered minimum keeps a
+        # usable cell and must recover to two columns after another resize.
+        assert page.evaluate("Math.floor(val('ProductsGallery').width / 620)")== (2 if width==1280 else 0)
+        expected_width=(width-40-14*(wraps+1))/wraps
+        assert abs(rows.nth(0).bounding_box()['width']-expected_width)<1
+        page.screenshot(path=str(OUT/case_name/('ui-'+str(width)+'.png')),full_page=True)
+    (OUT/case_name/'ui-geometry.json').write_text(json.dumps(geometry,indent=2)+'\n')
+    page.set_viewport_size({'width':1280,'height':960})
+    expect(control(page,'ProductsGallery')).to_have_attribute('data-wrap-count','2')
+    page.reload();expect(part(card,'title')).to_have_text('Alpha product');images()
+    assert backend({'fn':'api','args':['Products','list',{}]})['result']==saved
+
+
 def check_start_screen(page, backend):
     expect(page.locator('[data-screen="Details"]')).to_be_visible()
     expect(control(page,'DetailsStatus')).to_have_text('Details / true')
@@ -1698,6 +1769,8 @@ def main():
     cases.append(('bare-inputs',REPO/'tests/fixtures/fixtureBareInputs.msapp',check_bare_inputs,True))
     cases.append(('svg-text',REPO/'tests/fixtures/fixtureSvgText.msapp',check_svg_text))
     cases.append(('start-screen',REPO/'tests/fixtures/fixtureStartScreen.msapp',check_start_screen))
+    cases.append(('modern-composites',REPO/'tests/fixtures/fixtureComposite.msapp',lambda page,backend:check_composite_controls(page,backend,'modern-composites'),False,None,{'width':1280,'height':960}))
+    cases.append(('legacy-composites',REPO/'tests/fixtures/fixtureCompositeLegacy.msapp',lambda page,backend:check_composite_controls(page,backend,'legacy-composites'),False,None,{'width':1280,'height':960}))
     cases.append(('start-directory',REPO/'tests/fixtures/fixtureStartDirectory.msapp',check_start_directory,
                   False,None,None,None,setup_start_directory))
     cases.append(('native-layout',REPO/'tests/fixtures/fixtureNativeLayout.msapp',check_native_layout))

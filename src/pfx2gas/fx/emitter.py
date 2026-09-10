@@ -39,7 +39,7 @@ ENUM_TYPES = {"Color", "Icon", "Font", "FontWeight", "Align", "Image",
               "LayoutSize", "DisplayMode", "FormMode", "FormStatus", "SortOrder",
               "LayoutDirection", "LayoutAlignItems", "LayoutJustifyContent",
               "LayoutWrap", "VerticalAlign", "FillPortions", "Overflow", "AlignInContainer",
-              "ImagePosition", "ImageRotation", "TextPosition", "FontWeight2",
+              "ImagePosition", "ImagePlacement", "HeaderStyle", "TextRole", "ImageRotation", "TextPosition", "FontWeight2",
               "BorderStyle", "TextRole", "TextMode", "Live", "DateTimeFormat", "Layout",
               "ButtonLayout", "ButtonAppearance", "IconStyle", "ButtonCanvas.Layout",
               "ButtonCanvas.Appearance", "ButtonCanvas.IconStyle"}

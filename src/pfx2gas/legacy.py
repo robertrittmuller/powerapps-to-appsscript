@@ -58,6 +58,7 @@ TEMPLATE_ALIASES = {
     "slidercontrol": "Slider",
     "badge": "Label",
     "header": "Header",
+    "moderncard": "ModernCard",
     "chartcontrol": "Chart",
     "piechart": "PieChart",
     "barchart": "BarChart",

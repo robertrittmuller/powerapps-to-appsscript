@@ -1479,6 +1479,70 @@ def modern_component_fixture_files() -> dict[str, str]:
         'Src/Combined.pa.yaml':json.dumps({'Screens':{'Home':home,'Other':{'Properties':{}}}})}
 
 
+def composite_fixture_files(legacy=False):
+    import yaml
+    from urllib.parse import quote
+    preview='data:image/svg+xml,'+quote('<svg xmlns="http://www.w3.org/2000/svg" width="400" height="180"><rect width="400" height="180" fill="#bada55"/></svg>')
+    logo='data:image/svg+xml,'+quote('<svg xmlns="http://www.w3.org/2000/svg" width="80" height="40"><rect width="80" height="40" fill="#ffca28"/></svg>')
+    def control(name,kind,props,children=None):
+        node={'Control':kind,'Properties':{key:'='+str(value) for key,value in props.items()}}
+        if children:node['Children']=children
+        return {name:node}
+    header=control('PageHeader','Header@0.0.44',{'X':20,'Y':10,'Width':'Parent.Width - 40','Height':72,
+        'Title':'TitleInput.Text & " catalog"','Logo':json.dumps(logo),'LogoTooltip':'"Return to catalog"',
+        'OnSelectLogo':'Set(logoCount, logoCount + 1)','IsLogoVisible':'showDetails','IsProfilePictureVisible':'showDetails',
+        'UserName':'TitleInput.Text','UserEmail':'"reader@example.test"','UserImage':'Blank()',
+        'DisplayMode':'If(disabled, DisplayMode.Disabled, DisplayMode.Edit)','TitleRole':'TextRole.Heading2'})
+    card=control('PreviewCard','ModernCard@1.0.0',{'X':20,'Y':160,'Width':'Min(540, Parent.Width - 40)','Height':340,
+        'Title':'TitleInput.Text','Subtitle':'"Source subtitle"','Description':'If(showDetails, "A detailed product summary", Blank())',
+        'Image':json.dumps(preview),'ImageAltText':'"Product preview"','HeaderImage':'If(showDetails, '+json.dumps(logo)+', Blank())',
+        'HeaderImageAltText':'"Product mark"','OnSelect':'Set(lastSelected, "preview"); Set(clickCount, clickCount + 1)',
+        'LayoutDirection':'If(horizontal, LayoutDirection.Horizontal, LayoutDirection.Vertical)',
+        'ImagePlacement':'If(horizontal, ImagePlacement.AfterHeader, ImagePlacement.BeforeHeader)',
+        'DisplayMode':'If(disabled, DisplayMode.View, DisplayMode.Edit)',
+        'Fill':'RGBA(0,51,102,1)','SubtitleColor':'RGBA(200,220,255,1)','TitleSize':18})
+    row=control('ProductCard','ModernCard@1.0.0',{'X':0,'Y':0,'Width':'Parent.TemplateWidth','Height':'Parent.TemplateHeight',
+        'Title':'ThisItem.Title','Subtitle':'ThisItem.Subtitle','Description':'ThisItem.Description','Image':'ThisItem.Picture',
+        'ImageAltText':'ThisItem.Title & " preview"','HeaderImage':'ThisItem.Icon','HeaderImageAltText':'"Product icon"',
+        'OnSelect':'Patch(Products, ThisItem, {Selected: true}); Set(lastSelected, ThisItem.ID); Set(clickCount, clickCount + 1)',
+        'DisplayMode':'If(disabled, DisplayMode.Disabled, DisplayMode.Edit)','BorderRadius':16})
+    children=[header,control('TitleInput','TextInput',{'X':20,'Y':100,'Width':250,'Height':40,'Default':'"Alpha product"','AccessibleLabel':'"Product name"'}),
+        control('LayoutToggle','Button',{'X':290,'Y':100,'Width':130,'Height':40,'Text':'"Change layout"','OnSelect':'Set(horizontal, Not(horizontal))'}),
+        control('StateToggle','Button',{'X':440,'Y':100,'Width':130,'Height':40,'Text':'"Change state"','OnSelect':'Set(disabled, Not(disabled)); Set(showDetails, Not(showDetails))'}),
+        card,control('ProductsGallery','Gallery',{'X':20,'Y':520,'Width':'Parent.Width - 40','Height':330,'Items':'Products',
+            'TemplateSize':300,'TemplatePadding':'If(horizontal, 14, 10)','WrapCount':'RoundDown(Self.Width / 620, 0)'},[row]),
+        control('Selection','Label',{'X':20,'Y':860,'Width':500,'Height':40,'Text':'"Selected: " & lastSelected & " / clicks: " & clickCount & " / logo: " & logoCount'})]
+    props={'OnStart':'=Set(horizontal, false); Set(disabled, false); Set(showDetails, true); Set(lastSelected, ""); Set(clickCount, 0); Set(logoCount, 0)'}
+    records=[{'ID':str(i),'Title':title,'Subtitle':'Edition '+str(i),'Description':'Product description '+str(i),'Picture':preview,'Icon':logo,'Selected':False}
+        for i,title in [(1,'First product'),(2,'Second product')]]
+    sources={'DataSources':[{'Name':'Products','Type':'StaticDataSourceInfo','SampleData':records,
+        'Fields':[{'name':name,'type':'boolean' if name=='Selected' else 'text'} for name in records[0]]}]}
+    if legacy:
+        def native(name,node):
+            kind=node['Control'].split('@')[0]
+            result={'Name':name,'Template':{'Name':kind,'Version':node['Control'].partition('@')[2]},
+                'Rules':[{'Property':key,'InvariantScript':value.lstrip('=')} for key,value in node['Properties'].items()]}
+            result['Children']=[native(name,child) for item in node.get('Children',[]) for name,child in item.items()]
+            return result
+        return {'Controls/1.json':json.dumps({'TopParent':{'Name':'App','Template':{'Name':'appinfo'},
+                    'Rules':[{'Property':key,'InvariantScript':value.lstrip('=')} for key,value in props.items()]}}),
+            'Controls/2.json':json.dumps({'TopParent':{'Name':'Home','Template':{'Name':'screen'},'Index':0,
+                'Children':[native(name,node) for item in children for name,node in item.items()]}}),
+            'References/DataSources.json':json.dumps(sources)}
+    native_card={'Name':'PreviewCard','Template':{'Name':'modernCard','Version':'1.0.0'},
+        'Rules':[{'Property':'ImagePosition','InvariantScript':'ImagePosition.Fit'},
+                 {'Property':'TitleSize','InvariantScript':'9'},
+                 {'Property':'BorderRadius','InvariantScript':'20'},
+                 {'Property':'HeaderImage','InvariantScript':'SampleCardHeaderImage'},
+                 {'Property':'OnSelect','InvariantScript':'Notify("sample action must not be imported")'}]}
+    native_header={'Name':'PageHeader','Template':{'Name':'Header','Version':'0.0.44'},
+        'Rules':[{'Property':'TitleFontSize','InvariantScript':'24'},{'Property':'UserName','InvariantScript':'"wrong user"'}]}
+    return {'Src/App.pa.yaml':yaml.safe_dump({'App':{'Properties':props}},sort_keys=False),
+        'Src/Home.pa.yaml':yaml.safe_dump({'Screens':{'Home':{'Children':children}}},sort_keys=False),
+        'References/DataSources.json':json.dumps(sources),
+        'Controls/Home.json':json.dumps({'TopParent':{'Name':'Home','Children':[native_card,native_header]}})}
+
+
 def start_screen_fixture_files(directory=False):
     import yaml
     def control(name,kind,props):
@@ -1748,6 +1812,8 @@ def build_fixtures() -> None:
     _write_msapp(FIXTURE_DIR / 'fixtureSvgText.msapp', svg_text_fixture_files())
     _write_msapp(FIXTURE_DIR / 'fixtureStartScreen.msapp', start_screen_fixture_files())
     _write_msapp(FIXTURE_DIR / 'fixtureStartDirectory.msapp', start_screen_fixture_files(True))
+    _write_msapp(FIXTURE_DIR / 'fixtureComposite.msapp', composite_fixture_files())
+    _write_msapp(FIXTURE_DIR / 'fixtureCompositeLegacy.msapp', composite_fixture_files(True))
     _write_msapp(FIXTURE_DIR / 'fixtureScaledNativeLayout.msapp', native_layout_fixture_files(True))
     _write_msapp(FIXTURE_DIR / 'fixtureModernComponents.msapp', modern_component_fixture_files())
     _write_msapp(FIXTURE_DIR / 'fixtureNamedFormulas.msapp', named_formula_fixture_files())

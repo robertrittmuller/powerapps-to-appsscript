@@ -23,6 +23,12 @@ CONTROL_PROPERTIES = {
     'timer': {'Text','Duration','Start','Repeat','AutoStart','AutoPause','Reset',
               'AccessibleLabel','Tooltip','DisplayMode'},
     'image': {'ImagePosition','Fill'},
+    'moderncard': {'ImagePlacement','ImagePosition','BorderRadius','DisplayMode','DropShadow',
+                   'Fill','TitleColor','SubtitleColor','DescriptionColor','TitleSize','SubtitleSize','DescriptionSize',
+                   'AccessibleLabel','ImageAltText','HeaderImageAltText','Tooltip','TabIndex'},
+    'header': {'UserImage','UserImageAltText','UserName','UserEmail','DisplayMode',
+               'IsLogoVisible','IsTitleVisible','IsProfilePictureVisible','LogoTooltip','LogoMaxHeight',
+               'TitleFontSize','TitleRole','Style','Fill','FontColor','Font'},
 }
 
 

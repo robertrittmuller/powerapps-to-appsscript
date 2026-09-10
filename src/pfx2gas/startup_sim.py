@@ -27,10 +27,12 @@ function makeEl(tag, attrs) {
     innerHTML: '', value: '', selectedOptions: [],
     get attributes() { return Object.keys(attrs).map(name=>({name,value:attrs[name]})); },
     getAttribute(k) { return attrs[k] !== undefined ? attrs[k] : null; },
+    hasAttribute(k) { return attrs[k] !== undefined; },
     setAttribute(k, v) { attrs[k] = String(v); },
     removeAttribute(k) { delete attrs[k]; },
     addEventListener(ev, fn) { (this.listeners[ev] = this.listeners[ev] || []).push(fn); },
     click() { (this.listeners.click || []).forEach(fn => fn()); },
+    input() { (this.listeners.input || []).forEach(fn => fn()); },
     change() { (this.listeners.change || []).forEach(fn => fn()); },
     appendChild(c) { this.insertBefore(c, null); },
     insertBefore(c, before) {
@@ -54,7 +56,16 @@ function makeEl(tag, attrs) {
         this.__rowControls[attrs['data-control']] = replacement;
       }
     },
-    querySelector() { return null; },
+    querySelector(selector) {
+      const part = selector.match(/^\[data-fx-part="([^"]+)"\]$/);
+      if (!part) return null;
+      for (const child of this.children) {
+        if (child.getAttribute('data-fx-part') === part[1]) return child;
+        const nested = child.querySelector(selector);
+        if (nested) return nested;
+      }
+      return null;
+    },
     querySelectorAll(sel) {
       if (sel === '[data-screen]') return Object.values(elements).filter(e => e.attrs['data-screen']);
       if (sel.startsWith('[data-control=')) {
@@ -243,7 +254,23 @@ while ((cm = ctrlRe.exec(screensSrc)) !== null) {
   if (!seen.has(cm[3])) {
     seen.add(cm[3]);
     elements['ctrl:' + cm[3]] = hydrateInlineStyle(makeEl(cm[1], parseAttrs(cm[2])));
+    if (elements['ctrl:' + cm[3]].attrs['data-fx-composite'])
+      hydrateComposite(elements['ctrl:' + cm[3]],screensSrc,ctrlRe.lastIndex);
   }
+}
+
+function hydrateComposite(host, source, offset) {
+  // Hydrate the actual generated semantic subtree; missing slots remain errors.
+  const tags=/<\/?([a-z]+)([^>]*)>/g, stack=[host];
+  tags.lastIndex=offset;
+  let token;
+  while ((token=tags.exec(source)) && stack.length) {
+    if (token[0].startsWith('</')) {stack.pop();continue;}
+    const child=makeEl(token[1],parseAttrs(token[2]));
+    stack[stack.length-1].appendChild(child);
+    if (!['img','input','br','hr','meta','link'].includes(token[1])) stack.push(child);
+  }
+  if (stack.length) throw new Error('Unclosed generated composite control');
 }
 
 function galleryTemplate(source, offset) {
@@ -276,6 +303,7 @@ function makeRow(markup) {
     child.type = child.attrs.type || '';
     row.__controls[match[3]] = child;
     child.__rowControls = row.__controls;
+    if (child.attrs['data-fx-composite']) hydrateComposite(child,markup,matcher.lastIndex);
     if ((child.attrs.class || '').split(' ').includes('fx-gallery')) {
       const template=galleryTemplate(markup,matcher.lastIndex);
       if (template) {hydrateGallery(child,template);matcher.lastIndex=template.end;}
@@ -357,6 +385,7 @@ async function runJourneys(journeys) {
           if (!el) throw new Error('control not found: ' + step.control);
           if (typeof step.value === 'boolean') el.checked = step.value;
           else el.value = step.value == null ? '' : String(step.value);
+          if (typeof step.value !== 'boolean') el.input();
           el.change();
           await pause(10);
         } else if (step.action === 'expectValue') {

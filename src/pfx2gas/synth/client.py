@@ -25,6 +25,7 @@ from ..controls import EXPLICITLY_UNSUPPORTED_INPUTS
 from ..fx.naming import snake as _snake
 from ..icons import icon_glyph, is_icon_name
 from ..ir import AppIR, ControlNode
+from . import composites
 
 
 def _behavior_js(expr, subject: str) -> str:
@@ -288,6 +289,8 @@ ACCESSIBILITY_ROLES = {
 
 
 def _is_flex_container(ctrl: ControlNode) -> bool:
+    if ctrl.type in composites.PROPERTIES:
+        return False  # Their own content layout is separate from child containers.
     # Studio exports include LayoutDirection even when LayoutMode is Manual.
     mode = ctrl.properties.get("LayoutMode")
     if mode and mode.raw.strip() in {"LayoutMode.Manual", "LayoutMode.Auto"}:
@@ -773,11 +776,11 @@ def _render_control(
         if row_padding:
             gallery_attrs += f' data-template-padding="{html.escape(row_padding, quote=True)}"'
             mark_emission(ctrl.properties.get("TemplatePadding"), "approximated",
-                          "gallery row padding follows TemplatePadding")
+                          "gallery template spacing follows source padding; grid and legacy row layouts remain approximated")
         if wrap_count:
             gallery_attrs += f' data-wrap-count="{html.escape(wrap_count, quote=True)}"'
             mark_emission(ctrl.properties.get("WrapCount"), "approximated",
-                          "gallery wrap count is retained as runtime metadata")
+                          "source wrap count drives grid cells and updates with state/viewport")
         return (
             f'{indent}<div data-control="{ctrl.name}"{style_attr}{gallery_attrs} class="fx-gallery">\n'
             f'{indent}  <div class="fx-rows"></div>\n'
@@ -799,6 +802,9 @@ def _render_control(
             f'class="fx-unsupported-control" data-unsupported-control="{control_type}" '
             f'role="status">Unsupported input: {control_type}</div>'
         )
+
+    if ctrl.type in composites.PROPERTIES:
+        return indent + composites.markup(ctrl, style_attr, _static_attrs(ctrl))
 
     inner = ""
     close = f"</{tag}>" if tag not in {"input", "img", "br", "hr"} else ""
@@ -1127,11 +1133,12 @@ def _emit_gallery(lines: list[str], ctrl: ControlNode, parent_names: dict[str, s
                         else "gallery-row formula is evaluated in ThisItem/Self/Parent context",
                     )
                 row_fns.append("        });")
+            composites.emit(row_fns, child, parent_names.get(child.name), row=True)
             row_fns.extend('      '+line for line in nested_lines)
             if child.type == 'Gallery':
                 continue  # Its events belong to its own selected child row.
             events = {}
-            for event in (("OnSelect", "OnChange", "OnCheck", "OnUncheck") if child.type == 'CheckBox' else ("OnSelect", "OnChange")):
+            for event in (("OnSelect", "OnChange", "OnCheck", "OnUncheck") if child.type == 'CheckBox' else ("OnSelectLogo",) if child.type == 'Header' else ("OnSelect", "OnChange")):
                 expr = child.properties.get(event)
                 if expr and expr.raw:
                     events[event] = _behavior_js(expr, f"{child.name}.{event}")
@@ -1169,6 +1176,11 @@ def _emit_gallery(lines: list[str], ctrl: ControlNode, parent_names: dict[str, s
             lines.append("    null,")
         lines.append("    " + json.dumps({child.name: _snake(child.name) for child in row_controls}) + ",")
         lines.append("    {")
+        for prop in ('WrapCount','TemplatePadding'):
+            expr=ctrl.properties.get(prop)
+            if expr and expr.js and 'await ' not in expr.js:
+                lines.append(f"      {prop}: function () {{ {read}var selfRef=val({ctrl.name!r}), parentRef=val({parent_names.get(ctrl.name)!r}); return {expr.js}; }},")
+                mark_emission(expr,'approximated','explicit gallery grid count/padding updates with source state and viewport; zero columns render as one until layout settles; row identity is retained')
         default=ctrl.properties.get('Default')
         if default and default.js and 'await ' not in default.js:
             lines.append(f"      Default: function () {{ {read}var selfRef=val({ctrl.name!r}), parentRef=val({parent_names.get(ctrl.name)!r}); return {default.js}; }},")
@@ -1320,6 +1332,7 @@ def render_app_js(ir: AppIR) -> str:
         for ctrl in screen.walk_controls():
             if ctrl.name in gallery_children:
                 continue
+            composites.emit(lines, ctrl, parent_names.get(ctrl.name))
             if ctrl.type in {"TextInput", "TextArea", "CheckBox", "DatePicker", "FluentDatePicker", "Slider", "Button"}:
                 inputs = [("DisplayMode", "disabled"), ("Reset", "reset")]
                 # Form/DataCard record application already owns their defaults.
@@ -1380,7 +1393,7 @@ def render_app_js(ir: AppIR) -> str:
                         else:
                             mark_emission(expr, "emitted", "exposed to dependent control formulas")
                     lines.append("  });")
-            for event in (("OnSelect", "OnChange", "OnCheck", "OnUncheck") if ctrl.type == 'CheckBox' else ("OnSelect", "OnChange")):
+            for event in (("OnSelect", "OnChange", "OnCheck", "OnUncheck") if ctrl.type == 'CheckBox' else ("OnSelectLogo",) if ctrl.type == 'Header' else ("OnSelect", "OnChange")):
                 if ctrl.type == "Gallery":
                     continue  # Invoked with the selected row, never by DOM bubbling.
                 expr = ctrl.properties.get(event)
@@ -1678,7 +1691,7 @@ def render_index_html(ir: AppIR, screens_html: str) -> str:
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{ir.name}</title>
-  <style>{INDEX_CSS}</style>
+  <style>{INDEX_CSS}{composites.CSS}</style>
   <base target="_top">
 </head>
 <body>

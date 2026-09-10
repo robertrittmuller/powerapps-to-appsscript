@@ -55,11 +55,12 @@ still require complete critical-workflow and UI evidence.
 
 Modern Card's source declares `HomeScreen` as `App.StartScreen`; it is not the
 first screen in archive order. Its separate `assess_modern_card_workflow.py`
-assessment retains startup/reload evidence and content failures. The export has
+assessment passes seven startup/header/reload checks, including the source logo,
+Google-caller initials fallback and header geometry. The export has
 no `MyFiles` data contract or initialization, and its embedded source checker
 flags the list and file fields as invalid names. A complete export is not
-currently available to the user. The missing source contract and missing modern
-Header/Card rendering keep the document-card workflow unassessed. Do not infer
+currently available to the user. The source-contract check still fails, keeping
+the document-card workflow unassessed. Do not infer
 a schema, add sample documents or introduce a route to the unreachable standalone
 card to award acceptance.
 

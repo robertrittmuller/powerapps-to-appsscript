@@ -397,6 +397,29 @@ remain open.
 
 ## Current evidence and its limits
 
+The Header/Card slice gives `ModernCard` its own source control type and semantic
+renderer. Both native and modern exports render structured text and images in
+standalone controls and gallery rows, with source orientation/placement, colors,
+point-sized card text, native keyboard actions and disabled/view states. Header
+logo actions are scoped to the logo; a source without a logo action renders an
+image without inventing a button. The exported Google caller expressions supply
+name/email and a photo or ledgered initials fallback. Matching native control
+properties supplement omissions while authored YAML wins. No factory sample
+content or actions are injected. Themes/profile menus, sample artwork and exact
+Fluent typography/clipping remain explicit approximations.
+
+The wrapped-card browser probe caught a broader layout bug: `Parent.TemplateWidth`
+used the whole vertical gallery width, causing adjacent cards to overlap. Explicit
+wrapped grids now divide the available cross-axis space by `WrapCount`, account
+for outer/inter-item padding and reevaluate count/padding on state and viewport
+changes. Width-dependent formulas that briefly yield zero columns render one cell
+until geometry settles; this minimum is ledgered and tested across resizes.
+Layout updates preserve row/control identity. Flexible rows avoid adding
+the grid gap twice; unannotated vertical galleries retain their legacy layout.
+The startup simulator hydrates the actual generated composite subtree and fires
+input events on text edits, so missing content and stale enabled states cannot
+silently pass those runtime checks.
+
 The startup slice now honors `App.StartScreen` instead of always opening the
 first exported screen. Its value is resolved before `OnStart`, after the existing
 user/table initialization, with pending connector reads settled before choosing
@@ -414,7 +437,7 @@ Modern Card explicitly starts on `HomeScreen`, although `Screen1` comes first in
 its archive. Its document gallery refers to an absent `MyFiles` source and file
 fields that the export's own `AppCheckerResult.sarif` lists as invalid names.
 The user has no complete export available at present. Keep that source failure
-separate from the converter's missing modern Header/Card rendering; neither an
+separate from the converter's Header/Card rendering; neither an
 empty gallery nor a successful startup establishes its critical workflow.
 `scripts/assess_modern_card_workflow.py` retains the source hash, formulas,
 data-source inventory, source checker results, browser content failures and reload
@@ -471,15 +494,15 @@ complete Milestones usability and live Google access remain unassessed.
 
 | Evidence | Latest result | What remains unproven |
 |---|---|---|
-| Unit/runtime tests | 609 Python pass, 3 skip; 115 JS pass; bare globals, FX, FXRuntime and FX.collections emitter/runtime consistency passes | Complete deployed workflows and broader control semantics |
-| Current real-app soak | 5/5 valid code and generated-server initialization; 3/5 Bootable; 3,321 formulas | Editable Grid requests unexported Student Tracker choices; expanded navigation requires directory migration. Usability unassessed; five historical local exports are absent |
-| Current regression translation/wiring | 3,316 translated; 2,419 emitted, 252 approximated, 650 ignored/unsupported | The census includes recovered native timer/image properties and the authored StartScreen. Translation does not establish runtime behavior |
+| Unit/runtime tests | 614 Python pass, 3 skip; 119 JS pass; bare globals, FX, FXRuntime and FX.collections emitter/runtime consistency passes | Complete deployed workflows and broader control semantics |
+| Current real-app soak | 5/5 valid code and generated-server initialization; 3/5 Bootable; 3,334 formulas | Editable Grid requests unexported Student Tracker choices; expanded navigation requires directory migration. Usability unassessed; five historical local exports are absent |
+| Current regression translation/wiring | 3,329 translated; 2,417 emitted, 278 approximated, 639 ignored/unsupported | The census includes recovered native Header/Card properties and reactive gallery spacing. Composite rendering is explicitly approximate. Translation does not establish runtime behavior |
 | Historical ten-app corpus | Previously 10/10 Bootable; 23,746 formulas | Not reproduced in this workspace; those results did not establish usability |
 | HelpDesk generated-app journeys | HOME → NEW → HOME; dashboard row text, logo URI, pie and legend output pass | All-screen interactions, image decoding/layout in CI, persistence |
 | HelpDesk @14 live browser | Ticket cards, decoded 64×64 logos, pie/bar/legend SVGs, readable fonts/labels, HOME → NEW → HOME | Same-state original comparison, user name/avatar, complete workflow coverage |
 | Chromium: business form | Actual generated client + Code.gs: edit/create, required validation, write failure, delete and page reload pass against a persistent Sheets test double | Real Google authorization/Sheets writes and another user/session |
-| Chromium regression suite | 41/41 fixtures pass, including parameter/user/data-driven StartScreen, Google directory startup reads and source error recovery; bare reactive inputs, native timer captions, SVG literal text and native image fit/fill; native/modern selection defaults, keyboard multi-selection, row-specific resets, dynamic enabled states and labels; reversed geometry dependencies and negative positions across resizes; button icons/layout/accessibility and flexible/scaled gallery sizing; native layout and container dimensions; components and named formulas; checkbox transitions and persisted row updates; Dataverse defaults and reload; nested galleries; Fluent dates; native Google Chat/directory, imported Planner tasks, relationships and saved views. Three intentional failure gates preserve failed verdicts | Real Google services, remaining real-app critical workflows and broader UI usability; HelpDesk is absent here. Original visual comparisons belong to the separate High fidelity grade |
-| Modern Card startup/content | Three startup/reload checks pass on the authored HomeScreen with zero runtime errors; header-content and exported-document-contract checks fail | The Header remains empty, modern Card rendering is incomplete, and source MyFiles/file fields are missing. Complete workflow/UI usability remains unassessed; the first archive screen is not the authored destination |
+| Chromium regression suite | 43/43 fixtures pass, including modern/legacy Header/Card text and images, keyboard actions, disabled states, persisted row updates and wrapped-cell geometry with zero-column recovery; parameter/user/data-driven StartScreen, Google directory startup reads and source error recovery; bare reactive inputs, native timer captions, SVG literal text and native image fit/fill; native/modern selection defaults, keyboard multi-selection, row-specific resets, dynamic enabled states and labels; reversed geometry dependencies and negative positions across resizes; button icons/layout/accessibility and flexible/scaled gallery sizing; native layout and container dimensions; components and named formulas; checkbox transitions and persisted row updates; Dataverse defaults and reload; nested galleries; Fluent dates; native Google Chat/directory, imported Planner tasks, relationships and saved views. Three intentional failure gates preserve failed verdicts | Real Google services, remaining real-app critical workflows and broader UI usability; HelpDesk is absent here. Original visual comparisons belong to the separate High fidelity grade |
+| Modern Card startup/content | Seven startup/header/reload checks pass on the authored HomeScreen with zero runtime errors: Documents title, decoded source logo, Google-caller initials fallback and header containment at 1440×900. The exported-document-contract check fails | Source MyFiles/file fields are missing. Complete document workflow/UI usability remains unassessed; no records or route to the standalone card are invented. Native Fluent presentation and smaller-window layouts remain unverified |
 | SVG reachable workflow/UI | 41 checks cover five decoded/fitted images, text punctuation/Unicode, slider color boundaries, all ratings, actual painted pixels/animations, timer completion/pause/resume, reload and keyboard/geometry at 1440×900 and 1024×768 | Complete usability remains unassessed: three source inputs lack accessible names; Screen2–Screen5, including custom Environment and offline-host actions, are unreachable from the original UI. Mobile layouts, broader dynamic SVG builders and original visual comparisons remain separate gaps |
 | Expandable Navigation critical workflow/UI | 75/75 checks pass with generated code/server validation and zero runtime errors. Every source destination and Home return, keyboard expansion/collapse, menu geometry, glyphs/names, mapped profile/no-photo fallback, reload and Exit feedback are tested at 1440×900, 1000×700 and 520×700 | Source canvas minimum size causes scrolling in smaller windows. Native Google access and original visual comparison remain unverified; this does not repair the other nine acceptance apps or promote the identity-free soak result |
 | Planner to Google adapter | Eight operations use generated Code.gs and a reserved Sheets task-board store. Chromium lists plans/buckets/tasks, creates and assigns, writes descriptions, selects/updates, reloads and recovers from failed writes. Labels and geometry pass. Missing migration, unknown/unmapped identity, denied membership, invalid dates and oversized records fail explicitly | Native Tasks UI, Planner roles/audit metadata, ordering hints, categories, notifications, aliases/additional operations and complete real-app workflows. Workbook editors bypass API membership checks; live identity and storage access require deployment verification |

@@ -56,10 +56,37 @@ def main():
         except Exception as error:
             steps.append({'id': name, 'status': 'fail', 'error': str(error) or type(error).__name__})
 
-    def journey(page, _backend):
+    def journey(page, backend):
         check('authored-start-screen-visible', lambda: expect(page.locator('[data-screen="HomeScreen"]')).to_be_visible())
         check('screen-order-fallback-not-visible', lambda: expect(page.locator('[data-screen="Screen1"]')).to_be_hidden())
         check('source-documents-header-renders', lambda: expect(control(page, 'Header1')).to_contain_text('Documents', timeout=1500))
+        header=control(page,'Header1')
+        def logo():
+            image=header.locator('[data-fx-part="logo"]')
+            expect(image).to_be_visible()
+            assert header.locator('[data-fx-part="logo-action"]').evaluate('el=>el.tagName')=='SPAN', 'The source logo has no authored action'
+            dimensions=image.evaluate('async el=>{await el.decode();return [el.naturalWidth,el.naturalHeight];}')
+            assert dimensions[0]>0 and dimensions[1]>0,dimensions
+        check('exported-logo-decodes',logo)
+        def profile():
+            caller=backend({'fn':'whoami','args':[]})['result']
+            expected=caller['fullName']+' profile picture'
+            expect(header.locator('[data-fx-part="profile"]')).to_have_attribute('aria-label',expected)
+            expect(header.locator('[data-fx-part="profile"]')).to_have_attribute('title',caller['fullName']+'\n'+caller['email'])
+            expect(header.locator('[data-fx-part="initials"]')).to_be_visible()
+        check('source-google-caller-profile-with-no-photo-fallback',profile)
+        def header_geometry():
+            measurements=header.evaluate('''el=>{const host=el.getBoundingClientRect();return {host:{x:host.x,y:host.y,width:host.width,height:host.height},
+                parts:[...el.querySelectorAll('[data-fx-part="title"], [data-fx-part="logo"], [data-fx-part="profile"]')].map(node=>{
+                    const r=node.getBoundingClientRect();return {name:node.dataset.fxPart,x:r.x,y:r.y,width:r.width,height:r.height,
+                    hit:node.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2))};})};}''')
+            host=measurements['host']
+            for box in measurements['parts']:
+                assert box['width']>0 and box['height']>0 and box['hit'],box
+                assert box['x']>=host['x']-1 and box['x']+box['width']<=min(1440,host['x']+host['width'])+1,box
+                assert box['y']>=host['y']-1 and box['y']+box['height']<=host['y']+host['height']+1,box
+            (OUT/NAME/'header-geometry.json').write_text(json.dumps(measurements,indent=2)+'\n')
+        check('header-content-contained-at-1440x900',header_geometry)
         # The missing data contract is a source failure. No successful empty
         # gallery can establish that document cards or their Launch actions work.
         def document_contract():
@@ -75,10 +102,10 @@ def main():
         browser = p.chromium.launch()
         result = run_case(browser, NAME, source, journey)
         browser.close()
-    if len(steps) != 5 or any(step['status'] != 'pass' for step in steps):
+    if len(steps) != 8 or any(step['status'] != 'pass' for step in steps):
         result.update(status='fail', error='Incomplete source document contract or rendered content; see steps and source-contract.json')
     result.update(sourceAppId='modern-card', steps=steps, completeUsability='unassessed',
-        assessmentScope='source-defined initial screen and header content, exported document contract and reload',
+        assessmentScope='source-defined initial screen, header text/logo/profile/geometry, exported document contract and reload',
         assessmentScriptSha256=hashlib.sha256((REPO / 'scripts/assess_modern_card_workflow.py').read_bytes()).hexdigest(),
         sourceContract=facts,
         sourceLimitations=[

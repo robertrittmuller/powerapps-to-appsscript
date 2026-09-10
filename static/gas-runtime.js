@@ -465,7 +465,10 @@
   function bind(name, event, fn, parentName) {
     var el = controlElement(name);
     if (!el) { console.warn('control not found for binding:', name); return; }
+    var target = event === 'OnSelectLogo' ? el.querySelector('[data-fx-part="logo-action"]') : el;
+    if (!target) return;
     function run(checkedValue) {
+      if (target.disabled) return;
       var previousSelf = global.selfRef;
       var previousParent = global.parentRef;
       var self = val(name), parent = val(parentName);
@@ -482,7 +485,7 @@
     }
     if (event === 'OnCheck' || event === 'OnUncheck') {
       watchChecked(el, function (value) { if (value === (event === 'OnCheck')) run(value); });
-    } else listen(el, event === 'OnSelect' ? 'click' : 'change', function () { run(); });
+    } else listen(target, event === 'OnSelect' || event === 'OnSelectLogo' ? 'click' : 'change', function () { run(); });
   }
 
   function notifyChecked(el, userChange) {
@@ -686,7 +689,8 @@
       var horizontal = el.getAttribute('data-gallery-layout') === 'horizontal';
       var wraps = Math.max(1, Number(el.getAttribute('data-wrap-count')) || 1);
       Object.defineProperties(standard, {
-        template_width: {enumerable: true, get: function () { return horizontal ? standard.template_size : standard.width; }},
+        template_width: {enumerable: true, get: function () { return horizontal ? standard.template_size
+          : el.getAttribute('data-wrap-count') !== null ? Math.max(0,(standard.width-standard.template_padding*(wraps+1))/wraps) : standard.width; }},
         template_height: {enumerable: true, get: function () { return horizontal
           ? Math.max(0,(standard.height-standard.template_padding*(wraps+1))/wraps) : standard.template_size; }},
       });
@@ -1044,6 +1048,115 @@
     return row === document ? val(name) : val(name, rowElement(row, name));
   }
 
+  function compositeControl(row, name, parentName, propertyFns) {
+    var el = rowElement(row, name);
+    if (!el) return;
+    var kind = el.getAttribute('data-fx-composite'), read = function (key) { return rowValue(row,key); };
+    var props = {}, part = function (key) { return el.querySelector('[data-fx-part="' + key + '"]'); };
+    function text(key, value, visible) {
+      var node = part(key);
+      if (!node) return;
+      node.textContent = value == null ? '' : String(value);
+      node.hidden = visible === false || !node.textContent;
+    }
+    function image(key, value, alt) {
+      var node = part(key);
+      if (!node) return false;
+      var source = value == null ? '' : String(value).trim();
+      if (/^(?:javascript|vbscript|data\s*:\s*text\/html):?/i.test(source))
+        throw new Error('Unsupported image URL in ' + name + '.' + key);
+      node.setAttribute('alt', alt == null ? '' : String(alt));
+      if (node.__fxCompositeSource !== source) {
+        node.__fxCompositeSource = source;
+        node.removeAttribute('data-fx-image-error');
+        if (source) node.setAttribute('src',source);
+        else node.removeAttribute('src');
+      }
+      node.hidden = !source;
+      if (!node.__fxCompositeImage) {
+        node.__fxCompositeImage = true;
+        listen(node,'error',function () {
+          node.setAttribute('data-fx-image-error','true');
+          if (key === 'user-image') { node.hidden=true; part('initials').hidden=false; }
+        });
+      }
+      if (key === 'user-image' && node.hasAttribute('data-fx-image-error')) node.hidden=true;
+      return !!source && !node.hidden;
+    }
+    function positive(value, fallback) {
+      if (value == null || value === '' || Number(value) === 0) return fallback;
+      if (!Number.isFinite(Number(value)) || Number(value) < 0) throw new Error('Invalid composite dimension: ' + value);
+      return Number(value);
+    }
+    function contrast(fill) {
+      var color = typeof global.getComputedStyle === 'function' ? global.getComputedStyle(el).backgroundColor : String(fill || '');
+      var rgb = color.match(/^rgba?\(([^)]+)\)/i), hex = color.match(/^#([a-f0-9]{6})$/i);
+      var channels = rgb ? rgb[1].split(',').map(Number) : hex ? [0,2,4].map(function (i) {return parseInt(hex[1].slice(i,i+2),16);}) : [255,255,255];
+      var alpha = channels.length > 3 ? channels[3] : 1;
+      var linear = channels.slice(0,3).map(function (v) { v=(v*alpha+255*(1-alpha))/255; return v<=0.04045?v/12.92:Math.pow((v+0.055)/1.055,2.4); });
+      return .2126*linear[0]+.7152*linear[1]+.0722*linear[2]>.179 ? '#000000' : '#ffffff';
+    }
+    try {
+      Object.keys(propertyFns || {}).forEach(function (key) { props[key]=propertyFns[key](read,read(name),read(parentName)); });
+      var disabled = /^(disabled|view)$/i.test(String(props.DisplayMode));
+      if (kind === 'ModernCard') {
+        var direction = props.LayoutDirection == null ? 'Vertical' : props.LayoutDirection;
+        var placement = props.ImagePlacement == null ? 'BeforeHeader' : props.ImagePlacement;
+        var fit = props.ImagePosition == null ? 'Fill' : props.ImagePosition;
+        if (!['Vertical','Horizontal'].includes(direction) || !['BeforeHeader','AfterHeader'].includes(placement))
+          throw new Error('Unsupported card direction or image placement');
+        var fits = {Fill:'cover',Fit:'contain',Stretch:'fill'};
+        if (!fits[fit]) throw new Error('Unsupported card ImagePosition: ' + fit);
+        el.setAttribute('data-fx-direction',String(direction).toLowerCase());
+        el.style.backgroundColor = props.Fill || '#ffffff';
+        el.style.borderRadius = props.BorderRadius == null ? '12px' : positive(props.BorderRadius,0)+'px';
+        el.disabled = disabled;
+        el.setAttribute('aria-disabled',String(disabled));
+        if (props.TabIndex != null) el.tabIndex=Number(props.TabIndex);
+        if (props.AccessibleLabel) el.setAttribute('aria-label',String(props.AccessibleLabel));
+        else el.removeAttribute('aria-label');
+        if (props.Tooltip != null) el.setAttribute('title',String(props.Tooltip));
+        text('title',props.Title); text('subtitle',props.Subtitle); text('description',props.Description);
+        image('preview',props.Image,props.ImageAltText); image('header-image',props.HeaderImage,props.HeaderImageAltText);
+        part('preview').style.order=placement==='AfterHeader'?'2':'0';
+        part('preview').style.objectFit=fits[fit];
+        part('card-content').style.order='1';
+        part('card-header').hidden=!props.Title && !props.Subtitle && !props.HeaderImage;
+        var autoColor=contrast(props.Fill);
+        ['Title','Subtitle','Description'].forEach(function (key) {
+          var node=part(key.toLowerCase());
+          node.style.color=props[key+'Color'] || autoColor;
+          node.style.fontSize=positive(props[key+'Size'],key==='Title'?12:10.5)+'pt';
+        });
+      } else if (kind === 'Header') {
+        var user=fxUser(), userName=Object.prototype.hasOwnProperty.call(props,'UserName')?props.UserName:user.full_name;
+        var email=Object.prototype.hasOwnProperty.call(props,'UserEmail')?props.UserEmail:user.email;
+        var label=String(userName || email || 'User profile');
+        var style=String(props.Style || 'Primary').toLowerCase();
+        if (!['primary','neutral'].includes(style)) throw new Error('Unsupported Header Style: '+props.Style);
+        el.style.backgroundColor=props.Fill || (style==='neutral'?'#f5f5f5':'#0f6cbd');
+        el.style.color=props.FontColor || contrast(el.style.backgroundColor);
+        var title=Object.prototype.hasOwnProperty.call(props,'Title')?props.Title:CURRENT_SCREEN;
+        text('title',title,props.IsTitleVisible);
+        part('title').style.fontSize=positive(props.TitleFontSize,20)+'px';
+        var role=String(props.TitleRole || 'Heading1'), level=role.match(/^Heading([1-6])$/i);
+        if (level) {part('title').setAttribute('role','heading');part('title').setAttribute('aria-level',level[1]);}
+        else if (/^(default|paragraph|none)$/i.test(role)) {part('title').removeAttribute('role');part('title').removeAttribute('aria-level');}
+        else throw new Error('Unsupported Header TitleRole: '+role);
+        var logo=part('logo-action');
+        logo.hidden=props.IsLogoVisible===false || !image('logo',props.Logo,props.LogoTooltip || 'Logo');
+        logo.disabled=disabled || logo.getAttribute('data-fx-action')!=='true';
+        logo.setAttribute('title',String(props.LogoTooltip || ''));
+        logo.style.maxHeight=positive(props.LogoMaxHeight,70)+'px';
+        var hasPicture=image('user-image',Object.prototype.hasOwnProperty.call(props,'UserImage')?props.UserImage:user.image,props.UserImageAltText || label);
+        text('initials',label.split(/\s+/).slice(0,2).map(function (word) {return word[0] || '';}).join('').toUpperCase(),!hasPicture);
+        part('profile').hidden=props.IsProfilePictureVisible===false;
+        part('profile').setAttribute('aria-label',String(props.UserImageAltText || label));
+        part('profile').setAttribute('title',[userName,email].filter(Boolean).join('\n') || label);
+      }
+    } catch (error) { console.error('composite control error',name,error); }
+  }
+
   function inputMode(el, mode) {
     if (['SingleLine', 'MultiLine', 'Password'].indexOf(mode) < 0)
       throw new Error('Unsupported TextMode: ' + mode);
@@ -1241,16 +1354,43 @@
       });
       var padding = parseFloat(host.getAttribute('data-template-padding')) || 0;
       Object.assign(row.style, {height:bottom+'px', minHeight:'1px', boxSizing:'border-box',
-        padding:'0', borderBottom:'0', marginBottom:Math.max(0,padding)+'px'});
+        padding:'0', borderBottom:'0', marginBottom:host.getAttribute('data-wrap-count')===null?Math.max(0,padding)+'px':'0'});
     }
     function layout() {
       var host = getHost();
       if (!rowFn || !host || (host.getAttribute('data-gallery-layout') !== 'horizontal'
-          && host.getAttribute('data-gallery-flexible-height') !== 'true')) return;
+          && host.getAttribute('data-gallery-flexible-height') !== 'true'
+          && host.getAttribute('data-wrap-count') === null && !config.WrapCount)) return;
       // Ordinary style bindings may size the gallery after its Items binding.
       // Reapply row geometry against the final size without rerunning Items or
       // remounting controls, so Parent.TemplateHeight is correct on first paint.
+      configureGrid(host,host.querySelector(':scope > .fx-rows'));
       mounted.forEach(function (row) { rowFn(row.__fxScope,row); sizeFlexibleRow(host,row); });
+    }
+    function configureGrid(host,rowsEl) {
+      [['WrapCount','data-wrap-count',1],['TemplatePadding','data-template-padding',0]].forEach(function (pair) {
+        if (!config[pair[0]]) return;
+        var value=Number(config[pair[0]]());
+        // Width-dependent source formulas can yield zero before layout settles.
+        // Keep one renderable cell until the next geometry pass (ledgered).
+        if (pair[0]==='WrapCount' && value===0) value=1;
+        if (!Number.isFinite(value) || value<pair[2] || (pair[0]==='WrapCount' && !Number.isInteger(value)))
+          throw new Error('Invalid gallery '+pair[0]+': '+name);
+        host.setAttribute(pair[1],String(value));
+      });
+      if (!rowsEl || !rowsEl.style) return;
+      var wraps=Math.max(1,Number(host.getAttribute('data-wrap-count')) || 1);
+      var padding=Math.max(0,Number(host.getAttribute('data-template-padding')) || 0);
+      if (host.getAttribute('data-gallery-layout')==='horizontal') {
+        var size=(parentRow?val(name,host):val(name)).template_size;
+        if (!Number.isFinite(size) || size<1) throw new Error('Horizontal gallery requires a positive TemplateSize: '+name);
+        Object.assign(rowsEl.style,{display:'grid',gridAutoFlow:'column',gridTemplateRows:'repeat('+wraps+', minmax(0, 1fr))',
+          gridAutoColumns:size+'px',height:'100%',boxSizing:'border-box',gap:padding+'px',padding:padding+'px'});
+        return;
+      }
+      if (host.getAttribute('data-wrap-count')===null) return;
+      Object.assign(rowsEl.style,{display:'grid',gridTemplateColumns:'repeat('+wraps+', minmax(0, 1fr))',
+        gap:padding+'px',padding:padding+'px',boxSizing:'border-box'});
     }
     function identity(item) {
       if (item && typeof item === 'object') {
@@ -1340,6 +1480,7 @@
         var tpl = host.querySelector(':scope > template');
         var rowsEl = host.querySelector(':scope > .fx-rows');
         if (!tpl || !rowsEl) return;
+        configureGrid(host,rowsEl);
         var items;
         try { items = itemsFn() || []; } catch (e) { console.error('gallery Items error', name, e); items = []; }
         if (!Array.isArray(items)) items = [];
@@ -1398,7 +1539,7 @@
               if (control === name) return;
               var el = row.querySelector('[data-control="' + control + '"]');
               if (!el) return;
-              ['OnSelect', 'OnChange', 'OnCheck', 'OnUncheck'].forEach(function (event) {
+              ['OnSelect', 'OnChange', 'OnCheck', 'OnUncheck', 'OnSelectLogo'].forEach(function (event) {
                 var descriptor = handlers[control];
                 if (!(typeof descriptor === 'function' && event === 'OnSelect') && !descriptor[event]) return;
                 if (event === 'OnCheck' || event === 'OnUncheck') {
@@ -1409,8 +1550,11 @@
                   });
                   return;
                 }
-                listen(el, event === 'OnSelect' ? 'click' : 'change', function (domEvent) {
+                var target = event === 'OnSelectLogo' ? el.querySelector('[data-fx-part="logo-action"]') : el;
+                if (!target) return;
+                listen(target, event === 'OnSelect' || event === 'OnSelectLogo' ? 'click' : 'change', function (domEvent) {
                   if (domEvent) domEvent.stopPropagation();
+                  if (target.disabled) return;
                   choose(row);
                   invoke(row, control, event);
                 });
@@ -1487,7 +1631,9 @@
             row.style.minHeight = templateSize + 'px';
             row.style.boxSizing = 'border-box';
           }
-          if (!horizontal && Number.isFinite(templatePadding) && templatePadding >= 0) {
+          if (!horizontal && host.getAttribute('data-wrap-count')!==null) {
+            row.style.padding='0'; row.style.minWidth='0';
+          } else if (!horizontal && Number.isFinite(templatePadding) && templatePadding >= 0) {
             row.style.padding = templatePadding + 'px';
           }
           if (rowFn) {
@@ -2089,6 +2235,7 @@
     htmlControl: htmlControl,
     sanitizeHtml: sanitizeHtml,
     rowControl: rowControl,
+    compositeControl: compositeControl,
     rowValue: rowValue,
     resetRowControl: function (row, name) {
       return resetControl(name, rowElement(row, name));

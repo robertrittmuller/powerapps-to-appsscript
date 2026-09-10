@@ -302,8 +302,23 @@ direct destinations from source; dynamic routes require a source-backed
 authored `HomeScreen` destination, reload and content. The export references an
 absent `MyFiles` list and file fields; its own embedded source checker reports
 those names as invalid. A complete export is currently unavailable. This
-assessment retains that source failure and the missing rendered header/card
-content, so a correct opening screen cannot pass its document-card workflow.
+assessment retains that source failure: rendering the header cannot establish
+that the document-card workflow works.
+
+Modern `Header` and `ModernCard` controls now render semantic content rather than
+empty containers. Cards retain titles, subtitles, descriptions, preview/header
+images, orientation, image placement, source colors and text sizes. Header logos
+with source actions are keyboard-operable buttons; decorative logos remain images.
+Source Google-caller name/email and photo expressions populate the header, with a
+ledgered initials fallback when no photo is available. Standalone and gallery-row
+actions, disabled/view states and reactive properties share the same renderer.
+Explicit gallery `WrapCount` and `TemplatePadding` update with state and viewport;
+each card reads its own cell width instead of the entire gallery width.
+Width-dependent formulas that yield zero columns retain one usable cell until
+layout settles, an explicit approximation tested across viewport changes.
+Native Fluent themes/profile menus, built-in sample artwork and exact native
+clipping remain fidelity gaps. These controls do not provide a missing source
+data contract or a Drive document migration by themselves.
 
 `./pfx2gas browser` tests generated forms, charts, record scopes, editable
 galleries, timer lifecycles, launch parameters, local drafts, Dataverse record
