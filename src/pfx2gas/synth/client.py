@@ -1268,6 +1268,20 @@ def render_app_js(ir: AppIR) -> str:
         calls = ", ".join(f"refreshData({name!r})" for name in external_sources)
         lines.append("  // Load external data before formulas/evaluators consume it.")
         lines.append(f"  await Promise.all([{calls}]);")
+    start = ir.properties.get('StartScreen')
+    if start and start.raw.strip():
+        from ..validate import js_syntax_ok
+        expression = start.js
+        if not expression or not js_syntax_ok('(function () { return (\n' + expression + '\n); })')[0]:
+            expression = 'FX.unsupported(' + json.dumps(start.fidelity_note or 'App.StartScreen') + ')'
+            mark_emission(start, 'unsupported', start.fidelity_note or 'StartScreen requires a value formula')
+        else:
+            mark_emission(start, 'approximated',
+                'Evaluated before OnStart using loaded user/data and settled connector reads; blank/error falls back to screen order. '
+                'Global variables/collections are unavailable. Initial paint still waits for serialized OnStart; nonblocking source scheduling is not reproduced.')
+        external_names = {name for ds in ir.data_sources if ds.origin != 'collection' for name in [ds.name, *ds.aliases]}
+        unavailable = sorted((set(ir.global_vars) - external_names) | {ds.name for ds in ir.data_sources if ds.origin == 'collection'})
+        lines.append(f'  await FXRuntime.resolveStartScreen(function () {{ return {expression}; }}, {json.dumps(ir.start_screen)}, {json.dumps(unavailable)});')
     if ir.on_start and ir.on_start.raw:
         lines.append("  // OnStart (transpiled from Power Fx)")
         for stmt in _behavior_js(ir.on_start, "App.OnStart").splitlines():
@@ -1603,12 +1617,10 @@ def render_app_js(ir: AppIR) -> str:
             lines.append(f"  ], function (val, selfRef, parentRef) {{ return {column_js}; }}, {parent_names.get(host.name)!r});")
             if columns and column_js == columns.js:
                 mark_emission(columns, "emitted", "sets default card width when no Width formula is exported")
-    # Bootstrap: reveal the start screen after APP_MAIN runs. APP_MAIN is
-    # invoked on DOMContentLoaded (gas-runtime), and APP_MAIN closes with this
-    # navigation so the first paint matches Power Apps' start screen.
+    # Reveal the authored startup destination, or screen order when unset.
+    # Keep retired OnStart.Navigate destinations and run registered OnVisible.
     if ir.start_screen:
-        lines.append("  // Start screen (first in the original app's screen order)")
-        lines.append(f"  go({ir.start_screen!r});")
+        lines.append(f"  FXRuntime.finishStartup({ir.start_screen!r});")
     lines.append("};")
     return "\n".join(lines)
 

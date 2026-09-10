@@ -51,18 +51,18 @@ BEHAVIOR_FUNCTIONS = {name.casefold() for name in (
 VOLATILE_FUNCTIONS = {'rand', 'randbetween', 'now', 'today', 'guid'}
 
 
-def validate_value(source: str) -> None:
+def validate_value(source: str, context: str = 'Named formulas', allow_volatile: bool = False) -> None:
     roots = lx.parse_formula(source)
     if len(roots) != 1:
-        raise lx.FxSyntaxError('A named formula must have one value expression')
+        raise lx.FxSyntaxError(context + ' must have one value expression')
     def visit(node):
         if node.kind == 'chain':
-            raise lx.FxSyntaxError('A named formula cannot contain a behavior chain')
+            raise lx.FxSyntaxError(context + ' cannot contain a behavior chain')
         if node.kind == 'call':
             name = str(node.value).casefold()
             if name in BEHAVIOR_FUNCTIONS:
-                raise lx.FxSyntaxError('Named formulas cannot call behavior function ' + str(node.value))
-            if name in VOLATILE_FUNCTIONS:
+                raise lx.FxSyntaxError(context + ' cannot call behavior function ' + str(node.value))
+            if not allow_volatile and name in VOLATILE_FUNCTIONS:
                 raise lx.FxSyntaxError('Volatile named formula needs dependency-aware caching: ' + str(node.value))
         for child in node.children:
             visit(child)

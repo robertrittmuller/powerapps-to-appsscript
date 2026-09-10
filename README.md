@@ -288,6 +288,23 @@ It currently fails Editable Grid because its choice formulas reference the
 unexported Student Tracker source. The startup simulator now retains that
 dependency failure instead of returning an empty successful response.
 
+The authored `App.StartScreen` now selects the opening screen before `OnStart`.
+It can use launch parameters, the loaded Google caller, loaded tables and named
+formulas, and waits for connector reads referenced by the expression. Blank or
+failed results fall back to the exported screen order; errors remain visible,
+and source `IfError` recovery is honored. Global variables and collections are
+unavailable during this evaluation. Startup still serializes data loading and
+`OnStart`, an explicit scheduling approximation in the ledger. The soak derives
+direct destinations from source; dynamic routes require a source-backed
+`startupExpectedScreen` in the app catalog to pass its startup gate.
+
+`./pfx2gas browser scripts/assess_modern_card_workflow.py` checks Modern Card's
+authored `HomeScreen` destination, reload and content. The export references an
+absent `MyFiles` list and file fields; its own embedded source checker reports
+those names as invalid. A complete export is currently unavailable. This
+assessment retains that source failure and the missing rendered header/card
+content, so a correct opening screen cannot pass its document-card workflow.
+
 `./pfx2gas browser` tests generated forms, charts, record scopes, editable
 galleries, timer lifecycles, launch parameters, local drafts, Dataverse record
 contracts and state/status defaults with activation/deactivation and reload,
@@ -297,7 +314,8 @@ native Google directory assignments, Chat selectors/notifications, record-valued
 selector defaults/reset in both standalone and row controls, independent nested
 property reads, checkbox editing without accidental gallery navigation, Fluent date entry/reset/bulk save,
 reactive named formulas driving calculations and menus, typed collection aliases and conditional draft
-updates in Chromium, plus HelpDesk
+updates, startup routes driven by persisted data/parameters and migrated Google
+directory reads with source error recovery in Chromium, plus HelpDesk
 when its local export is present. It runs
 generated `doGet`/client/server code against a Sheets test double to check save,
 validation, failure, delete and reload behavior, including safe request templating.

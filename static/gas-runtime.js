@@ -189,6 +189,7 @@
   }
 
   var serviceAdapters = Object.create(null), connectorCache = new Map();
+  var startScreenReads = null, configuredStartScreen = null;
   function configureServices(contracts) {
     serviceAdapters = contracts || Object.create(null);
     connectorCache.clear();
@@ -219,13 +220,15 @@
     var wire = wireValue(args, []), key = JSON.stringify([service, operation, wire]);
     var entry = connectorCache.get(key);
     if (!entry) {
-      entry = {service:service, value:null, error:null};
+      entry = {service:service, value:null, error:null, pending:true};
       connectorCache.set(key, entry);
-      serverRun('connector', service, operation, wire).then(function (value) {
+      entry.promise = serverRun('connector', service, operation, wire).then(function (value) {
+        entry.pending = false;
         if (connectorCache.get(key) !== entry) return; // Discard stale in-flight snapshots.
         entry.value = value;
         updateBindings();
       }, function (error) {
+        entry.pending = false;
         if (connectorCache.get(key) !== entry) return;
         entry.error = error instanceof Error ? error : new Error(error && error.message || String(error));
         // Re-evaluation throws into the source's IfError (when present).
@@ -233,8 +236,62 @@
         updateBindings();
       });
     }
+    if (startScreenReads && entry.pending) startScreenReads.add(entry.promise);
     if (entry.error) throw entry.error;
     return entry.value;
+  }
+
+  async function resolveStartScreen(evaluate, fallback, unavailableNames) {
+    // App.StartScreen is evaluated before OnStart. Wait for connector values
+    // referenced by that dataflow expression, including named-formula reads.
+    // https://learn.microsoft.com/power-platform/power-fx/reference/object-app
+    configuredStartScreen = fallback;
+    try {
+      for (var pass = 0; pass < 32; pass++) {
+        var pending = new Set(), saved = [], value, failure;
+        var previousReads = startScreenReads;
+        startScreenReads = pending;
+        try {
+          (unavailableNames || []).forEach(function (name) {
+            saved.push([name, Object.getOwnPropertyDescriptor(state, name)]);
+            Object.defineProperty(state, name, {configurable:true,
+              get:function () { throw new Error('App.StartScreen cannot read global variable or collection: ' + name); },
+              set:function () { throw new Error('App.StartScreen cannot change app state: ' + name); }});
+          });
+          value = evaluate();
+          if (value && typeof value.then === 'function') throw new Error('App.StartScreen must return a screen value');
+        } catch (error) { failure = error; }
+        finally {
+          startScreenReads = previousReads;
+          saved.reverse().forEach(function (pair) {
+            if (pair[1]) Object.defineProperty(state, pair[0], pair[1]);
+            else delete state[pair[0]];
+          });
+        }
+        if (pending.size) {
+          await Promise.all(Array.from(pending));
+          continue;
+        }
+        if (failure) throw failure;
+        if (value == null || value === '') return configuredStartScreen;
+        // A control inside a screen is not itself a valid StartScreen value.
+        var target = navigationTarget(typeof value === 'object' ? value.name : value);
+        if (!target) throw new Error('App.StartScreen returned an unknown screen: ' + String(value));
+        configuredStartScreen = target;
+        return target;
+      }
+      throw new Error('App.StartScreen connector dependencies did not settle after 32 passes');
+    } catch (error) {
+      console.error('App.StartScreen error', error);
+      toast('Start screen error: ' + (error && error.message || error), true);
+      return configuredStartScreen;
+    }
+  }
+
+  function finishStartup(fallback) {
+    // An explicit Navigate in the retired OnStart path must not be overwritten.
+    // Handlers are registered by now, so the selected screen gets OnVisible.
+    showScreen(CURRENT_SCREEN || configuredStartScreen || fallback);
   }
 
   function toast(msg, isError) {
@@ -1992,6 +2049,8 @@
     configureServices: configureServices,
     connectorCall: connectorCall,
     connectorRead: connectorRead,
+    resolveStartScreen: resolveStartScreen,
+    finishStartup: finishStartup,
     refreshConnector: refreshConnector,
     configureRelationships: configureRelationships,
     relationshipField: relationshipField,
@@ -2089,7 +2148,7 @@
   if (typeof document !== 'undefined') {
     document.addEventListener('DOMContentLoaded', function () {
       // A synchronous crash in APP_MAIN must not leave a blank page: catch,
-      // surface, and still reveal the first screen (Power Apps start screen).
+      // surface, and still reveal the resolved destination or screen-order fallback.
       var startup = typeof global.APP_MAIN === 'function'
         ? Promise.resolve().then(loadUser).then(function () { return global.APP_MAIN(); })
         : Promise.resolve();
@@ -2098,6 +2157,7 @@
         toast('Startup error: ' + (e && e.message ? e.message : e), true);
       }).then(function () {
         if (!CURRENT_SCREEN) {
+          if (configuredStartScreen) { showScreen(configuredStartScreen); return; }
           var first = document.querySelector('[data-screen]');
           if (first) showScreen(first.getAttribute('data-screen'));
         }

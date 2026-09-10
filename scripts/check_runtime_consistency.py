@@ -23,6 +23,8 @@ STATIC = REPO / "static"
 
 # (name, expected first params in the runtime definition, min arg count)
 EXPECTED = {
+    'resolveStartScreen': (['evaluate', 'fallback', 'unavailableNames'], 3),
+    'finishStartup': (['fallback'], 1),
     'configureButtonIcons': (['mapping'], 1),
     'registerNamedFormulas': (['definitions'], 1),
     'controlElement': (['name'], 1),
@@ -89,7 +91,7 @@ def generated_fixture_bare_calls() -> tuple[list[str], Path, set[str], set[str],
     apps = []
     out = tmp / "FixtureA"
     fixture_build.build_fixtures()
-    for fixture_name in ("fixtureSvgText.msapp", "fixtureBareInputs.msapp", "fixtureDependentLayout.msapp", "fixtureSelectionDefaults.msapp", "fixtureModernSelectionDefaults.msapp", "fixtureFlexibleGallery.msapp", "fixtureScaledFlexibleGallery.msapp", "fixtureButtonIcons.msapp", "fixtureNativeLayout.msapp", "fixtureScaledNativeLayout.msapp",
+    for fixture_name in ("fixtureStartScreen.msapp", "fixtureStartDirectory.msapp", "fixtureSvgText.msapp", "fixtureBareInputs.msapp", "fixtureDependentLayout.msapp", "fixtureSelectionDefaults.msapp", "fixtureModernSelectionDefaults.msapp", "fixtureFlexibleGallery.msapp", "fixtureScaledFlexibleGallery.msapp", "fixtureButtonIcons.msapp", "fixtureNativeLayout.msapp", "fixtureScaledNativeLayout.msapp",
                          "fixtureModernComponents.msapp", "fixtureNamedFormulas.msapp", "fixtureCheckboxEvents.msapp", "fixtureDataverseState.msapp", "fixtureControlCoercion.msapp", "fixtureControlCoercionV1.msapp", "fixtureNestedGallery.msapp", "fixtureResponsiveGallery.msapp", "fixtureChat.msapp", "fixtureHorizontalGallery.msapp", "fixtureDirectory.msapp", "fixturePlanner.msapp", "fixtureA.msapp", "fixtureForm.msapp", "fixtureCharts.msapp", "fixtureScopes.msapp", "fixtureGallery.msapp", "fixtureTimer.msapp", "fixtureStorage.msapp", "fixtureDataverse.msapp", "fixtureRelationships.msapp", "fixtureSourceFormulas.msapp", "fixtureCanvas.msapp", "fixtureScaledCanvas.msapp", "fixtureNavigation.msapp", "fixtureViews.msapp", "fixtureCardLayout.msapp", "fixtureCollectionAliases.msapp"):
         solution = fixture_build.FIXTURE_DIR / 'fixtureViews.solution.zip' if fixture_name == 'fixtureViews.msapp' else None
         ir = analyze(parse(unpack(fixture_build.FIXTURE_DIR / fixture_name)), solution=solution)

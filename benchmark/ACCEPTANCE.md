@@ -53,6 +53,16 @@ scripts/assess_public_workflows.py` to reproduce it. The identity-free soak
 simulator remains a separate unmigrated baseline. The other nine target apps
 still require complete critical-workflow and UI evidence.
 
+Modern Card's source declares `HomeScreen` as `App.StartScreen`; it is not the
+first screen in archive order. Its separate `assess_modern_card_workflow.py`
+assessment retains startup/reload evidence and content failures. The export has
+no `MyFiles` data contract or initialization, and its embedded source checker
+flags the list and file fields as invalid names. A complete export is not
+currently available to the user. The missing source contract and missing modern
+Header/Card rendering keep the document-card workflow unassessed. Do not infer
+a schema, add sample documents or introduce a route to the unreachable standalone
+card to award acceptance.
+
 Milestones has expanded partial evidence: `./pfx2gas browser
 scripts/assess_milestones_workflow.py --filters` passes 260 checks through project,
 milestone and settings creation, assigned work-item create/edit/reload, search,

@@ -126,5 +126,5 @@ class AppIR(BaseModel):
     # execution must be an explicit conversion choice.
     webapp_access: Literal["MYSELF", "DOMAIN", "ANYONE", "ANYONE_ANONYMOUS"] = "ANYONE"
     webapp_execute_as: Literal["USER_ACCESSING", "USER_DEPLOYING"] = "USER_ACCESSING"
-    # The screen Power Apps shows first (first in screen order).
+    # Screen-order fallback when App.StartScreen is blank or fails.
     start_screen: str | None = None

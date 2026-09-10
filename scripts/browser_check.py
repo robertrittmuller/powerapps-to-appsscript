@@ -730,6 +730,46 @@ def check_selection_defaults(page, _backend):
     expect(single.locator('option:checked')).to_have_text(['Gamma'])
 
 
+def check_start_screen(page, backend):
+    expect(page.locator('[data-screen="Details"]')).to_be_visible()
+    expect(control(page,'DetailsStatus')).to_have_text('Details / true')
+    expect(control(page,'DetailsRoute')).to_have_text('Next launch: Details')
+    control(page,'DetailsToggle').click()
+    expect(control(page,'DetailsRoute')).to_have_text('Next launch: Home')
+    # A changing dependency must not navigate again during the same launch.
+    expect(page.locator('[data-screen="Details"]')).to_be_visible()
+    page.reload();expect(control(page,'HomeStatus')).to_have_text('Home / true')
+    control(page,'HomeToggle').click();expect(control(page,'HomeRoute')).to_have_text('Next launch: Details')
+    page.reload();expect(control(page,'DetailsStatus')).to_have_text('Details / true')
+    page.goto('https://converted.test/?screen=home')
+    expect(control(page,'HomeStatus')).to_have_text('Home / true')
+    control(page,'HomeNavigate').focus();control(page,'HomeNavigate').press('Enter')
+    expect(control(page,'DetailsStatus')).to_have_text('Details / true')
+    page.reload();expect(control(page,'HomeStatus')).to_have_text('Home / true')
+    page.screenshot(path=str(OUT/'start-screen/parameter-destination.png'))
+
+
+def setup_start_directory(backend):
+    data=json.loads((REPO/'tests/fixtures/google-directory.json').read_text())
+    assert backend({'fn':'__importDirectory','args':[data['migration']]})=={'result':{'ok':True,'users':2}}
+    backend({'fn':'__peopleResponses','args':[[{'method':'get','result':data['people'][0]}]]})
+    return {'source':'authored source-ID/account mapping','googlePeople':'explicit response fixture; no live authorization'}
+
+
+def check_start_directory(page,backend):
+    expect(control(page,'DetailsStatus')).to_have_text('Details / true')
+    requests=backend({'fn':'__peopleRequests','args':[]})['result']
+    assert len(requests)==1,requests
+    control(page,'DetailsNavigate').click();expect(control(page,'HomeStatus')).to_have_text('Home / true')
+    assert len(backend({'fn':'__peopleRequests','args':[]})['result'])==1
+    backend({'fn':'__peopleResponses','args':[[{'method':'get','error':'403 Directory access denied'}]]})
+    page.reload();expect(control(page,'RecoveryStatus')).to_have_text('Recovery / true')
+    page.screenshot(path=str(OUT/'start-directory/recovered-denial.png'))
+    data=json.loads((REPO/'tests/fixtures/google-directory.json').read_text())
+    backend({'fn':'__peopleResponses','args':[[{'method':'get','result':data['people'][0]}]]})
+    page.reload();expect(control(page,'DetailsStatus')).to_have_text('Details / true')
+
+
 def check_svg_text(page, _backend):
     for name,fit,fill in [('Direct','contain','rgba(0, 0, 0, 0)'),('Nested','fill','rgb(255, 0, 0)'),('Cdata','cover','rgba(0, 255, 0, 0.5)')]:
         expect(control(page,name)).to_have_css('object-fit',fit)
@@ -1657,6 +1697,9 @@ def main():
     cases.append(('dependent-layout',REPO/'tests/fixtures/fixtureDependentLayout.msapp',check_dependent_layout))
     cases.append(('bare-inputs',REPO/'tests/fixtures/fixtureBareInputs.msapp',check_bare_inputs,True))
     cases.append(('svg-text',REPO/'tests/fixtures/fixtureSvgText.msapp',check_svg_text))
+    cases.append(('start-screen',REPO/'tests/fixtures/fixtureStartScreen.msapp',check_start_screen))
+    cases.append(('start-directory',REPO/'tests/fixtures/fixtureStartDirectory.msapp',check_start_directory,
+                  False,None,None,None,setup_start_directory))
     cases.append(('native-layout',REPO/'tests/fixtures/fixtureNativeLayout.msapp',check_native_layout))
     cases.append(('scaled-native-layout',REPO/'tests/fixtures/fixtureScaledNativeLayout.msapp',check_native_layout))
     cases.append(('many-to-many-relationships', REPO / 'tests/fixtures/fixtureRelationships.msapp', check_relationships))

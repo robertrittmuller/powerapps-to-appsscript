@@ -379,6 +379,15 @@ def analyze(ir: AppIR, uncovered: list[dict] | None = None, solution=None) -> Ap
     for name, expr in ir.properties.items():
         if name != 'Formulas':
             convert_formula(expr)
+            if name == 'StartScreen' and expr.raw.strip():
+                from .named_formulas import validate_value
+                try:
+                    validate_value(expr.raw, context='App.StartScreen', allow_volatile=True)
+                except lx.FxSyntaxError as exc:
+                    expr.js = None
+                    expr.translation_status = 'stubbed'
+                    expr.blocked_dependencies = [str(exc)]
+                    expr.fidelity_note = str(exc)
         elif ir.named_formula_error:
             expr.translation_status = 'stubbed'
             expr.blocked_dependencies = [ir.named_formula_error]

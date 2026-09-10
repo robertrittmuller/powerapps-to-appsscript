@@ -1479,6 +1479,36 @@ def modern_component_fixture_files() -> dict[str, str]:
         'Src/Combined.pa.yaml':json.dumps({'Screens':{'Home':home,'Other':{'Properties':{}}}})}
 
 
+def start_screen_fixture_files(directory=False):
+    import yaml
+    def control(name,kind,props):
+        return {name:{'Control':kind,'Properties':{key:'='+str(value) for key,value in props.items()}}}
+    screens={}
+    for name in ['Home','Details','Recovery']:
+        children=[control(name+'Status','Label',{'X':20,'Y':20,'Width':500,'Height':44,'Text':'entered & " / " & ready'}),
+            control(name+'Navigate','Button',{'X':20,'Y':90,'Width':200,'Height':44,'Text':'"'+('Open details' if name=='Home' else 'Go home')+'"',
+                'OnSelect':'Navigate('+('Details' if name=='Home' else 'Home')+')'})]
+        if not directory:
+            children.append(control(name+'Toggle','Button',{'X':20,'Y':150,'Width':250,'Height':44,'Text':'"Toggle stored route"',
+                'OnSelect':'Patch(Routes, First(Routes), {Enabled: Not(First(Routes).Enabled)})'}))
+            children.append(control(name+'Route','Label',{'X':20,'Y':210,'Width':500,'Height':44,'Text':'"Next launch: " & Destination'}))
+        screens[name]={'Properties':{'OnVisible':'=Set(entered, "'+name+'")'},'Children':children}
+    props={'OnStart':'=Set(ready, true); Set(entered, "")'}
+    if directory:
+        props.update(Formulas='=Profile = Office365Users.MyProfileV2();',
+            StartScreen='=IfError(If(Profile.id = "user-a", Details, Home), Recovery)')
+        sources=[{'Name':'Office365Users','Type':'ServiceInfo'}]
+    else:
+        props.update(Formulas='=Destination = If(Param("screen") = "home", Home, If(First(Routes).Enabled, Details, Home));',
+            StartScreen='=If(User().Email = "business.tester@example.test", Destination, Home)')
+        sources=[{'Name':'Routes','Type':'StaticDataSourceInfo',
+            'Fields':[{'name':'ID','type':'text'},{'name':'Enabled','type':'boolean'}],
+            'SampleData':[{'ID':'route','Enabled':True}]}]
+    return {'Src/App.pa.yaml':yaml.safe_dump({'App':{'Properties':props}},sort_keys=False),
+        'Src/Screens.pa.yaml':yaml.safe_dump({'Screens':screens},sort_keys=False),
+        'References/DataSources.json':json.dumps({'DataSources':sources})}
+
+
 def svg_text_fixture_files():
     import yaml
     def quote(value):
@@ -1716,6 +1746,8 @@ def build_fixtures() -> None:
     _write_msapp(FIXTURE_DIR / 'fixtureDependentLayout.msapp', dependent_layout_fixture_files())
     _write_msapp(FIXTURE_DIR / 'fixtureBareInputs.msapp', bare_inputs_fixture_files())
     _write_msapp(FIXTURE_DIR / 'fixtureSvgText.msapp', svg_text_fixture_files())
+    _write_msapp(FIXTURE_DIR / 'fixtureStartScreen.msapp', start_screen_fixture_files())
+    _write_msapp(FIXTURE_DIR / 'fixtureStartDirectory.msapp', start_screen_fixture_files(True))
     _write_msapp(FIXTURE_DIR / 'fixtureScaledNativeLayout.msapp', native_layout_fixture_files(True))
     _write_msapp(FIXTURE_DIR / 'fixtureModernComponents.msapp', modern_component_fixture_files())
     _write_msapp(FIXTURE_DIR / 'fixtureNamedFormulas.msapp', named_formula_fixture_files())
