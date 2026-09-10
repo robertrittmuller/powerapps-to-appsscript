@@ -28,6 +28,14 @@ journey covers search, profile/photo selection and persisted task assignment
 using explicit native API response fixtures. Live directory permissions and
 photo visibility remain deployment checks.
 
+Dataverse user/team-owned rows now default to the migrated Google caller when
+the source formula omits Owner. Import the source Users records with their
+original keys and Google emails in `internalemailaddress`; this is separate
+from the Office365Users directory mapping. Explicit user/team assignments are
+retained and Owning User/Team follows the owner. Missing or ambiguous identities
+fail before writing. Ownership is stored record data; Dataverse security roles,
+business units, audit timestamps and other defaults remain separate gaps.
+
 MicrosoftTeams team/channel selectors and notifications now use native Google
 Chat. `ChatMigration.gs` and `chat-migration.md` map original IDs to named Google
 spaces, with an anchor space representing each logical team. The accessing user
@@ -198,6 +206,12 @@ reposting. Google API responses are fixtures; this is partial workflow evidence.
 The browser gate waits for dispatched server calls and includes errors that
 arrive during capture before assigning a verdict.
 Ratings, attachments, manager workflows and complete app usability remain unassessed.
+`./pfx2gas browser scripts/assess_milestones_workflow.py` verifies original
+Milestones onboarding and persisted settings across two simulated Google users.
+All 19 checks pass. Its `--project` probe reaches project/member creation through
+native Google People fixtures, but fails because all milestone names come from
+the first edited row; dates are blank and colors use fallback gray. This remains
+a failed workflow, with source/data hashes and records in `.artifacts/browser/`.
 The normal `./pfx2gas soak` enforces the existing
 required regression corpus, including failed required journeys and missing apps.
 It currently fails Editable Grid because its choice formulas reference the

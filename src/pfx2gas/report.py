@@ -83,7 +83,9 @@ def _data_table(ir: AppIR) -> str:
                      "choices, keys, relationships and views. Exported one-to-many lookups and many-to-many links are supported; "
                      "many-to-many links persist in `__pfx2gas_links`. Relate/Unrelate refreshes the first source and uses idempotent retries. "
                      "Unmatched Unrelate is a no-op; alternate-key relationships and cascade deletes require adapters. "
-                     "Lookup fields are stored snapshots. Source defaults, calculated fields, "
+                     "Lookup fields are stored snapshots. User/team ownership defaults to the migrated Google caller; "
+                     "explicit owner assignment updates Owning User/Team. The data contract records this adapter and its limits. "
+                     "Business-unit ownership, audit/status defaults, calculated fields, "
                      "Dataverse permissions and implicit localized choice-to-text coercion still require adapters.")
     return "\n".join(lines)
 

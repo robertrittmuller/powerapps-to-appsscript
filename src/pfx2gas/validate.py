@@ -69,6 +69,7 @@ def validate_project(out_dir: str | Path) -> dict:
     # Guard the whole class of source-schema / stored-column drift. Valid JS
     # cannot prove that aliases, primary keys or non-table kinds survived.
     contract_path = out / "data-contract.json"
+    expected_ownership = None
     if contract_path.exists():
         try:
             from .ir import AppIR, DataSource
@@ -78,6 +79,9 @@ def validate_project(out_dir: str | Path) -> dict:
                 raise ValueError("unsupported contract shape")
             sources = [DataSource.model_validate(ds) for ds in contract["sources"]]
             expected = data_contracts(AppIR(name="validation", data_sources=sources))
+            expected_ownership = {name:spec['ownership'] for name,spec in expected.items() if 'ownership' in spec}
+            if contract.get('dataverseOwnership', {}) != expected_ownership:
+                raise ValueError('ownership adapter differs from exported source contract')
             declaration = re.search(r"var DATA_CONTRACTS = (.*?);\n", gs)
             if not declaration or json.loads(declaration.group(1)) != expected:
                 raise ValueError("Code.gs contract differs from exported source contract")
@@ -95,6 +99,8 @@ def validate_project(out_dir: str | Path) -> dict:
     if ledger_path.exists():
         try:
             ledger = json.loads(ledger_path.read_text())
+            if expected_ownership is not None and ledger.get('dataverseOwnership', {}) != expected_ownership:
+                raise ValueError('ownership adapter differs from exported source contract')
             rows = ledger.get("formulas", [])
             if not isinstance(rows, list):
                 raise ValueError("formulas must be a list")

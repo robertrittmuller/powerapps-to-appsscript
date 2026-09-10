@@ -8,12 +8,39 @@ is missing. Empty successful responses cannot stand in for an unmigrated service
 
 | Source capability | Google target | Contract |
 |---|---|---|
-| Dataverse/SharePoint structured records | Google Sheets and Apps Script | Existing typed storage, source keys, relationships and migration ledger. |
+| Dataverse/SharePoint structured records | Google Sheets and Apps Script | Typed storage, source keys, relationships and migration ledger. Dataverse user/team ownership defaults to the migrated Google caller; explicit assignment updates derived owner columns. This does not reproduce source security privileges. |
 | Planner shared plans, buckets and assigned tasks | Google Sheets and Apps Script task-board adapter | Implemented for eight operations below. Explicit Google-user mapping and plan/task migration are required. Generated-server and Chromium tests preserve IDs, membership checks, buckets, assignments, progress, dates and description writes. |
 | Personal task lists and tasks that fit the native API | Google Tasks | Candidate native adapter; shared assignments, bucket semantics and due-time fidelity must not be claimed. |
 | Teams team/channel selectors and notifications | Native Google Chat | Implemented four operations with explicit source-ID/space mappings, native membership checks and deterministic HTML-to-Markdown translation. Generated-server, Chromium and unchanged Employee Ideas notification tests use native API fixtures; live delivery remains unverified. |
 | Office365Users/Microsoft365Users search, profiles and photos | Native Google People domain directory plus migrated user mapping | Implemented SearchUser, UserProfileV2 and UserPhotoV2. Generated-server and Chromium assignment tests use explicit native API fixtures; live domain access remains unverified. |
 | Files and attachments | Google Drive | Candidate storage and access adapter with upload/download evidence. |
+
+## Dataverse ownership and Google callers
+
+For native `ownerid` fields exported as Owner, generated create operations resolve
+the active Google email against exactly one migrated Dataverse Users record.
+Original user keys remain the stored identity. Explicit user/team owners must
+resolve to migrated records; assignments update Owning User/Team and the exported
+owner name/type. Ordinary edits retain ownership. Read-only derived owner columns
+cannot independently change it. Validation, identity and write failures occur
+before a partial row write. Both the ledger and data contract retain this adapter;
+validation rejects silently dropped ownership metadata.
+
+The Dataverse Users table uses its own source key and `internalemailaddress`
+mapping. Office365Users' Microsoft-directory IDs can differ from Dataverse user
+IDs, so its private Google People mapping remains separate. Import Users before
+creating owned business records. The adapter stores key/name/email snapshots;
+source security roles, assignment privileges, cascading ownership, business units,
+audit timestamps and status defaults remain unimplemented. Workbook permissions
+and the generated API do not reproduce Dataverse row security.
+
+The unchanged Milestones app previously created ownerless settings, missed them
+in its My Project User Setting view and repeated onboarding after every reload.
+It now passes 19 checks covering first-run dismissal, reload, a second simulated
+Google user and return to the first user, with separate persisted settings and
+zero runtime errors. Project creation remains a failed probe because editable
+milestone row values are not yet preserved correctly.
+See Microsoft's [default record ownership contract](https://learn.microsoft.com/en-us/dotnet/api/microsoft.xrm.sdk.iorganizationservice.create?view=dataverse-sdk-latest).
 
 ## Planner implementation scope
 
