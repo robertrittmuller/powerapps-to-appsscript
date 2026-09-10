@@ -11,7 +11,7 @@
   var state = {};
   var screenContexts = Object.create(null);
   var evaluators = [];   // { fn, apply } — re-run on state change
-  var cardLayouts = [], cardGeometry = {}, galleryLayouts = [];
+  var cardLayouts = [], cardGeometry = {}, galleryLayouts = [], styleLayouts = [];
   var handlers = {};     // controlName -> { event: fn }
   var controlValues = {}; // control name -> evaluated properties used by dependents
   var buttonIcons = Object.create(null);
@@ -263,6 +263,18 @@
           }
         } catch (err) { console.error('binding error', err); }
       });
+      // Source geometry can reference a later sibling. A resize must settle
+      // that dependency chain before rows are laid out, without replaying
+      // input defaults, OnChange behaviors or asynchronous data evaluators.
+      var stylesChanged, stylePass = 0;
+      do {
+        stylesChanged = false;
+        styleLayouts.forEach(function (layout) {
+          try { stylesChanged = layout.apply() || stylesChanged; }
+          catch (error) { console.error('style layout error', error); }
+        });
+      } while (stylesChanged && ++stylePass < 32);
+      if (stylesChanged) console.error('style layout did not settle after 32 passes');
       galleryLayouts.forEach(function (layout) {
         try { layout(); } catch (error) { console.error('gallery layout error', error); }
       });
@@ -850,7 +862,7 @@
   }
 
   function styleControl(name, cssProp, valueFn, unit, parentName) {
-    evaluators.push({
+    var evaluator = {
       apply: function () {
         var el = controlElement(name);
         if (!el) return;
@@ -862,13 +874,30 @@
         try { v = valueFn(); } catch (e) { return; }
         finally { global.selfRef = previousSelf; global.parentRef = previousParent; }
         if (v === null || v === undefined || (v === '' && cssProp !== 'display')) return;
-        if ((unit === 'px' || unit === 'pt') && /^\d+(\.\d+)?$/.test(String(v))) {
-          v = String(v) + unit;
+        if ((unit === 'px' || unit === 'pt') && /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i.test(String(v)) && Number.isFinite(Number(v))) {
+          v = String(Number(v)) + unit;
         }
         else if (unit === 'lower') v = String(v).toLowerCase();
+        var previous = el.style[cssProp];
         el.style[cssProp] = String(v);
+        var changed = el.style[cssProp] !== previous;
+        var key = {left:'x',top:'y',width:'width',height:'height',display:'visible'}[cssProp];
+        var cached = controlValues[name];
+        if (key && cached && Object.prototype.hasOwnProperty.call(cached,key)) {
+          // Referenced geometry also has a source-property cache. Keep that
+          // cache in step with the committed style so later siblings do not
+          // keep reading a previous pass's position or dimensions.
+          var actual = key === 'visible' ? el.style.display !== 'none' : parseFloat(el.style[cssProp]);
+          if (typeof actual === 'boolean' || Number.isFinite(actual)) {
+            changed = cached[key] !== actual || changed;
+            cached[key] = actual;
+          }
+        }
+        return changed;
       },
-    });
+    };
+    evaluators.push(evaluator);
+    styleLayouts.push(evaluator);
   }
 
   function attrControl(name, attr, valueFn, parentName) {
@@ -1052,6 +1081,8 @@
         var value = propertyFns[key](read, read(name), read(parentName));
         if (key === 'mode') {
           el = inputMode(el, value);
+        } else if (key === 'multiple') {
+          el.multiple = !!value;
         } else if (key === 'text') {
           setControlText(el,value);
         } else if (key === 'buttonIcon' || key === 'buttonLayout' || key === 'buttonRotation') {

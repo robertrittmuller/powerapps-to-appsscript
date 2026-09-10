@@ -21,6 +21,29 @@ require('../../static/fx-stdlib.js');
 require('../../static/gas-runtime.js');
 const RT = global.FXRuntime;
 
+test('reverse style dependencies settle without replaying ordinary evaluators, and cycles fail visibly', () => {
+  const vm=require('node:vm'),fs=require('node:fs'),errors=[];
+  const elements=Array.from({length:12},()=>({tagName:'DIV',style:{left:'0px',top:'0px',width:'10px',height:'20px'},getAttribute:()=>null}));
+  const document={...global.document,querySelector:selector=>elements[Number((selector.match(/C(\d+)/)||[])[1])]||null};
+  const ctx=vm.createContext({document,console:{error:(...args)=>errors.push(args.join(' '))}});ctx.window=ctx;
+  vm.runInContext(fs.readFileSync(require.resolve('../../static/gas-runtime.js'),'utf8'),ctx);
+  let anchor=20,ordinaryCalls=0;
+  ctx.FXRuntime.registerControlProps('C5',null,{y:()=>ctx.val('C6').y+24});
+  ctx.FXRuntime.addEvaluator(()=>{ordinaryCalls++;});
+  for(let i=0;i<11;i++) ctx.FXRuntime.styleControl('C'+i,'top',()=>ctx.val('C'+(i+1)).y+24,'px');
+  ctx.FXRuntime.styleControl('C11','top',()=>anchor,'px');
+  ordinaryCalls=0;ctx.FXRuntime.updateBindings();
+  assert.equal(elements[0].style.top,'284px');assert.equal(ordinaryCalls,1);
+  anchor=100;ordinaryCalls=0;ctx.FXRuntime.updateBindings();
+  assert.equal(elements[0].style.top,'364px');assert.equal(ordinaryCalls,1);
+  ctx.FXRuntime.styleControl('C11','left',()=>-30.5,'px');
+  ctx.FXRuntime.updateBindings();assert.equal(elements[11].style.left,'-30.5px');
+  assert.deepEqual(errors,[]);
+  ctx.FXRuntime.styleControl('C11','width',()=>ctx.val('C11').width+1,'px');
+  ctx.FXRuntime.updateBindings();
+  assert.ok(errors.some(message=>message.includes('style layout did not settle after 32 passes')));
+});
+
 test('button presentation preserves source text and exposes unsupported values with recovery', () => {
   const vm=require('node:vm'),fs=require('node:fs'),errors=[];
   function element() {

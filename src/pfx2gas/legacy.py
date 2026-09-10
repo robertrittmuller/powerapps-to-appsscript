@@ -363,6 +363,12 @@ def convert_legacy_msapp(msapp_path: str | Path) -> dict:
         screen_index: list[tuple[int, str]] = []
         component_defs = _component_definitions(zf, names)
         primary_outputs = _primary_outputs(zf, names)
+        from .template_defaults import selection_defaults, restore_native_selection
+        selection=selection_defaults({name:zf.read(name).decode('utf-8-sig') for name in names
+                                      if name.lower().replace('\\','/')=='references/templates.json'})
+        recovered_selection=[]
+        for definition in component_defs.values():
+            restore_native_selection(definition['root'],selection,recovered_selection,'component',definition['name'])
         for n in control_files:
             try:
                 doc = json.loads(zf.read(n))
@@ -373,6 +379,7 @@ def convert_legacy_msapp(msapp_path: str | Path) -> dict:
                 continue
             template = str(top.get("Template", {}).get("Name", "")).lower()
             name = str(top.get("Name", "Screen"))
+            restore_native_selection(top,selection,recovered_selection,'screen',name)
             if template in {"appinfo", "app"}:
                 props = _rules_to_properties(top.get("Rules"))
                 if props:
@@ -396,4 +403,5 @@ def convert_legacy_msapp(msapp_path: str | Path) -> dict:
         "data_sources": data_sources,
         "screen_order": screen_order,
         "warnings": ["legacy binary-JSON .msapp converted via legacy adapter"],
+        "source_metadata": {"nativeSelectionDefaults":recovered_selection} if recovered_selection else {},
     }

@@ -245,6 +245,21 @@ All 116 checks now pass: five settings remain active after reload, and the
 work-item lifecycle retains the selected status/category/priority identities.
 Select-all and deselect-all change the loaded row and update the source's
 assertive live announcement text.
+The converter now restores omitted `SelectMultiple` booleans from the exact
+control template version carried in the export. Authored YAML, native rules and
+dynamic overrides retain precedence; template sample data and actions are not
+imported. Standalone and gallery selectors update dependent formulas, accessible
+labels and enabled states, including controls with no authored OnChange action.
+Responsive styles settle dependent sibling positions before gallery layout;
+negative source coordinates retain their CSS units. This prevents stale columns,
+overlapping selection controls and displaced dialogs after resizing.
+Adding `--filters` passes 260 checks through two persisted work items: matching
+and empty searches, multiple milestones, combined status/category/priority/Google
+assignee filters, clearing criteria, reopening the filtered record, and deleting
+only the selected item. Actual keyboard selection/apply and dialog geometry pass
+at 1440×900, 1000×700 and 520×700; the source's fixed-size controls can require
+scrolling. All checks use the generated server and explicit Google API fixtures,
+with zero runtime errors. Native searchable ComboBox popups remain unsupported.
 The unchanged Save formula omits status Sequence; reload follows the exported
 Active view's name ordering. Arbitrary completion-status positioning and
 tenant-side sequence population remain unverified.

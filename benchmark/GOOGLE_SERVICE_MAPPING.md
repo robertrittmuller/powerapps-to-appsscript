@@ -50,6 +50,13 @@ The deeper `--settings` probe passes 116 checks through original category/priori
 status creation, active-view reload and the work-item lifecycle with those linked
 settings, including select-all/deselect-all and source live announcement text.
 New rows retain the exported active state and default status reason.
+The expanded `--filters` journey passes 260 checks with two persisted work items,
+including milestone/status intersections, category/priority and migrated Google
+assignee filters, empty search results, resets, filtered reopening and targeted
+deletion. Keyboard multi-selection and dialog containment pass at three viewport
+sizes. The original SelectMultiple template defaults are now retained, and
+responsive dependent positions settle correctly after resizing. These remain
+generated-server/People-fixture results, with complete app usability unassessed.
 The source Save formula omits status Sequence, so reload retains the Active view's
 name ordering; the test does not invent sequence values to preserve entry order.
 Arbitrary completion-status positioning, tenant-side sequence population,

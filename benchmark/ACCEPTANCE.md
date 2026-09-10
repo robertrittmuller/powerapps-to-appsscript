@@ -52,3 +52,13 @@ feedback are recorded in the result. Run `./pfx2gas browser
 scripts/assess_public_workflows.py` to reproduce it. The identity-free soak
 simulator remains a separate unmigrated baseline. The other nine target apps
 still require complete critical-workflow and UI evidence.
+
+Milestones has expanded partial evidence: `./pfx2gas browser
+scripts/assess_milestones_workflow.py --filters` passes 260 checks through project,
+milestone and settings creation, assigned work-item create/edit/reload, search,
+combined filters, filtered reopening and targeted deletion. Keyboard filter
+controls and dialog containment are checked at three viewport sizes. The result
+retains its source and assessment-script hashes, source-default provenance,
+Google migration fixtures and screenshots. Complete app usability remains
+unassessed; searchable native selectors, broader task variants and source column
+clipping are still open. This does not increase the complete-app count.

@@ -696,6 +696,61 @@ def check_button_icons(page, _backend):
     expect(symbol(rows.nth(1))).to_have_attribute('data-fx-glyph',glyphs[1])
 
 
+def check_selection_defaults(page, _backend):
+    picker,single,dynamic=(control(page,name) for name in ['Picker','Single','Dynamic'])
+    expect(picker).to_have_attribute('multiple','')
+    expect(picker).to_have_accessible_name('Choose roles')
+    expect(picker.locator('option:checked')).to_have_count(0)
+    expect(single).not_to_have_attribute('multiple','')
+    expect(single.locator('option:checked')).to_have_text(['Gamma'])
+    expect(dynamic).not_to_have_attribute('multiple','')
+    picker.focus();picker.press('Home');picker.press('Shift+ArrowDown')
+    expect(picker.locator('option:checked')).to_have_text(['Alpha','Beta'])
+    expect(control(page,'Selection')).to_have_text('2/Alpha|Beta')
+    # There is no authored OnChange handler; formula dependents must still update.
+    control(page,'Toggle').click()
+    expect(picker).to_have_accessible_name('Choose teams');expect(picker).to_be_disabled()
+    expect(dynamic).to_have_attribute('multiple','')
+    dynamic.select_option(label=['Alpha','Gamma'])
+    expect(dynamic.locator('option:checked')).to_have_text(['Alpha','Gamma'])
+    control(page,'Toggle').click();expect(picker).to_be_enabled()
+    expect(dynamic).not_to_have_attribute('multiple','')
+    expect(dynamic.locator('option:checked')).to_have_count(1)
+    expect(control(page,'Selection')).to_have_text('2/Alpha|Beta')
+    control(page,'ResetPicker').click();expect(picker.locator('option:checked')).to_have_count(0)
+    expect(control(page,'Selection')).to_have_text('0/')
+    row_pickers=control(page,'RowPicker')
+    expect(row_pickers.nth(0)).to_have_accessible_name('Choose for First')
+    expect(row_pickers.nth(1)).to_have_accessible_name('Choose for Second')
+    row_pickers.nth(1).select_option(label=['Beta','Gamma'])
+    expect(control(page,'RowCount')).to_have_text(['0','2'])
+    control(page,'ResetRow').nth(0).click();expect(control(page,'RowCount')).to_have_text(['0','2'])
+    control(page,'ResetRow').nth(1).click();expect(control(page,'RowCount')).to_have_text(['0','0'])
+    page.reload();expect(picker.locator('option:checked')).to_have_count(0)
+    expect(single.locator('option:checked')).to_have_text(['Gamma'])
+
+
+def check_dependent_layout(page, _backend):
+    draft=control(page,'RowDraft').nth(1)
+    draft.fill('Keep this edit through resizing')
+    for width,height in [(1440,900),(600,700),(1000,700),(520,700),(1440,900)]:
+        page.set_viewport_size({'width':width,'height':height})
+        anchor=80 if width<800 else 20
+        expect(control(page,'Centered')).to_have_css('left',str((width-550)//2)+'px')
+        expect(control(page,'Header')).to_have_css('top',str(anchor+240)+'px')
+        expect(control(page,'Rows')).to_have_css('top',str(anchor+276)+'px')
+        for index in range(6):
+            expect(control(page,'Link'+str(index))).to_have_css('top',str(anchor+(5-index)*40)+'px')
+        expect(draft).to_have_value('Keep this edit through resizing')
+        control(page,'SelectAll').check()
+        expect(control(page,'SelectRow').nth(0)).to_be_checked()
+        expect(control(page,'SelectRow').nth(1)).to_be_checked()
+        control(page,'SelectAll').uncheck()
+        expect(control(page,'SelectRow').nth(0)).not_to_be_checked()
+        expect(control(page,'SelectRow').nth(1)).not_to_be_checked()
+    page.reload();expect(draft).to_have_value('Second')
+
+
 def check_flexible_gallery(page, _backend):
     cards=control(page,'Cards');rows=cards.locator(':scope > .fx-rows > .fx-row')
     nested=lambda i:rows.nth(i).locator('[data-control="Entries"]')
@@ -1553,6 +1608,9 @@ def main():
     cases.append(('button-icons',REPO/'tests/fixtures/fixtureButtonIcons.msapp',check_button_icons))
     cases.append(('flexible-gallery',REPO/'tests/fixtures/fixtureFlexibleGallery.msapp',check_flexible_gallery))
     cases.append(('scaled-flexible-gallery',REPO/'tests/fixtures/fixtureScaledFlexibleGallery.msapp',check_flexible_gallery))
+    cases.append(('selection-defaults',REPO/'tests/fixtures/fixtureSelectionDefaults.msapp',check_selection_defaults))
+    cases.append(('modern-selection-defaults',REPO/'tests/fixtures/fixtureModernSelectionDefaults.msapp',check_selection_defaults))
+    cases.append(('dependent-layout',REPO/'tests/fixtures/fixtureDependentLayout.msapp',check_dependent_layout))
     cases.append(('native-layout',REPO/'tests/fixtures/fixtureNativeLayout.msapp',check_native_layout))
     cases.append(('scaled-native-layout',REPO/'tests/fixtures/fixtureScaledNativeLayout.msapp',check_native_layout))
     cases.append(('many-to-many-relationships', REPO / 'tests/fixtures/fixtureRelationships.msapp', check_relationships))

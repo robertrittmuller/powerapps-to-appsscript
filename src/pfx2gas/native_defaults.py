@@ -1,4 +1,4 @@
-"""Recover omitted modern layout formulas from the same export's native controls.
+"""Recover omitted modern defaults from the same export's native controls.
 
 YAML remains authoritative. Only an existing control in the corresponding
 screen/component is supplemented; native actions, resources and control trees
@@ -19,6 +19,12 @@ LAYOUT_PROPERTIES = {
 
 def restore_layout_defaults(app, entries):
     from .unpack import UnpackError
+    from .template_defaults import selection_defaults
+
+    try:
+        selection=selection_defaults(entries)
+    except ValueError as error:
+        raise UnpackError(str(error)) from error
 
     sources = {}
     for filename, text in entries.items():
@@ -40,6 +46,7 @@ def restore_layout_defaults(app, entries):
         sources[key] = (filename,root)
 
     recovered = []
+    recovered_selection = []
     def restore(kind, name, modern):
         pair = sources.get((kind,name.casefold()))
         if not pair or not isinstance(modern,dict):
@@ -72,10 +79,18 @@ def restore_layout_defaults(app, entries):
                     for rule,origin in rules:
                         if not isinstance(rule,dict): continue
                         prop,script = rule.get('Property'),rule.get('InvariantScript')
-                        if prop not in LAYOUT_PROPERTIES or not isinstance(script,str) or not script.strip(): continue
+                        if prop not in LAYOUT_PROPERTIES | {'SelectMultiple'}: continue
+                        if not isinstance(script,str):
+                            if prop=='SelectMultiple':
+                                raise UnpackError('invalid native selection property: ' + str(control_name))
+                            continue
+                        if not script.strip() and prop!='SelectMultiple': continue
                         if prop in defaults and defaults[prop][0] != script:
                             raise UnpackError('conflicting native layout property: ' + str(control_name) + '.' + prop)
                         defaults[prop] = (script,origin)
+                    factory=selection.get((template.get('Name'),template.get('Version')))
+                    if factory and 'SelectMultiple' not in defaults:
+                        defaults['SelectMultiple']=(factory['value'],'Template.defaultValue')
                     props = node.setdefault('Properties',{})
                     if props is None:
                         props = node['Properties'] = {}
@@ -85,8 +100,14 @@ def restore_layout_defaults(app, entries):
                     for prop,(script,origin) in defaults.items():
                         if prop.casefold() in declared: continue
                         props[prop] = script if script.startswith('=') else '=' + script
-                        recovered.append({'scope':kind,'root':name,'control':control_name,
-                                          'property':prop,'archiveEntry':filename,'nativeField':origin})
+                        evidence={'scope':kind,'root':name,'control':control_name,
+                                  'property':prop,'archiveEntry':filename,'nativeField':origin}
+                        if prop=='SelectMultiple':
+                            if origin=='Template.defaultValue':
+                                evidence.update(templateName=template['Name'],templateVersion=template['Version'],**factory)
+                            recovered_selection.append(evidence)
+                        else:
+                            recovered.append(evidence)
             for child in node.get('Children') or []:
                 if isinstance(child,dict):
                     for child_name,child_node in child.items(): visit(child_name,child_node)
@@ -99,3 +120,5 @@ def restore_layout_defaults(app, entries):
         restore('component',name,definition)
     if recovered:
         app.source_metadata['nativeLayoutDefaults'] = recovered
+    if recovered_selection:
+        app.source_metadata['nativeSelectionDefaults'] = recovered_selection

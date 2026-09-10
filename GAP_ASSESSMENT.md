@@ -397,16 +397,44 @@ remain open.
 
 ## Current evidence and its limits
 
+The selection-default slice restores only the exported template's boolean
+`SelectMultiple`, matched by name and version, for both native and modern apps.
+Explicit rules and dynamic properties win, including blank formulas; provenance
+is retained under `nativeSelectionDefaults`. Authoring sample records and actions
+are excluded. Selector multiplicity, accessible labels and enabled states update
+reactively, and a selection refreshes dependent formulas without requiring an
+authored OnChange. Native select appearance, searchable ComboBox popups and the
+source's last-selected-record ordering remain separate gaps.
+
+The Milestones resize probe also exposed stale sibling geometry and lost negative
+CSS coordinates. Style-only passes now settle dependent geometry and its cached
+source properties before rows are laid out; these passes do not replay input
+defaults, app actions or asynchronous data evaluators. A 32-pass limit surfaces
+non-settling styles as a runtime error. A reversed-dependency Chromium fixture
+checks five viewport transitions, negative centering, retained drafts and
+unobstructed select-all/deselect-all controls.
+
+The unchanged Milestones `--filters` journey now passes 260 checks with zero
+runtime errors. It includes the settings/project/work-item lifecycle, a second
+persisted item with different milestone/status links, matching and empty search,
+OR within multiple milestones, AND across status/category/priority/assignee
+criteria, clearing every selector, reopening a filtered item, and deleting only
+the selected item. Actual keyboard selection/apply and dialog containment pass
+at 1440×900, 1000×700 and 520×700, followed by an unobstructed desktop select-all
+and deselect-all sequence. The generated Code.gs uses a Sheets test double and
+explicit Google People response fixtures. This expands workflow/UI evidence;
+complete Milestones usability and live Google access remain unassessed.
+
 | Evidence | Latest result | What remains unproven |
 |---|---|---|
-| Unit/runtime tests | 554 Python pass, 3 skip; 109 JS pass; bare globals, FX, FXRuntime and FX.collections emitter/runtime consistency passes | Complete deployed workflows and broader control semantics |
+| Unit/runtime tests | 564 Python pass, 3 skip; 110 JS pass; bare globals, FX, FXRuntime and FX.collections emitter/runtime consistency passes | Complete deployed workflows and broader control semantics |
 | Current real-app soak | 5/5 valid code and generated-server initialization; 3/5 Bootable; 3,286 formulas | Editable Grid requests unexported Student Tracker choices; expanded navigation requires directory migration. Usability unassessed; five historical local exports are absent |
 | Current regression translation/wiring | 3,281 translated; 2,385 emitted, 251 approximated, 650 ignored/unsupported | The census includes modern component, button and native layout formulas. Translation does not establish runtime behavior |
 | Historical ten-app corpus | Previously 10/10 Bootable; 23,746 formulas | Not reproduced in this workspace; those results did not establish usability |
 | HelpDesk generated-app journeys | HOME → NEW → HOME; dashboard row text, logo URI, pie and legend output pass | All-screen interactions, image decoding/layout in CI, persistence |
 | HelpDesk @14 live browser | Ticket cards, decoded 64×64 logos, pie/bar/legend SVGs, readable fonts/labels, HOME → NEW → HOME | Same-state original comparison, user name/avatar, complete workflow coverage |
 | Chromium: business form | Actual generated client + Code.gs: edit/create, required validation, write failure, delete and page reload pass against a persistent Sheets test double | Real Google authorization/Sheets writes and another user/session |
-| Chromium regression suite | 34/34 fixtures pass, including button icons/layout/accessibility and flexible/scaled gallery sizing; recovered native layout formulas and container dimensions; independent modern components and named formulas; checkbox transitions, keyboard input and persisted row updates; Dataverse state/status defaults and reload; nested galleries and responsive geometry; Fluent dates across DST; native Google Chat/directory, imported Planner tasks, persisted relationships and saved views. Three intentional failure gates preserve failed verdicts | Real Google services, remaining real-app critical workflows and broader UI usability; HelpDesk is absent here. Original visual comparisons belong to the separate High fidelity grade |
+| Chromium regression suite | 37/37 fixtures pass, including native/modern selection defaults, keyboard multi-selection, row-specific resets, dynamic enabled states and labels; reversed geometry dependencies and negative positions across resizes; button icons/layout/accessibility and flexible/scaled gallery sizing; native layout and container dimensions; components and named formulas; checkbox transitions and persisted row updates; Dataverse defaults and reload; nested galleries; Fluent dates; native Google Chat/directory, imported Planner tasks, relationships and saved views. Three intentional failure gates preserve failed verdicts | Real Google services, remaining real-app critical workflows and broader UI usability; HelpDesk is absent here. Original visual comparisons belong to the separate High fidelity grade |
 | Expandable Navigation critical workflow/UI | 75/75 checks pass with generated code/server validation and zero runtime errors. Every source destination and Home return, keyboard expansion/collapse, menu geometry, glyphs/names, mapped profile/no-photo fallback, reload and Exit feedback are tested at 1440×900, 1000×700 and 520×700 | Source canvas minimum size causes scrolling in smaller windows. Native Google access and original visual comparison remain unverified; this does not repair the other nine acceptance apps or promote the identity-free soak result |
 | Planner to Google adapter | Eight operations use generated Code.gs and a reserved Sheets task-board store. Chromium lists plans/buckets/tasks, creates and assigns, writes descriptions, selects/updates, reloads and recovers from failed writes. Labels and geometry pass. Missing migration, unknown/unmapped identity, denied membership, invalid dates and oversized records fail explicitly | Native Tasks UI, Planner roles/audit metadata, ordering hints, categories, notifications, aliases/additional operations and complete real-app workflows. Workbook editors bypass API membership checks; live identity and storage access require deployment verification |
 | Office365Users/Microsoft365Users to Google | SearchUser, MyProfileV2, UserProfileV2 and UserPhotoV2 use native Google People with explicit source-ID/account mappings and manifest scopes. Chromium searches, selects profiles/photos, persists assignment and recovers from failures. The real navigation source displays its mapped current-user mail field | Native responses/images are authored fixtures. Live access/photo visibility, unsupported fields, exact search semantics and complete workflows remain unverified. Owner-delegated access is denied |
@@ -417,7 +445,7 @@ remain open.
 | Dataverse ownership | Exported Owner fields default to a migrated Google caller on create; explicit user/team assignments update derived ownership columns while ordinary edits retain ownership. Generated-server tests cover source keys/aliases, two users, team assignment, ambiguous/missing identities and failure without partial writes. Validation checks source/ledger ownership contracts | Ownership is record data; source row security, privileges, cascading assignment, business units, audit defaults and live Google execution remain open |
 | Dataverse state/status | Exported initial states, per-state default reasons and valid pairs execute in generated Code.gs. Custom numeric reasons, zero defaults, read-only flags, keyed upserts, invalid pairs and missing metadata have regression gates; Chromium activation/deactivation/reload passes | Custom transition rules, audit/other column defaults, existing-row backfill and live Dataverse/Google comparison remain open |
 | Gallery AllItems controls | Loaded records include their own current control values. Generated Node and Chromium tests cover distinct bulk edits, sorting, aliases, nested record scopes, awaited writes and reload. Data records remain unchanged and control values omit DOM nodes from JSON | Gallery loading remains eager; nested galleries and full control-object semantics need further work |
-| Milestones populated workflow | Expanded settings probe passes 116 checks with zero runtime errors: onboarding/project creation, category/priority/status setup and active-view reload, select-all/deselect-all announcements, work-item creation with Google assignee/milestone/settings links, edit/reload with retained IDs, confirmed deletion, complete reference tables and a measured 115-pixel milestone label | Arbitrary completion-status positioning, tenant sequence population, broader task variants, complete workflows, source column clipping and original UI comparison remain open |
+| Milestones populated workflow | Expanded filter probe passes 260 checks with zero runtime errors: onboarding/project/settings creation and reload; two persisted work items with Google assignee and distinct milestone/status links; edit/reopen, search, combined multi-select filters, resets and announcements; keyboard filter actions at three viewports and targeted deletion preserving the other item | Arbitrary completion-status positioning, tenant sequence population, broader task variants, complete app usability, source column clipping, native searchable selectors and original UI comparison remain open |
 | Exported seed data and sheet capacity | All exported rows are retained. Generated-server tests initialize 1,005 rows and 29 fields in static and external tables, append another record, initialize 30 choice columns and retain data on repeated setup. The Sheets double rejects ranges outside its current grid. The rebuilt CLI preserves every source seed count across Milestones' 18 tables | Exported snapshots do not replace tenant data migration. Existing workbooks are not backfilled, and large-workbook quotas/live Google capacity behavior need deployment evidence |
 | Microsoft generated-server initialization | Six exports: setup and reads across 124 tables and 302 choice fields pass in the Sheets test double | Tenant data migration, real Google writes, source defaults, calculations, relationships and permissions |
 | Microsoft business baseline | 6/6 convert and validate; 2/6 pass short startup (Employee Ideas, Inspection) | Migrated identities and Teams/Planner dependencies still fail prerequisites |

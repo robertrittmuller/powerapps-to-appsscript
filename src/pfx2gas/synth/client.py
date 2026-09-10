@@ -1064,7 +1064,8 @@ def _emit_gallery(lines: list[str], ctrl: ControlNode, parent_names: dict[str, s
             row_inputs.extend(_button_visual_properties(child))
             if child.type in {"Dropdown", "ComboBox", "ListBox"}:
                 display_property = "Value" if child.type == "Dropdown" and "Value" in child.properties else "DisplayFields"
-                row_inputs.extend([(display_property, "displayFields"), ("Items", "items"),
+                row_inputs.extend([('SelectMultiple','multiple'),('AccessibleLabel','ariaLabel'),('Tooltip','title'),
+                                   (display_property, "displayFields"), ("Items", "items"),
                                    ("DefaultSelectedItems", "default")])
             if child.type in {"TextInput", "TextArea", "Dropdown", "ComboBox", "ListBox",
                               "CheckBox", "DatePicker", "FluentDatePicker", "Slider"}:
@@ -1449,6 +1450,9 @@ def render_app_js(ir: AppIR) -> str:
                                       for expr in (items_expr, display_expr, default_selected, reset_expr))
                     fn_head = "async function () {" if needs_async else "function () {"
                     lines.append(f"  // {ctrl.name}.Items (options)")
+                    # Selection itself is reactive even when the source has no
+                    # OnChange behavior. Keep it independent of option/default updates.
+                    lines.append(f"  FXRuntime.inputControl({ctrl.name!r}, {parent_names.get(ctrl.name)!r}, {{}});")
                     lines.append("  FXRuntime.addEvaluator(" + fn_head)
                     lines.append(f'    var el = FXRuntime.controlElement({ctrl.name!r});')
                     lines.append("    if (!el || el.tagName !== 'SELECT') return;")
@@ -1476,6 +1480,12 @@ def render_app_js(ir: AppIR) -> str:
                     # records for Reset, reevaluate changed defaults, and preserve
                     # every selected record when option labels are refreshed.
                     lines.append(f"    FXRuntime.rowControl(document, {ctrl.name!r}, {parent_names.get(ctrl.name)!r}, {{")
+                    for prop,key in [('SelectMultiple','multiple'),('AccessibleLabel','ariaLabel'),
+                                     ('Tooltip','title'),('DisplayMode','disabled')]:
+                        expr=ctrl.properties.get(prop)
+                        if expr and expr.js and 'await ' not in expr.js:
+                            lines.append(f"      {key}: function () {{ return {expr.js}; }},")
+                            mark_emission(expr)
                     lines.append("      displayFields: function () { return displayFields; },")
                     lines.append("      items: function () { return rows; },")
                     if default_selected and default_selected.js:

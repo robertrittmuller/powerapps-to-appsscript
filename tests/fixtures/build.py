@@ -1479,6 +1479,28 @@ def modern_component_fixture_files() -> dict[str, str]:
         'Src/Combined.pa.yaml':json.dumps({'Screens':{'Home':home,'Other':{'Properties':{}}}})}
 
 
+def dependent_layout_fixture_files():
+    import yaml
+    def ctrl(name,kind,props,children=None):
+        node={'Control':kind,'Properties':{key:'='+str(value) for key,value in props.items()}}
+        if children: node['Children']=children
+        return {name:node}
+    children=[
+        ctrl('Centered','Rectangle',{'X':'(Parent.Width - Self.Width) / 2','Y':0,'Width':550,'Height':10}),
+        ctrl('SelectAll','CheckBox',{'X':20,'Y':'Header.Y - 2','Width':25,'Height':32,'Default':'false','OnCheck':'Set(chosen, true)','OnUncheck':'Set(chosen, false)'}),
+        ctrl('Rows','Gallery',{'X':20,'Y':'Header.Y + Header.Height + 4','Width':'Parent.Width - 40','Height':150,'TemplateSize':44,'TemplatePadding':0,'Items':'[{ID:1,Name:"First"},{ID:2,Name:"Second"}]'},[
+            ctrl('SelectRow','CheckBox',{'X':0,'Y':0,'Width':25,'Height':32,'Default':'chosen'}),
+            ctrl('RowDraft','TextInput',{'X':40,'Y':0,'Width':250,'Height':32,'Default':'ThisItem.Name'}),
+        ]),
+        ctrl('Header','Label',{'X':55,'Y':'Link0.Y + Link0.Height + 8','Width':250,'Height':32,'Text':'"Select all rows"'}),
+    ]
+    for index in range(6):
+        children.append(ctrl('Link'+str(index),'Label',{'X':20,'Y':('Link'+str(index+1)+'.Y + 40') if index<5 else 'If(App.Width < 800, 80, 20)',
+            'Width':200,'Height':32,'Text':'"Layout dependency '+str(index)+'"'}))
+    return {'Src/App.pa.yaml':yaml.safe_dump({'App':{'Properties':{'OnStart':'=Set(chosen, false)'}}},sort_keys=False),
+            'Src/Home.pa.yaml':yaml.safe_dump({'Screens':{'Home':{'Children':children}}},sort_keys=False)}
+
+
 def native_layout_fixture_files(scale_to_fit=False) -> dict[str,str]:
     def ctrl(name,kind,props=None,children=None,**extra):
         return {name:{'Control':kind,'Properties':props or {},'Children':children or [],**extra}}
@@ -1518,6 +1540,51 @@ def native_layout_fixture_files(scale_to_fit=False) -> dict[str,str]:
             'Src/Screens.pa.yaml':json.dumps({'Screens':{'Home':home,'Other':other},'ComponentDefinitions':{'Panel':panel}}),
             'Controls/Home.json':json.dumps({'TopParent':tree}),
             'Components/Panel.json':json.dumps({'TopParent':definition})}
+
+
+def selection_defaults_fixture_files(modern=False) -> dict[str,str]:
+    def control(name,kind,props,children=None):
+        return {'Name':name,'Template':{'Name':kind,'Version':'2.4.0' if kind=='combobox' else '1.0'},
+                'Rules':[{'Property':key,'InvariantScript':str(value)} for key,value in props.items()],
+                'Children':children or []}
+    choice='[{ID:1,Name:"Alpha"},{ID:2,Name:"Beta"},{ID:3,Name:"Gamma"}]'
+    children=[
+        control('Picker','combobox',{'X':20,'Y':60,'Width':350,'Height':96,'Items':choice,
+            'DisplayFields':'["Name"]','AccessibleLabel':'If(alternate,"Choose teams","Choose roles")',
+            'DisplayMode':'If(locked,DisplayMode.Disabled,DisplayMode.Edit)'}),
+        control('Selection','label',{'X':20,'Y':165,'Width':500,'Height':32,
+            'Text':'CountRows(Picker.SelectedItems)&"/"&Concat(Picker.SelectedItems,Name,"|")'}),
+        control('Single','combobox',{'X':400,'Y':60,'Width':300,'Height':40,'Items':choice,
+            'SelectMultiple':'false','DefaultSelectedItems':'Last('+choice+')','DisplayFields':'["Name"]'}),
+        control('Dynamic','combobox',{'X':400,'Y':120,'Width':300,'Height':96,'Items':choice,
+            'SelectMultiple':'allowMany','DefaultSelectedItems':'Table()','DisplayFields':'["Name"]',
+            'AccessibleLabel':'"Dynamic selection"'}),
+        control('Toggle','button',{'X':20,'Y':10,'Width':180,'Height':32,'Text':'"Toggle mode/labels"',
+            'OnSelect':'Set(allowMany,!allowMany);Set(alternate,!alternate);Set(locked,!locked)'}),
+        control('ResetPicker','button',{'X':220,'Y':10,'Width':160,'Height':32,'Text':'"Reset picker"','OnSelect':'Reset(Picker)'}),
+        control('Rows','gallery',{'X':20,'Y':260,'Width':700,'Height':320,'Items':'[{ID:1,Title:"First"},{ID:2,Title:"Second"}]',
+                    'TemplateSize':150,'TemplatePadding':0},[
+            control('RowPicker','combobox',{'X':0,'Y':0,'Width':300,'Height':96,'Items':choice,'DisplayFields':'["Name"]',
+                'AccessibleLabel':'"Choose for " & ThisItem.Title'}),
+            control('RowCount','label',{'X':320,'Y':0,'Width':100,'Height':32,'Text':'CountRows(RowPicker.SelectedItems)'}),
+            control('ResetRow','button',{'X':440,'Y':0,'Width':160,'Height':32,'Text':'"Reset row"','OnSelect':'Reset(RowPicker)'})]),
+    ]
+    home=control('Home','screen',{},children)
+    app=control('App','appinfo',{'OnStart':'Set(allowMany,false);Set(alternate,false);Set(locked,false)'})
+    template='<widget xmlns="http://openajax.org/metadata"><properties><property name="SelectMultiple" datatype="Boolean" defaultValue="true"/><property name="OnSelect" defaultValue="Exit()"/></properties></widget>'
+    files={'Properties.json':json.dumps({'Name':'SelectionDefaults'}),
+           'Controls/App.json':json.dumps({'TopParent':app}),
+           'Controls/Home.json':json.dumps({'TopParent':home}),
+           'References/Templates.json':json.dumps({'UsedTemplates':[{'Name':'combobox','Version':'2.4.0','Template':template}]})}
+    if modern:
+        def yaml_node(node):
+            kind={'combobox':'ComboBox','screen':'Screen','label':'Label','button':'Button','gallery':'Gallery'}[node['Template']['Name']]
+            return {'Control':kind+'@'+node['Template']['Version'],
+                    'Properties':{rule['Property']:'='+rule['InvariantScript'] for rule in node['Rules']},
+                    'Children':[{child['Name']:yaml_node(child)} for child in node['Children']]}
+        files['Src/App.pa.yaml']=json.dumps({'App':{'Properties':{'OnStart':'='+app['Rules'][0]['InvariantScript']}}})
+        files['Src/Home.pa.yaml']=json.dumps({'Screens':{'Home':yaml_node(home)}})
+    return files
 
 
 def flexible_gallery_fixture_files(scale_to_fit=False) -> dict[str,str]:
@@ -1588,9 +1655,12 @@ def button_icons_fixture_files() -> dict[str,str]:
 
 def build_fixtures() -> None:
     _write_msapp(FIXTURE_DIR / 'fixtureButtonIcons.msapp', button_icons_fixture_files())
+    _write_msapp(FIXTURE_DIR / 'fixtureSelectionDefaults.msapp', selection_defaults_fixture_files())
+    _write_msapp(FIXTURE_DIR / 'fixtureModernSelectionDefaults.msapp', selection_defaults_fixture_files(True))
     _write_msapp(FIXTURE_DIR / 'fixtureFlexibleGallery.msapp', flexible_gallery_fixture_files())
     _write_msapp(FIXTURE_DIR / 'fixtureScaledFlexibleGallery.msapp', flexible_gallery_fixture_files(True))
     _write_msapp(FIXTURE_DIR / 'fixtureNativeLayout.msapp', native_layout_fixture_files())
+    _write_msapp(FIXTURE_DIR / 'fixtureDependentLayout.msapp', dependent_layout_fixture_files())
     _write_msapp(FIXTURE_DIR / 'fixtureScaledNativeLayout.msapp', native_layout_fixture_files(True))
     _write_msapp(FIXTURE_DIR / 'fixtureModernComponents.msapp', modern_component_fixture_files())
     _write_msapp(FIXTURE_DIR / 'fixtureNamedFormulas.msapp', named_formula_fixture_files())

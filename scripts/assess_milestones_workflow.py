@@ -30,10 +30,11 @@ def seed(backend):
             'googlePeople':'explicit native API fixtures; no live Google authorization'}
 
 
-def main(project=False,workitem=False,settings=False):
+def main(project=False,workitem=False,settings=False,filters=False):
+    settings=settings or filters
     workitem=workitem or settings
     project=project or workitem
-    name=NAME+('-settings' if settings else '-workitem' if workitem else '-project' if project else '')
+    name=NAME+('-filters' if filters else '-settings' if settings else '-workitem' if workitem else '-project' if project else '')
     steps=[]
     def check(name,action):
         try:
@@ -360,16 +361,139 @@ def main(project=False,workitem=False,settings=False):
                     projects.locator('[data-control="btnProjects_Foreground"]').first.click()
                     check('edited-work-item-survives-reload',lambda:expect(title).to_have_text(['Confirm north entrance clearance']))
                     page.screenshot(path=str(OUT/name/'work-item-reloaded.png'),full_page=True)
+                    if filters:
+                        check('open-work-item-search',lambda:control(page,'imgSearchWorkItems').click())
+                        search=control(page,'txtFindWorkItems')
+                        check('search-field-visible',lambda:expect(search).to_be_visible())
+                        search.fill('north entrance')
+                        check('search-matches-persisted-work-item',lambda:expect(title).to_have_text(['Confirm north entrance clearance']))
+                        search.fill('not a matching work item')
+                        check('search-excludes-unmatched-work-item',lambda:expect(title).to_have_count(0))
+                        check('close-and-reset-work-item-search',lambda:control(page,'imgCloseSearchWorkItems').click())
+                        check('reset-search-restores-work-item',lambda:expect(title).to_have_text(['Confirm north entrance clearance']))
+                        check('search-reset-to-blank',lambda:expect(search).to_have_value(''))
+                        primary_name='Confirm north entrance clearance'
+                        contrast_name='Order handover signs'
+                        def expect_items(names):
+                            expect(title).to_have_count(len(names))
+                            for text in names:
+                                expect(title.filter(has_text=text)).to_have_text([text])
+                        check('create-contrasting-work-item',lambda:control(page,'btnNewWorkItem').click())
+                        expect(page.locator('[data-screen="Add/Edit Work Item"]')).to_be_visible()
+                        control(page,'txtAddWorkItemName').fill(contrast_name)
+                        control(page,'txtAddWorkItemDesc').fill('Prepare signs before project handover.')
+                        control(page,'datAddWorkItemTargetDate').fill('2026-04-01')
+                        for selector,label in zip(selectors,['Ada Lovelace','Review handover','Not started','Facilities','High']):
+                            control(page,selector).select_option(label=label)
+                        check('save-contrasting-work-item',lambda:save.click())
+                        expect(page.locator('[data-screen="Projects Screen"]')).to_be_visible()
+                        page.wait_for_function('async()=>await window.__waitForGasIdle()',timeout=10000)
+                        def contrasting_record():
+                            records=backend({'fn':'api','args':['Project Work Items','list',{}]})['result']
+                            assert len(records)==2
+                            contrast=next(row for row in records if row['msft_name']==contrast_name)
+                            observed['contrast']=contrast;retain_work_item_evidence()
+                            assert contrast['id']!=created['id']
+                            assert contrast['msft_milestone_id']['msft_name']=='Review handover'
+                            assert contrast['msft_workitemstatus_id']['msft_name']=='Not started'
+                            assert contrast['msft_etadate']=='2026-04-01T04:00:00.000Z'
+                        check('contrasting-work-item-persists-with-distinct-links',contrasting_record)
+                        check('both-work-items-visible',lambda:expect_items([primary_name,contrast_name]))
+                        check('open-work-item-filter-dialog',lambda:control(page,'imgFilterWorkItems').click())
+                        check('filter-dialog-visible',lambda:expect(control(page,'conFilterWorkItems')).to_be_visible())
+                        filter_controls=['cmbMilestones','cmbCategories','cmbPriorities','cmbTeamMembers','cmbStatuses']
+                        for selector,label in zip(filter_controls,['Select milestones','Select categories','Select priorities','Select team members','Select statuses']):
+                            check('filter-accessible-'+selector,lambda selector=selector,label=label:expect(control(page,selector)).to_have_accessible_name(label))
+                            check('filter-multiple-'+selector,lambda selector=selector:expect(control(page,selector)).to_have_attribute('multiple',''))
+                        def filter_defaults():
+                            selected={name:control(page,name).locator('option:checked').all_text_contents() for name in filter_controls}
+                            (OUT/name/'filter-defaults.json').write_text(json.dumps(selected,indent=2)+'\n')
+                            assert all(values==[] for values in selected.values()),selected
+                        check('filter-defaults-are-blank',filter_defaults)
+                        check('apply-empty-filters',lambda:control(page,'btnApplyFilter').click())
+                        check('empty-filters-retain-both-work-items',lambda:expect_items([primary_name,contrast_name]))
+                        announce=control(page,'lblAnnounce_Projects')
+                        def filter_items(tag,criteria,expected):
+                            check(tag+'-open',lambda:control(page,'imgFilterWorkItems').click())
+                            for selector,labels in criteria.items():
+                                check(tag+'-'+selector,lambda selector=selector,labels=labels:control(page,selector).select_option(label=labels))
+                            check(tag+'-apply',lambda:control(page,'btnApplyFilter').click())
+                            check(tag+'-matches',lambda:expect_items(expected))
+                            check(tag+'-announcement',lambda:expect(announce).to_have_text('Filters applied to work items list'))
+                        def clear_filters(tag):
+                            check(tag+'-open',lambda:control(page,'imgFilterWorkItems').click())
+                            check(tag+'-clear',lambda:control(page,'btnClearFilter').click())
+                            check(tag+'-restores-both-items',lambda:expect_items([primary_name,contrast_name]))
+                            check(tag+'-announcement',lambda:expect(announce).to_have_text('Work item filters cleared and filter dialog closed'))
+                            for selector in filter_controls:
+                                check(tag+'-blank-'+selector,lambda selector=selector:expect(control(page,selector).locator('option:checked')).to_have_count(0))
+                        filter_items('unmatched-milestone',{'cmbMilestones':['Survey site']},[])
+                        clear_filters('clear-unmatched')
+                        filter_items('single-milestone',{'cmbMilestones':['Replace equipment']},[primary_name])
+                        filter_items('multiple-milestones',{'cmbMilestones':['Replace equipment','Review handover']},[primary_name,contrast_name])
+                        filter_items('milestones-and-status',{'cmbStatuses':['Not started']},[contrast_name])
+                        page.screenshot(path=str(OUT/name/'combined-filters.png'),full_page=True)
+                        clear_filters('clear-combined')
+                        filter_items('shared-category-priority-assignee',{'cmbCategories':['Facilities'],'cmbPriorities':['High'],'cmbTeamMembers':['Ada Lovelace']},[primary_name,contrast_name])
+                        filter_items('shared-fields-and-unmatched-status',{'cmbStatuses':['Done']},[])
+                        clear_filters('clear-shared')
+                        control(page,'imgSearchWorkItems').click();search.fill('HANDOVER')
+                        check('search-matches-second-item-case-insensitively',lambda:expect_items([contrast_name]))
+                        search.fill('north')
+                        check('search-switches-to-first-item',lambda:expect_items([primary_name]))
+                        control(page,'imgCloseSearchWorkItems').click()
+                        check('clear-search-restores-two-items',lambda:expect_items([primary_name,contrast_name]))
+                        filter_items('reopen-filtered-item',{'cmbMilestones':['Replace equipment']},[primary_name])
+                        check('open-filtered-work-item',lambda:items.locator('[data-control="btnWorkItemsForeground"]').click())
+                        check('filtered-item-editor-retains-name',lambda:expect(control(page,'txtAddWorkItemName')).to_have_value(primary_name))
+                        check('filtered-item-editor-retains-date',lambda:expect(control(page,'datAddWorkItemTargetDate')).to_have_value('2026-03-11'))
+                        check('return-from-filtered-item',lambda:control(page,'btnCancelWorkItem').click())
+                        expect(page.locator('[data-screen="Projects Screen"]')).to_be_visible()
+                        clear_filters('clear-before-selection')
+                        for width,height in [(1440,900),(1000,700),(520,700)]:
+                            viewport_id=str(width)+'x'+str(height)
+                            page.set_viewport_size({'width':width,'height':height})
+                            check('filter-keyboard-open-'+viewport_id,lambda:control(page,'imgFilterWorkItems').click())
+                            def keyboard_filter():
+                                picker=control(page,'cmbMilestones')
+                                picker.scroll_into_view_if_needed()
+                                expect(picker).to_be_in_viewport(ratio=0.95)
+                                expect(picker).to_be_enabled()
+                                box=picker.bounding_box()
+                                assert box['width']>=200 and box['height']>=28,box
+                                panel=control(page,'lblFilterContainer').bounding_box()
+                                for selector in filter_controls:
+                                    bounds=control(page,selector).bounding_box()
+                                    assert bounds['x']>=panel['x'] and bounds['x']+bounds['width']<=panel['x']+panel['width'],{'panel':panel,'selector':selector,'bounds':bounds}
+                                picker.focus();picker.press('Home');picker.press('ArrowDown');picker.press('Shift+ArrowDown')
+                                expect(picker.locator('option:checked')).to_have_text(['Replace equipment','Review handover'])
+                                expect(picker).to_be_focused()
+                                page.screenshot(path=str(OUT/name/('filter-dialog-'+viewport_id+'.png')),full_page=True)
+                            check('filter-keyboard-multiple-selection-'+viewport_id,keyboard_filter)
+                            def keyboard_apply():
+                                apply=control(page,'btnApplyFilter')
+                                apply.scroll_into_view_if_needed()
+                                expect(apply).to_be_in_viewport(ratio=0.95)
+                                apply.focus();apply.press('Enter')
+                                expect_items([primary_name,contrast_name])
+                            check('filter-keyboard-apply-'+viewport_id,keyboard_apply)
+                            clear_filters('filter-keyboard-clear-'+viewport_id)
+                        page.set_viewport_size({'width':1440,'height':900})
                     select_all=control(page,'chkSelectAllWorkItems')
                     announcement=control(page,'lblAnnounce_Projects')
                     check('select-all-work-items',lambda:select_all.check())
                     check('select-all-checks-loaded-row',lambda:expect(items.locator('[data-control="chkSelectWorkItem"]').first).to_be_checked())
+                    if filters:
+                        check('select-all-checks-second-loaded-row',lambda:expect(items.locator('[data-control="chkSelectWorkItem"]').nth(1)).to_be_checked())
                     check('select-all-announcement',lambda:expect(announcement).to_have_text('All work items selected'))
                     check('selection-announcement-is-live',lambda:expect(announcement).to_have_attribute('aria-live','assertive'))
                     check('deselect-all-work-items',lambda:select_all.uncheck())
                     check('deselect-all-clears-loaded-row',lambda:expect(items.locator('[data-control="chkSelectWorkItem"]').first).not_to_be_checked())
+                    if filters:
+                        check('deselect-all-clears-second-loaded-row',lambda:expect(items.locator('[data-control="chkSelectWorkItem"]').nth(1)).not_to_be_checked())
                     check('deselect-all-announcement',lambda:expect(announcement).to_have_text('All work items deselected'))
-                    check('select-work-item-for-deletion',lambda:items.locator('[data-control="chkSelectWorkItem"]').first.check())
+                    deletion_row=items.locator(':scope > .fx-rows > .fx-row').filter(has=page.locator('[data-control="lblWorkItemTitle"]').filter(has_text='Confirm north entrance clearance'))
+                    check('select-work-item-for-deletion',lambda:deletion_row.locator('[data-control="chkSelectWorkItem"]').check())
                     check('selection-stays-on-project-screen',lambda:expect(page.locator('[data-screen="Projects Screen"]')).to_be_visible())
                     check('open-work-item-deletion-dialog',lambda:control(page,'imgDeleteWorkItems').click())
                     check('deletion-requires-confirmation',lambda:expect(control(page,'btnDeleteWarning')).to_be_disabled())
@@ -379,11 +503,11 @@ def main(project=False,workitem=False,settings=False):
                     def removed_record():
                         observed['afterDelete']=backend({'fn':'api','args':['Project Work Items','list',{}]})['result']
                         retain_work_item_evidence()
-                        assert observed['afterDelete']==[]
+                        assert [row['id'] for row in observed['afterDelete']]==([observed['contrast']['id']] if filters else [])
                         assert len(backend({'fn':'api','args':['Projects','list',{}]})['result'])==1
                         assert len(backend({'fn':'api','args':['Project Milestones','list',{}]})['result'])==3
                     check('work-item-deletion-preserves-project-and-milestones',removed_record)
-                    check('deleted-work-item-disappears',lambda:expect(title).to_have_count(0))
+                    check('deleted-work-item-disappears',lambda:expect(title).to_have_text([contrast_name]) if filters else expect(title).to_have_count(0))
         finally:
             snapshot()
             (OUT/name/'runtime-state.json').write_text(json.dumps(page.evaluate("""() => ({
@@ -401,8 +525,12 @@ def main(project=False,workitem=False,settings=False):
             solution=REPO/'samples/microsoft/Milestones.solution.zip',setup_backend=seed,
             timezone_id='America/New_York',running_time='2026-03-01T16:00:00+00:00')
         browser.close()
-    result.update(sourceAppId='milestones',steps=steps,assessmentScope='first-run onboarding and persisted settings across two simulated Google users'+('; source global category/priority/status setup and reload' if settings else '')+('; project creation probe' if project else '')+('; work-item create/edit/delete and preserved assignment/milestone links' if workitem else ''),
-                  completeUsability='unassessed')
+    result.update(sourceAppId='milestones',steps=steps,assessmentScope='first-run onboarding and persisted settings across two simulated Google users'+('; source global category/priority/status setup and reload' if settings else '')+('; project creation probe' if project else '')+('; work-item create/edit/delete and preserved assignment/milestone links' if workitem else '')+('; two persisted work items, search, combined multi-select filters, filtered editing and targeted deletion' if filters else ''),
+                  completeUsability='unassessed',assessmentScriptSha256=hashlib.sha256((REPO/'scripts/assess_milestones_workflow.py').read_bytes()).hexdigest())
+    if filters:
+        result['filterUIAssessment']={'status':result['status'],'viewports':[[1440,900],[1000,700],[520,700]],
+            'checks':'accessible source labels; empty/multiple selections; actual keyboard selection/apply; controls visible after scrolling; source clear action',
+            'limits':'source control dimensions and canvas minimum are retained; native select appearance and searchable ComboBox popup are not reproduced'}
     if settings:
         result['sourceSettingsLimitations']=['The exported Save formula omits Sequence; blank status sequences retain the Active view Name ordering on reload, not entry order. Arbitrary completion-status positioning and tenant-side sequence population remain unverified.',
             'Audit timestamps and other server defaults are not populated by this adapter.']
@@ -417,5 +545,6 @@ if __name__=='__main__':
     parser.add_argument('--project',action='store_true',help='Continue through the original project creation workflow')
     parser.add_argument('--workitem',action='store_true',help='Continue project creation through the original work-item workflow')
     parser.add_argument('--settings',action='store_true',help='Configure source categories/priorities/statuses before the project and work-item lifecycle')
+    parser.add_argument('--filters',action='store_true',help='Continue settings/work-item lifecycle through search and filter controls')
     args=parser.parse_args()
-    raise SystemExit(main(project=args.project,workitem=args.workitem,settings=args.settings))
+    raise SystemExit(main(project=args.project,workitem=args.workitem,settings=args.settings,filters=args.filters))
