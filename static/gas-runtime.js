@@ -14,6 +14,7 @@
   var cardLayouts = [], cardGeometry = {}, galleryLayouts = [];
   var handlers = {};     // controlName -> { event: fn }
   var controlValues = {}; // control name -> evaluated properties used by dependents
+  var galleryTemplates = Object.create(null), resolvingTemplates = [];
   var forms = {};        // form name -> generated DataCard submit configuration
   var timers = {};       // timer name -> resettable scheduling state
   var screenStack = [];
@@ -463,19 +464,37 @@
       visible: !el.style || el.style.display !== 'none',
       el: el,
     };
-    // Template dimensions exist before Items has mounted its first row. Parent
-    // card heights can reference these values during the very first binding.
-    if (typeof el.getAttribute === 'function' && el.getAttribute('data-template-size') !== null) {
-      standard.template_size = Number(el.getAttribute('data-template-size')) || 0;
+    Object.assign(standard, element ? (element.__fxValues || {}) : (controlValues[name] || {}),
+      element ? {} : (cardGeometry[name] || {}));
+    // Resolve TemplateSize lazily, before Items mounts rows and independently
+    // of control registration order. Responsive formulas must also update the
+    // derived dimensions; a stale/absent HTML attribute is not their source.
+    var template = !element && galleryTemplates[name];
+    if (template || (typeof el.getAttribute === 'function' && el.getAttribute('data-template-size') !== null)) {
+      Object.defineProperty(standard, 'template_size', {enumerable: true, get: function () {
+        if (!template) return Number(el.getAttribute('data-template-size')) || 0;
+        if (resolvingTemplates.indexOf(name) >= 0) throw new Error('Circular gallery TemplateSize: ' + name);
+        resolvingTemplates.push(name);
+        try {
+          var size = Number(template.fn(val, standard, val(template.parent)));
+          if (!Number.isFinite(size)) throw new Error('Non-finite gallery TemplateSize: ' + name);
+          return Math.max(1, size);
+        } finally { resolvingTemplates.pop(); }
+      }});
       standard.template_padding = Number(el.getAttribute('data-template-padding')) || 0;
       var horizontal = el.getAttribute('data-gallery-layout') === 'horizontal';
       var wraps = Math.max(1, Number(el.getAttribute('data-wrap-count')) || 1);
-      standard.template_width = horizontal ? standard.template_size : standard.width;
-      standard.template_height = horizontal
-        ? Math.max(0,(standard.height-standard.template_padding*(wraps+1))/wraps) : standard.template_size;
+      Object.defineProperties(standard, {
+        template_width: {enumerable: true, get: function () { return horizontal ? standard.template_size : standard.width; }},
+        template_height: {enumerable: true, get: function () { return horizontal
+          ? Math.max(0,(standard.height-standard.template_padding*(wraps+1))/wraps) : standard.template_size; }},
+      });
     }
-    return Object.assign(standard, element ? (element.__fxValues || {}) : (controlValues[name] || {}),
-      element ? {} : (cardGeometry[name] || {}));
+    return standard;
+  }
+
+  function registerGalleryTemplate(name, parentName, sizeFn) {
+    galleryTemplates[name] = {parent: parentName, fn: sizeFn};
   }
 
   function registerCardLayout(name, cards, columnsFn, parentName) {
@@ -1044,7 +1063,7 @@
         });
         mounted.forEach(function (row) { if (!retainedRows.has(row)) row.remove(); });
         mounted = next;
-        var templateSize = parseFloat(host.getAttribute('data-template-size'));
+        var templateSize = val(name).template_size;
         var templatePadding = parseFloat(host.getAttribute('data-template-padding'));
         var wrapCount = parseInt(host.getAttribute('data-wrap-count'), 10);
         var horizontal = host.getAttribute('data-gallery-layout') === 'horizontal';
@@ -1070,6 +1089,7 @@
             Object.assign(row.style,{width:templateSize+'px',minWidth:'0',minHeight:'0',padding:'0'});
           } else if (Number.isFinite(templateSize) && templateSize > 0) {
             row.style.minHeight = templateSize + 'px';
+            row.style.boxSizing = 'border-box';
           }
           if (!horizontal && Number.isFinite(templatePadding) && templatePadding >= 0) {
             row.style.padding = templatePadding + 'px';
@@ -1616,6 +1636,7 @@
     updateBindings: updateBindings,
     setState: setState,
     registerControlProps: registerControlProps,
+    registerGalleryTemplate: registerGalleryTemplate,
     registerCardLayout: registerCardLayout,
     styleControl: styleControl,
     attrControl: attrControl,

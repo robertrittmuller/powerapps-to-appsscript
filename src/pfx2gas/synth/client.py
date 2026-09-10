@@ -710,10 +710,7 @@ def _render_control(
         wrap_count = _static_scalar(ctrl.properties.get("WrapCount"))
         orientation = (_static_raw(ctrl.properties.get("Layout")) or '').lower()
         gallery_attrs = ""
-        if orientation == 'horizontal' and row_size is None:
-            mark_emission(ctrl.properties.get("Layout"), "unsupported",
-                          "horizontal gallery with dynamic TemplateSize still requires a layout adapter")
-        elif orientation in {"horizontal", "vertical"}:
+        if orientation in {"horizontal", "vertical"}:
             gallery_attrs += f' data-gallery-layout="{orientation}"'
             mark_emission(ctrl.properties.get("Layout"), "approximated",
                           "gallery preserves its static orientation; dynamic orientation requires review")
@@ -966,6 +963,21 @@ def render_app_js(ir: AppIR) -> str:
         canvas_properties(screen.properties, ("Width", "Height", "Size", "Orientation", "Fill"))
         lines.append("  },")
     lines.append("  });")
+    row_scoped = {"Gallery", "DataTable"}
+    gallery_children = {c.name for s in ir.screens for ctrl in s.walk_controls()
+                        if ctrl.type in row_scoped
+                        for child in ctrl.children for c in child.walk()}
+    # Register lazy template formulas before OnStart or any dependent layout.
+    # In particular Height can read Self.TemplateHeight before Items exists.
+    for screen in ir.screens:
+        for ctrl in screen.walk_controls():
+            if ctrl.type != "Gallery" or ctrl.name in gallery_children:
+                continue
+            expr = ctrl.properties.get("TemplateSize")
+            if expr and expr.js and "await " not in expr.js and not re.search(r"\bitem\b", expr.js):
+                lines.append(f"  FXRuntime.registerGalleryTemplate({ctrl.name!r}, {parent_names.get(ctrl.name)!r}, "
+                             f"function (val, selfRef, parentRef) {{ return {expr.js}; }});")
+                mark_emission(expr, "approximated", "gallery TemplateSize formula updates template extent with state and viewport changes")
     # Collections are client-side state; declare them as empty arrays instead
     # of refreshing them from the server.
     for ds in ir.data_sources:
@@ -1021,10 +1033,6 @@ def render_app_js(ir: AppIR) -> str:
         # registering them at top level produces "control not found" and
         # "item is not defined". Descendants only — the container itself must
         # still emit its own registration.
-        row_scoped = {"Gallery", "DataTable"}
-        gallery_children = {c.name for s in ir.screens for ctrl in s.walk_controls()
-                            if ctrl.type in row_scoped
-                            for child in ctrl.children for c in child.walk()}
         form_children = {child.name for form in screen.walk_controls() if form.type == "Form"
                          for child in _descendants(form)}
         for ctrl in screen.walk_controls():

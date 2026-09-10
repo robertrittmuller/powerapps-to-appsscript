@@ -207,7 +207,7 @@ dependency failure instead of returning an empty successful response.
 `./pfx2gas browser` tests generated forms, charts, record scopes, editable
 galleries, timer lifecycles, launch parameters, local drafts, Dataverse record
 contracts, complete source timestamp/URL-validation formulas, responsive and
-scaled canvases, card grids, static horizontal gallery templates/wrapping, the migrated Planner task board,
+scaled canvases, card grids, responsive gallery template sizes and horizontal wrapping, the migrated Planner task board,
 native Google directory assignments, Chat selectors/notifications, typed collection aliases and conditional draft
 updates in Chromium, plus HelpDesk
 when its local export is present. It runs
@@ -299,7 +299,12 @@ Converted apps aim to match the original visually and behaviorally:
   `DelayOutput`.
 - **Galleries** — the row template renders per item with `ThisItem` bound to
   the row; template size/padding and absolute child geometry are retained;
-  child handlers receive the item, preserving per-row actions. Row clicks
+  top-level TemplateSize formulas update with state and viewport changes.
+  TemplateWidth/TemplateHeight exist before rows mount, including empty
+  galleries whose surrounding cards depend on their height. Circular or
+  non-finite template formulas fail explicitly. Orientation, padding and
+  WrapCount currently require static values; nested gallery layouts need review.
+  Child handlers receive the item, preserving per-row actions. Row clicks
   expose record-valued `Selected`, `SelectedItems`, and `AllItems`. Stable IDs
   retain row inputs, focus and text selection across state updates and sorting;
   row references, defaults, selectors, images, disabled states, Reset and

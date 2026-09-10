@@ -52,6 +52,20 @@ def main():
                 check('loaded-screenshot', lambda: page.screenshot(
                     path=str(OUT / name / 'loaded.png'), full_page=True, timeout=10000))
                 if app == 'milestones':
+                    def settings_layout():
+                        geometry=page.evaluate('''() => Object.fromEntries(
+                          ['dtcSettings','conMilestoneSettings','galEditMilestones','galEditTeamMembers'].map(name=>{
+                            const ref=FXRuntime.val(name);
+                            return [name,{height:ref.height,width:ref.width,templateHeight:ref.template_height}];
+                          }))''')
+                        (OUT/name/'settings-layout.json').write_text(json.dumps(geometry,indent=2)+'\n')
+                        assert geometry['galEditMilestones']['height']==0,geometry
+                        assert geometry['galEditMilestones']['templateHeight'] in (72,84),geometry
+                        assert geometry['galEditTeamMembers']['templateHeight']==35,geometry
+                        assert geometry['galEditTeamMembers']['height']==245,geometry
+                        assert geometry['conMilestoneSettings']['height']==296,geometry
+                        assert geometry['dtcSettings']['height']==316,geometry
+                    check('responsive-settings-gallery-layout',settings_layout)
                     # Loading.Navigate passes locShowFirstRun to Projects.
                     # Preserve and exercise this onboarding instead of clicking
                     # through its modal overlay or injecting a dismissed state.

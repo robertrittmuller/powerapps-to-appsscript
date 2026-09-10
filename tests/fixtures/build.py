@@ -1143,6 +1143,43 @@ def horizontal_gallery_fixture_files() -> dict[str,str]:
         'Controls\\2.json':json.dumps({'TopParent':control('HorizontalBoard','screen',{'Width':640,'Height':480},controls)})}
 
 
+def responsive_gallery_fixture_files() -> dict[str,str]:
+    def control(name,kind,props,children=None):
+        return {name:{'Control':kind,'Properties':{k:'='+str(v) for k,v in props.items()},'Children':children or []}}
+    # Same responsive TemplateSize and self-sized Height pattern as Microsoft's
+    # Milestones settings gallery, including an initially empty collection.
+    size='Switch(\'Gallery Screen\'.Size, ScreenSize.ExtraLarge, 72*1, ScreenSize.Large, 84*1, ScreenSize.Medium, 84*1, ScreenSize.Small, 84*1, 84*1)'
+    gallery=control('ResponsiveRows','Gallery',{'X':10,'Y':10,'Width':'Parent.Width-20',
+        'Height':'Self.TemplateHeight*CountRows(Self.AllItems)','Items':'LayoutRows',
+        'TemplateSize':size,'TemplatePadding':0,'Layout':'Layout.Vertical','WrapCount':1},[
+        control('RowDraft','TextInput',{'X':8,'Y':8,'Width':'Parent.TemplateWidth-136',
+            'Height':'Parent.TemplateHeight-16','Default':'ThisItem.Name','AccessibleLabel':'"Row draft"'}),
+        control('ChooseRow','Button',{'X':'Parent.TemplateWidth-120','Y':8,'Width':112,
+            'Height':'Parent.TemplateHeight-16','Text':'ThisItem.Name','OnSelect':'Set(chosenRow, ThisItem.Name)'})])
+    horizontal=control('ResponsiveLogos','Gallery',{'X':20,'Y':460,'Layout':'Layout.Horizontal',
+        'TemplateSize':'If(App.Width>1000,48,64)','TemplatePadding':20,
+        'Width':'(Self.TemplateWidth+Self.TemplatePadding)*3+Self.TemplatePadding',
+        'Height':'Self.TemplateWidth+Self.TemplatePadding*2',
+        'Items':'Table({Name:"A"},{Name:"B"},{Name:"C"})'},[
+        control('ChooseLogo','Button',{'X':0,'Y':0,'Width':'Parent.TemplateWidth','Height':'Parent.TemplateHeight',
+            'Text':'ThisItem.Name','OnSelect':'Set(chosenRow, ThisItem.Name)'})])
+    return {
+        'Properties.json':json.dumps({'Name':'FixtureResponsiveGallery','DocumentLayoutWidth':1280,
+            'DocumentLayoutHeight':800,'DocumentLayoutScaleToFit':False}),
+        'CanvasManifest.json':json.dumps({'Name':'FixtureResponsiveGallery','ScreenOrder':['Gallery Screen']}),
+        'src/App.pa.yaml':json.dumps(control('App','AppHost',{'MinScreenWidth':320,'MinScreenHeight':600,
+            'OnStart':'ClearCollect(LayoutRows,Table()); Set(chosenRow,"none")'})),
+        'src/Gallery Screen.pa.yaml':json.dumps(control('Gallery Screen','Screen',{'Width':'App.Width','Height':'App.Height'},[
+            control('GalleryCanvas','fluidGrid',{'X':20,'Y':20,'Width':560,'Height':230,'NumberOfColumns':1},[
+                control('GalleryCard','DataCard',{'X':0,'Y':0,'Width':'Parent.Width',
+                    'Height':'ResponsiveRows.Y+ResponsiveRows.Height+10'},[gallery])]),
+            control('PopulateRows','Button',{'X':20,'Y':280,'Width':240,'Height':44,'Text':'"Populate rows"',
+                'OnSelect':'ClearCollect(LayoutRows,Table({Name:"Alpha"},{Name:"Beta"}))'}),
+            control('ClearRows','Button',{'X':280,'Y':280,'Width':240,'Height':44,'Text':'"Clear rows"','OnSelect':'Clear(LayoutRows)'}),
+            control('ChosenRow','Label',{'X':20,'Y':350,'Width':540,'Height':44,'Text':'chosenRow'}),horizontal])),
+    }
+
+
 def build_fixtures() -> None:
     # Fixture A: navigation + globals, all rule-transpilable
     _write_msapp(
@@ -1229,6 +1266,7 @@ def build_fixtures() -> None:
     _write_msapp(FIXTURE_DIR / 'fixtureDirectory.msapp', directory_fixture_files())
     _write_msapp(FIXTURE_DIR / 'fixtureChat.msapp', chat_fixture_files())
     _write_msapp(FIXTURE_DIR / 'fixtureHorizontalGallery.msapp', horizontal_gallery_fixture_files())
+    _write_msapp(FIXTURE_DIR / 'fixtureResponsiveGallery.msapp', responsive_gallery_fixture_files())
     _write_msapp(FIXTURE_DIR / 'fixtureViews.msapp', view_fixture_files())
     _write_msapp(FIXTURE_DIR / 'fixtureViews.solution.zip', {'customizations.xml':
         f'<ImportExportXml><Entities><Entity><savedqueries><savedquery><savedqueryid>{{{VIEW_ID}}}</savedqueryid><fetchxml>{VIEW_QUERY}</fetchxml></savedquery></savedqueries></Entity></Entities></ImportExportXml>'})

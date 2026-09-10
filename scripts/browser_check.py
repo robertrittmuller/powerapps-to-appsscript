@@ -1055,6 +1055,38 @@ def check_horizontal_gallery(page,_backend):
     page.screenshot(path=str(OUT/'horizontal-gallery/stable-template-geometry.png'),full_page=True)
 
 
+def check_responsive_gallery(page,_backend):
+    def geometry(size,count,logo_size):
+        page.wait_for_function('([size,count,logo])=>{const v=FXRuntime.val; return v("ResponsiveRows").template_height===size && v("ResponsiveRows").height===size*count && v("GalleryCard").height===size*count+20 && v("ResponsiveLogos").width===(logo+20)*3+20;}',arg=[size,count,logo_size])
+        assert control(page,'GalleryCard').bounding_box()['height']==size*count+20
+        drafts=control(page,'RowDraft');expect(drafts).to_have_count(count)
+        host=control(page,'ResponsiveRows').bounding_box()
+        for index in range(count):
+            bounds=drafts.nth(index).bounding_box()
+            assert bounds['height']==size-16 and bounds['y']==host['y']+index*size+8,bounds
+        logos=control(page,'ChooseLogo');expect(logos).to_have_count(3)
+        for index in range(3):
+            bounds=logos.nth(index).bounding_box()
+            assert bounds['width']==bounds['height']==logo_size,bounds
+    page.set_viewport_size({'width':1280,'height':800})
+    geometry(72,0,48)
+    control(page,'PopulateRows').focus();page.keyboard.press('Enter')
+    geometry(72,2,48)
+    control(page,'RowDraft').first.fill('Keep edited milestone')
+    page.evaluate('window.__responsiveDraft=document.querySelector("[data-control=RowDraft]")')
+    page.set_viewport_size({'width':760,'height':800})
+    geometry(84,2,64)
+    expect(control(page,'RowDraft').first).to_have_value('Keep edited milestone')
+    assert page.evaluate('window.__responsiveDraft===document.querySelector("[data-control=RowDraft]")')
+    control(page,'ChooseRow').last.click();expect(control(page,'ChosenRow')).to_have_text('Beta')
+    control(page,'ChooseLogo').last.focus();page.keyboard.press('Enter')
+    expect(control(page,'ChosenRow')).to_have_text('C')
+    page.screenshot(path=str(OUT/'responsive-gallery/narrow-template-geometry.png'),full_page=True)
+    page.set_viewport_size({'width':1280,'height':800});geometry(72,2,48)
+    control(page,'ClearRows').click();geometry(72,0,48)
+    page.screenshot(path=str(OUT/'responsive-gallery/empty-template-geometry.png'),full_page=True)
+
+
 def main():
     subprocess.run([sys.executable, str(REPO / "tests/fixtures/build.py")], check=True, capture_output=True)
     cases = [("business-form", REPO / "tests/fixtures/fixtureForm.msapp", check_form),
@@ -1078,6 +1110,7 @@ def main():
     cases.append(('google-chat', REPO/'tests/fixtures/fixtureChat.msapp', check_chat,
                   False,None,None,None,setup_chat,'UTC'))
     cases.append(('horizontal-gallery',REPO/'tests/fixtures/fixtureHorizontalGallery.msapp',check_horizontal_gallery))
+    cases.append(('responsive-gallery',REPO/'tests/fixtures/fixtureResponsiveGallery.msapp',check_responsive_gallery))
     cases.append(("saved-views", REPO / "tests/fixtures/fixtureViews.msapp", check_views,
                   False, None, None, REPO / 'tests/fixtures/fixtureViews.solution.zip'))
     cases.append(('relative-saved-views', REPO/'tests/fixtures/fixtureRelativeViews.msapp', check_relative_views,

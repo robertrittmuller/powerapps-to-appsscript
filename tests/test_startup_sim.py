@@ -197,6 +197,11 @@ def test_horizontal_template_size_source_formula_boots_without_reference_errors(
     assert verdict['visible']==['HorizontalBoard'] and verdict['totalConsoleErrors']==0,verdict
 
 
+def test_responsive_gallery_height_is_finite_before_any_items_exist():
+    verdict=_simulate(FIXTURES/'fixtureResponsiveGallery.msapp')
+    assert verdict['visible']==['Gallery Screen'] and verdict['totalConsoleErrors']==0,verdict
+
+
 @pytest.mark.parametrize('endpoint', ['connector', 'mistypedEndpoint', 'importPlanner_'])
 def test_unknown_or_unmigrated_server_cannot_pass_startup(tmp_path, endpoint):
     from pfx2gas.ir import AppIR, ScreenNode, FxExpr

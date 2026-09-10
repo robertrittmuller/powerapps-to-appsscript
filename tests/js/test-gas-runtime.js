@@ -36,6 +36,34 @@ test('gallery template dimensions exist before the first Items binding mounts ro
   assert.strictEqual(2*(ref.template_height+ref.template_padding),380);
 });
 
+test('responsive gallery TemplateSize resolves before rows and updates without stale metadata', () => {
+  const vm=require('node:vm'),fs=require('node:fs');
+  const attrs={'data-gallery-layout':'vertical','data-template-padding':'0'};
+  const host={tagName:'DIV',style:{width:'390px',height:'200px'},textContent:'',getAttribute:key=>attrs[key]??null};
+  const ctx=vm.createContext({document:{...global.document,querySelector:()=>host}});ctx.window=ctx;
+  vm.runInContext(fs.readFileSync(require.resolve('../../static/gas-runtime.js'),'utf8'),ctx);
+  const rt=ctx.FXRuntime;
+  assert.equal(rt.registerGalleryTemplate.length,3);
+  let wide=true;
+  rt.registerGalleryTemplate('ResponsiveRows','Card',(_val,self,parent)=>{
+    assert.equal(self.width,390);assert.equal(parent.height,200);
+    return wide?72:84;
+  });
+  assert.equal(ctx.val('ResponsiveRows').template_height,72);
+  assert.equal(ctx.val('ResponsiveRows').template_height*0,0);
+  wide=false;
+  assert.equal(ctx.val('ResponsiveRows').template_height*2,168);
+  attrs['data-gallery-layout']='horizontal';attrs['data-template-size']='999';
+  assert.equal(ctx.val('ResponsiveRows').template_width,84);
+  assert.equal(ctx.val('ResponsiveRows').template_height,200);
+  rt.registerGalleryTemplate('ResponsiveRows','Card',()=>Infinity);
+  assert.throws(()=>ctx.val('ResponsiveRows').template_width,/Non-finite gallery TemplateSize/);
+  rt.registerGalleryTemplate('ResponsiveRows','Card',(_val,self)=>self.template_width);
+  assert.throws(()=>ctx.val('ResponsiveRows').template_width,/Circular gallery TemplateSize/);
+  rt.registerGalleryTemplate('ResponsiveRows','Card',()=>0);
+  assert.equal(ctx.val('ResponsiveRows').template_width,1);
+});
+
 test('startup waits for session identity before source OnStart snapshots User()', async () => {
   const vm = require('node:vm'), fs = require('node:fs');
   let ready, success;
