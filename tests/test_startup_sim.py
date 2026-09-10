@@ -270,6 +270,14 @@ def test_generated_gallery_edits_second_row_and_queues_parent_once(tmp_path):
         {"action": "expectState", "key": "parentSawFinished", "equals": True},
         {"action": "expectState", "key": "selectedName", "equals": "Amazing Grace"},
         {"action": "expectDataRow", "source": "Contacts", "where": {"id": "two", "last_name": "Admiral"}},
+        {"action": "setValue", "control": "RowLast", "value": "First bulk edit", "gallery": "ContactRows", "row": 0},
+        {"action": "setValue", "control": "RowLast", "value": "Second bulk edit", **row},
+        {"action": "click", "control": "SortRows"},
+        {"action": "expectText", "control": "BulkPreview", "equals": "Second bulk edit | First bulk edit"},
+        {"action": "click", "control": "BulkSave"},
+        {"action": "expectState", "key": "bulkSaved", "equals": True},
+        {"action": "expectDataRow", "source": "Contacts", "where": {"id": "one", "last_name": "First bulk edit"}},
+        {"action": "expectDataRow", "source": "Contacts", "where": {"id": "two", "last_name": "Second bulk edit"}},
     ]}])
     assert verdict["consoleErrors"] == [], verdict
     assert verdict["journeyResults"][0]["status"] == "pass", verdict

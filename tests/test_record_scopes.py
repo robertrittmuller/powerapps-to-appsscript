@@ -10,13 +10,13 @@ from pfx2gas.fx import transpile
 REPO = Path(__file__).resolve().parents[1]
 
 
-def evaluate(formula, state=None, item=None, behavior=False, tail="", collections=None):
-    result = transpile(formula, behavior=behavior, control_names=set(),
+def evaluate(formula, state=None, item=None, behavior=False, tail="", collections=None, controls=None):
+    result = transpile(formula, behavior=behavior, control_names=set(controls or {}),
                        global_names=set(state or {}), collections=set(collections or []))
     assert not result.unmapped, result.unmapped
     script = """
 const fs = require('node:fs');
-const {formula, state, item, behavior, tail} = JSON.parse(fs.readFileSync(0, 'utf8'));
+const {formula, state, item, behavior, tail, controls} = JSON.parse(fs.readFileSync(0, 'utf8'));
 const FX = require('./static/fx-stdlib.js');
 const FXRuntime = {setState: update => Object.assign(state, update)};
 const apiPatch = async () => { throw new Error('failed save'); };
@@ -24,14 +24,14 @@ const apiRemoveIf = async (name, pred) => {state[name] = state[name].filter(row 
 (async () => {
   const body = behavior ? formula + ';' + tail : 'return (' + formula + ');';
   const fn = new (Object.getPrototypeOf(async function(){}).constructor)(
-    'FX','state','item','FXRuntime','apiPatch','apiRemoveIf',body);
-  const value = await fn(FX,state,item,FXRuntime,apiPatch,apiRemoveIf);
+    'FX','state','item','FXRuntime','apiPatch','apiRemoveIf','val',body);
+  const value = await fn(FX,state,item,FXRuntime,apiPatch,apiRemoveIf,name=>controls[name]);
   process.stdout.write(JSON.stringify(value === undefined ? null : value));
 })().catch(error => {console.error(error);process.exitCode=1;});
 """
     run = subprocess.run(["node", "-e", script], cwd=REPO,
         input=json.dumps({"formula": result.js, "state": state or {}, "item": item,
-                          "behavior": behavior, "tail": tail}),
+                          "behavior": behavior, "tail": tail, "controls": controls or {}}),
         capture_output=True, text=True, timeout=10)
     assert run.returncode == 0, run.stderr + "\n" + result.js
     return json.loads(run.stdout)
@@ -153,6 +153,17 @@ def test_async_iferror_and_with_await_failure_before_following_behavior():
 def test_forall_awaits_async_results_and_retains_each_record_scope():
     assert evaluate('ForAll(Table({Name: "a"}, {Name: "b"}), '
                     'IfError(Patch(Tasks, Defaults(Tasks), {Name: ThisRecord.Name}), ThisRecord.Name))') == ["a", "b"]
+
+
+def test_gallery_control_columns_follow_record_scope_aliases_blank_and_global_bypass():
+    controls={'RowInput':{'text':'global'},'OuterInput':{'text':'outside'}}
+    rows=[{'id':1,'row_input':{'text':'first'}},{'id':2,'row_input':{'text':'second'}}]
+    state={'Rows':rows}
+    assert evaluate('ForAll(Rows, With({extra: 1}, RowInput.Text & OuterInput.Text))',state,controls=controls)==['firstoutside','secondoutside']
+    assert evaluate('ForAll(Rows As loaded, loaded.RowInput.Text & ThisRecord.RowInput.Text & [@RowInput].Text)',state,controls=controls)==['firstfirstglobal','secondsecondglobal']
+    assert evaluate('ForAll(Rows, With({RowInput: Blank()}, IsBlank(RowInput.Text)))',state,controls=controls)==[True,True]
+    assert evaluate('ForAll(Rows, IfError(Patch(Tasks, Defaults(Tasks), {Name: RowInput.Text}), RowInput.Text))',
+                    state,controls=controls)==['first','second']
 
 
 def test_word_operators_and_function_forms_preserve_boolean_precedence():

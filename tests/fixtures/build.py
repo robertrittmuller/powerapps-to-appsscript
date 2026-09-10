@@ -441,6 +441,13 @@ def gallery_fixture_files() -> dict[str, str]:
             "Text": '"Lock rows"', "OnSelect": "Set(lockRows, !lockRows)"}),
         control("SortRows", "Button", {"X": 570, "Y": 140, "Width": 180, "Height": 40,
             "Text": '"Reverse order"', "OnSelect": "Set(reverseRows, !reverseRows)"}),
+        control("BulkSave", "Button", {"X": 570, "Y": 200, "Width": 180, "Height": 40,
+            "Text": '"Save all rows"',
+            "OnSelect": 'ForAll(SortByColumns(ContactRows.AllItems, "ID", Descending) As loaded, '
+                'Patch(Contacts, LookUp(Contacts, ID = loaded.ID), {FirstName: RowFirst.Text}); '
+                'Patch(Contacts, LookUp(Contacts, ID = loaded.ID), {LastName: loaded.RowLast.Text})); Set(bulkSaved, true)'}),
+        control("BulkPreview", "Label", {"X": 570, "Y": 260, "Width": 400, "Height": 40,
+            "Text": 'Concat(ContactRows.AllItems, RowLast.Text, " | ")'}),
     ]
     return {
         "CanvasManifest.json": json.dumps({"Name": "FixtureGallery", "ScreenOrder": ["GalleryScreen"]}),

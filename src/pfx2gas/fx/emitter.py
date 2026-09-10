@@ -223,6 +223,13 @@ class Emitter:
                                            and base not in self.global_names and base[:1].isupper()):
             access = f"val({_q(base)})"
             control = True
+            # AllItems includes controls in each loaded gallery record. Keep
+            # ordinary record-scope precedence, with the global/owning-row
+            # control as a lazy fallback when this record lacks that column.
+            if self.scopes and not global_only:
+                access = (f"FX.scopeValue([{', '.join(scope.variable for scope in reversed(self.scopes))}], "
+                          f"{_q(_snake(base))}, () => {access})")
+                control = False  # explicit Blank in a record remains Blank
         else:
             fallback = _q(base.lower()) if base in NAMED_COLORS else self.state_ref(base)
             if self.screen_name is not None and not global_only and base not in NAMED_COLORS:

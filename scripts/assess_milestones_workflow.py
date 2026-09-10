@@ -110,6 +110,11 @@ def main(project=False):
                     assert [row['msft_name'] for row in milestones]==['Survey site','Replace equipment','Review handover'],{
                         'milestones':[{'id':r['id'],'name':r['msft_name'],'date':r['msft_milestonedate'],'color':r['msft_color']} for r in milestones]}
                 check('distinct-milestone-edits-persist',project_records)
+                def milestone_dates():
+                    milestones=backend({'fn':'api','args':['Project Milestones','list',{}]})['result']
+                    assert len(milestones)==3 and all(row['msft_milestonedate'] for row in milestones),{
+                        'milestoneDates':[row['msft_milestonedate'] for row in milestones]}
+                check('milestone-default-dates-persist',milestone_dates)
         finally:
             snapshot()
             if project:

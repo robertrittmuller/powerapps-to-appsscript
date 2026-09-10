@@ -466,6 +466,12 @@
     };
     Object.assign(standard, element ? (element.__fxValues || {}) : (controlValues[name] || {}),
       element ? {} : (cardGeometry[name] || {}));
+    if (el.__fxAllItems) {
+      Object.defineProperties(standard, {
+        all_items: {enumerable:true, get:el.__fxAllItems},
+        all_items_count: {enumerable:true, get:function () { return el.__fxAllItems().length; }},
+      });
+    }
     // Resolve TemplateSize lazily, before Items mounts rows and independently
     // of control registration order. Responsive formulas must also update the
     // derived dimensions; a stale/absent HTML attribute is not their source.
@@ -900,7 +906,7 @@
    * row template, handlers maps control names to event descriptors. Reconcile
    * stable record identities so state updates retain live inputs and focus.
    */
-  function gallery(name, itemsFn, rowFn, handlers) {
+  function gallery(name, itemsFn, rowFn, handlers, controlFields) {
     var mounted = new Map();
     var identities = new WeakMap(), nextIdentity = 0;
     galleryLayouts.push(function () {
@@ -991,7 +997,6 @@
         var current = controlValues[name] && controlValues[name].selected;
         var selected = items.find(function (item) { return sameRecord(item, current); }) || null;
         controlValues[name] = Object.assign({}, controlValues[name] || {}, {
-          all_items: items,
           selected: selected,
           selected_items: selected ? [selected] : [],
         });
@@ -1063,6 +1068,25 @@
         });
         mounted.forEach(function (row) { if (!retainedRows.has(row)) row.remove(); });
         mounted = next;
+        // AllItems is the loaded records plus their own control references.
+        // Resolve a control when it is read so input edits and replacement
+        // nodes remain current, including after an awaited action. Never put
+        // DOM nodes into the record/JSON data transport.
+        host.__fxAllItems = function () {
+          return renderedRows.filter(Boolean).map(function (row) {
+            var item = row.__fxItem;
+            var record = item && typeof item === 'object' ? Object.assign({}, item) : {value:item};
+            Object.keys(controlFields || {}).forEach(function (control) {
+              if (!row.querySelector('[data-control="' + control + '"]')) return;
+              Object.defineProperty(record, controlFields[control], {enumerable:true, configurable:true, get:function () {
+                var value = Object.assign({}, rowValue(row, control));
+                delete value.el;
+                return value;
+              }});
+            });
+            return record;
+          });
+        };
         var templateSize = val(name).template_size;
         var templatePadding = parseFloat(host.getAttribute('data-template-padding'));
         var wrapCount = parseInt(host.getAttribute('data-wrap-count'), 10);

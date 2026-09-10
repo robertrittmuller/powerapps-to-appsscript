@@ -1240,9 +1240,10 @@ def render_app_js(ir: AppIR) -> str:
                                     lines.append(f"          {stmt}")
                                 lines.append("        },")
                             lines.append("      },")
-                        lines.append("    }")
+                        lines.append("    },")
                     else:
-                        lines.append("    null")
+                        lines.append("    null,")
+                    lines.append("    " + json.dumps({child.name: _snake(child.name) for child in row_controls}))
                     lines.append("  );")
 
             # --- chart rendering ------------------------------------------

@@ -209,8 +209,8 @@ Ratings, attachments, manager workflows and complete app usability remain unasse
 `./pfx2gas browser scripts/assess_milestones_workflow.py` verifies original
 Milestones onboarding and persisted settings across two simulated Google users.
 All 19 checks pass. Its `--project` probe reaches project/member creation through
-native Google People fixtures, but fails because all milestone names come from
-the first edited row; dates are blank and colors use fallback gray. This remains
+native Google People fixtures and saves three distinct edited milestone names.
+It passes 29 checks, then fails because dates are blank; colors still use fallback gray. This remains
 a failed workflow, with source/data hashes and records in `.artifacts/browser/`.
 The normal `./pfx2gas soak` enforces the existing
 required regression corpus, including failed required journeys and missing apps.
@@ -319,12 +319,17 @@ Converted apps aim to match the original visually and behaviorally:
   non-finite template formulas fail explicitly. Orientation, padding and
   WrapCount currently require static values; nested gallery layouts need review.
   Child handlers receive the item, preserving per-row actions. Row clicks
-  expose record-valued `Selected`, `SelectedItems`, and `AllItems`. Stable IDs
+  expose record-valued `Selected` and `SelectedItems`. `AllItems` includes loaded
+  records and each row's controls; `AllItemsCount` counts the loaded rows.
+  Bulk formulas retain per-row edits through aliases, sorting, nested record
+  scopes and awaited saves. Control records omit DOM nodes from JSON transport.
+  Stable IDs
   retain row inputs, focus and text selection across state updates and sorting;
   row references, defaults, selectors, images, disabled states, Reset and
   OnChange use that row's controls. Child `Select(Parent)` actions are queued
   after the child handler, avoiding duplicate parent actions from DOM bubbling.
-  ID-less records use object identity; replaced ID-less records may lose edits.
+  ID-less records use object identity, then typed equality for fresh equivalent
+  records. Identical clones follow prior occurrence order.
 - **Selectors** — Dropdown, ComboBox, and ListBox options preserve their source
   records for `Selected`/`SelectedItems`; `DisplayFields`, default selections,
   and multi-select are wired into native selects.

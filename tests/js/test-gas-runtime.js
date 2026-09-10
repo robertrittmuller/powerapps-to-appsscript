@@ -475,7 +475,7 @@ test('Dropdown Selected and ComboBox SelectedItems preserve source records', () 
   global.document.querySelector = original;
 });
 
-test('gallery row selection exposes Selected and AllItems records', () => {
+test('gallery row selection exposes Selected and row-specific AllItems control records', () => {
   const original = global.document.querySelector;
   const originalCreate = global.document.createElement;
   const rows = [];
@@ -525,7 +525,8 @@ test('gallery row selection exposes Selected and AllItems records', () => {
       left: (_read, _self, parent) => parent.template_width - 5,
       height: (_read, _self, parent) => parent.template_height,
     });
-  }, null);
+  }, null, {Name:'name_control'});
+  assert.strictEqual(RT.gallery.length,5);
   RT.updateBindings();
   assert.strictEqual(rows.length, 2);
   assert.strictEqual(rows[0].style.minHeight, '87px');
@@ -540,7 +541,14 @@ test('gallery row selection exposes Selected and AllItems records', () => {
   assert.strictEqual(RT.rowValue(rows[1], 'Name').text, 'Grace');
   rows[1].click();
   assert.deepStrictEqual(global.val('PeopleGallery').selected, items[1]);
-  assert.deepStrictEqual(global.val('PeopleGallery').all_items, items);
+  const loaded=global.val('PeopleGallery').all_items;
+  assert.deepStrictEqual(loaded.map(row=>[row.id,row.name,row.name_control.text]),[[1,'Ada','Ada'],[2,'Grace','Grace']]);
+  assert.strictEqual(global.val('PeopleGallery').all_items_count,2);
+  assert.strictEqual(loaded[1].name_control.el,undefined);
+  assert.doesNotThrow(()=>JSON.stringify(loaded));
+  rows[1].child.textContent='Edited after reading AllItems';
+  assert.strictEqual(loaded[1].name_control.text,'Edited after reading AllItems');
+  assert.deepStrictEqual(items,[{id:1,name:'Ada'},{id:2,name:'Grace'}],'control columns cannot mutate source records');
   items.push({id:3, name:'Katherine'});
   RT.updateBindings();
   assert.strictEqual(rows.length,3);

@@ -211,6 +211,23 @@ def check_gallery(page, backend):
     expect(second).to_have_value("Amazing Grace")
     expect(last).to_have_value("Admiral")
 
+    # AllItems must carry each loaded row's live controls through sorting,
+    # aliases, nested LookUp scopes and sequential awaits in a bulk save.
+    rows.nth(0).locator('[data-control="RowLast"]').fill('First bulk edit')
+    last.fill('Second bulk edit')
+    expect(control(page,'BulkPreview')).to_have_text('First bulk edit | Second bulk edit')
+    control(page,'SortRows').click()
+    expect(control(page,'BulkPreview')).to_have_text('Second bulk edit | First bulk edit')
+    control(page,'BulkSave').click()
+    page.wait_for_function('state.bulkSaved === true')
+    saved=backend({'fn':'api','args':['Contacts','list',{}]})['result']
+    assert [(r['id'],r['last_name']) for r in saved]==[('one','First bulk edit'),('two','Second bulk edit')],saved
+    page.screenshot(path=str(OUT/'editable-gallery/bulk-saved.png'))
+    page.reload()
+    expect(control(page,'BulkPreview')).to_have_text('First bulk edit | Second bulk edit')
+    expect(rows.nth(0).locator('[data-control="RowLast"]')).to_have_value('First bulk edit')
+    expect(rows.nth(1).locator('[data-control="RowLast"]')).to_have_value('Second bulk edit')
+
 
 def check_timers(page, _backend):
     expect(page.locator('[data-screen="LoadingScreen"]')).to_be_visible()
