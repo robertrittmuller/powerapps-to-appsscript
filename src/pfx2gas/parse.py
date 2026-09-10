@@ -5,7 +5,8 @@ from .fx.naming import snake as _snake
 from .ir import AppIR, ControlNode, DataSource, FieldDef, FxExpr, ScreenNode
 from .unpack import UnpackedApp
 
-BEHAVIOR_PROPS = {"OnSelect", "OnChange", "OnVisible", "OnHidden", "OnStart", "OnSuccess", "OnFailure"}
+BEHAVIOR_PROPS = {"OnSelect", "OnChange", "OnCheck", "OnUncheck", "OnVisible", "OnHidden", "OnStart", "OnSuccess", "OnFailure",
+                  "OnTimerStart", "OnTimerEnd", "OnSelectLogo"}
 
 # Control types that can hold child item templates in a gallery.
 GALLERY_TYPES = {"Gallery", "VerticalGallery", "HorizontalGallery", "GalleryTemplate"}
@@ -21,13 +22,19 @@ def _make_expr(prop_value: str, prop_name: str) -> FxExpr:
 
 # Modern control names normalize onto classic equivalents (case-insensitive).
 _CONTROL_ALIASES = {
+    "microsoft_corecontrols_datepicker": "FluentDatePicker",
+    "toggle": "CheckBox",
     "dropdown": "Dropdown",
     "text": "Label",          # modern 'Text' control is a text block
     "textlabel": "Label",
     "badge": "Label",
-    "moderncard": "GroupContainer",
+    "moderncard": "ModernCard",
+    "header": "Header",
     "dropdowndatafield": "Dropdown",
     "moderntablecontrol": "DataTable",
+    "fluidgrid": "FluidGrid",
+    "htmlviewer": "HtmlText",
+    "modernbutton": "Button",
 }
 
 
@@ -63,6 +70,9 @@ def _parse_control(name: str, node: dict) -> ControlNode:
         for child_name, child_node in child.items():
             children.append(_parse_control(str(child_name), child_node))
     return ControlNode(name=name, type=ctrl_type, variant=variant if isinstance(variant, str) else None,
+                       primary_output=node.get("PrimaryOutput"),
+                       component_name=node.get('ComponentName'),
+                       component_library=node.get('ComponentLibraryUniqueName'),
                        component_template=(str(node["ComponentTemplate"])
                                            if node.get("ComponentTemplate") else None),
                        component_inputs=[str(p) for p in node.get("ComponentInputs", [])],
@@ -122,12 +132,25 @@ def parse(unpacked: UnpackedApp) -> AppIR:
         name=unpacked.app_name,
         warnings=list(unpacked.warnings),
         media_resources=dict(unpacked.media_resources),
+        layout=dict(unpacked.layout),
+        power_fx_v1=unpacked.power_fx_v1,
+        source_metadata=dict(unpacked.source_metadata),
     )
 
     # App-level OnStart
     app_props = ((unpacked.app_yaml or {}).get("App") or {}).get("Properties") or {}
     if app_props.get("OnStart"):
         ir.on_start = _make_expr(str(app_props["OnStart"]), "OnStart")
+    ir.properties = {name: _make_expr(value, name) for name, value in app_props.items()
+                     if name != "OnStart" and value is not None}
+    if 'Formulas' in ir.properties:
+        from .named_formulas import declarations
+        from .fx.lexer import FxSyntaxError
+        try:
+            ir.named_formulas = {name: FxExpr(raw=value)
+                                 for name, value in declarations(ir.properties['Formulas'].raw).items()}
+        except FxSyntaxError as exc:
+            ir.named_formula_error = str(exc)
 
     for screen_name in sorted(unpacked.screens):
         screen_yaml = unpacked.screens[screen_name]
@@ -135,9 +158,16 @@ def parse(unpacked: UnpackedApp) -> AppIR:
             ScreenNode(
                 name=screen_name,
                 on_visible=_screen_on_visible(screen_yaml),
+                properties={name: _make_expr(value, name)
+                            for _, node in _screen_entries(screen_yaml)
+                            for name, value in (node.get("Properties") or {}).items()
+                            if name != "OnVisible" and value is not None},
                 controls=_controls_of(screen_yaml),
             )
         )
+
+    from .components import expand_components
+    expand_components(ir, unpacked.component_definitions)
 
     for ds in unpacked.data_sources:
         # Sources arriving via the modern unpacker carry explicit markers;
@@ -150,9 +180,11 @@ def parse(unpacked: UnpackedApp) -> AppIR:
         sample = ds.get("SampleData") if isinstance(ds.get("SampleData"), list) else []
         sample = [{_snake(str(k)): v for k, v in row.items()} if isinstance(row, dict) else row
                   for row in sample]
-        ir.data_sources.append(DataSource(name=str(ds.get("Name", "DataSource")),
-                                          origin=origin, fields=fields,
-                                          sample_data=sample))
+        source = DataSource(name=str(ds.get("Name", "DataSource")), origin=origin,
+                            fields=fields, sample_data=sample)
+        from .data_contract import apply_source_contract
+        apply_source_contract(source, ds)
+        ir.data_sources.append(source)
 
     # Power Apps shows the first screen in screen order; reproduce that.
     ir.screens.sort(key=lambda s: unpacked.screen_order.index(s.name)

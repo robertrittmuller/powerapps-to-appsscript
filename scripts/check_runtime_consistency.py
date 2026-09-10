@@ -23,6 +23,22 @@ STATIC = REPO / "static"
 
 # (name, expected first params in the runtime definition, min arg count)
 EXPECTED = {
+    'compositeControl': (['row', 'name', 'parentName', 'propertyFns'], 4),
+    'resolveStartScreen': (['evaluate', 'fallback', 'unavailableNames'], 3),
+    'finishStartup': (['fallback'], 1),
+    'configureButtonIcons': (['mapping'], 1),
+    'registerNamedFormulas': (['definitions'], 1),
+    'controlElement': (['name'], 1),
+    'registerRowProps': (['row', 'name', 'parentName', 'propertyFns'], 4),
+    'gallery': (['name', 'itemsFn', 'rowFn', 'handlers', 'controlFields', 'config'], 6),
+    'rowGallery': (['row', 'name', 'itemsFn', 'rowFn', 'handlers', 'controlFields', 'config'], 7),
+    'registerGalleryTemplate': (['name', 'parentName', 'sizeFn'], 3),
+    'connectorCall': (['service', 'operation', 'args'], 3),
+    'connectorRead': (['service', 'operation', 'args'], 3),
+    "apiPatchRecord": (["ds", "record"], 2),
+    "apiRelate": (["related", "record", "remove"], 3),
+    "go": (["name", "contextPatch"], 2),
+    "updateContext": (["screen", "patch"], 2),
     "powerapps_collect": (["st", "ds"], 2),
     "powerapps_clearCollect": (["st", "ds"], 2),
     "powerapps_remove": (["st", "ds", "record"], 2),
@@ -35,6 +51,7 @@ ALLOWED = {
     "if", "for", "while", "switch", "catch", "return", "function", "typeof",
     "new", "async", "await", "Promise", "Object", "Array", "String", "Number", "Boolean",
     "Date", "JSON", "parseInt", "parseFloat", "isNaN", "Error", "Set", "Map",
+    "encodeURIComponent", "decodeURIComponent",
     "console",
     # namespaced calls
     "FX", "FXRuntime", "FXCollections",
@@ -57,7 +74,7 @@ def fx_exports() -> set[str]:
     return {"FX"} | names
 
 
-def generated_fixture_bare_calls() -> tuple[list[str], Path]:
+def generated_fixture_bare_calls() -> tuple[list[str], Path, set[str], set[str], set[str]]:
     """Convert navigation and form fixtures and collect generated bare calls."""
     import importlib.util
 
@@ -74,8 +91,11 @@ def generated_fixture_bare_calls() -> tuple[list[str], Path]:
     tmp = Path(tempfile.mkdtemp())
     apps = []
     out = tmp / "FixtureA"
-    for fixture_name in ("fixtureA.msapp", "fixtureForm.msapp", "fixtureCharts.msapp", "fixtureScopes.msapp"):
-        ir = analyze(parse(unpack(fixture_build.FIXTURE_DIR / fixture_name)))
+    fixture_build.build_fixtures()
+    for fixture_name in ("fixtureComposite.msapp", "fixtureCompositeLegacy.msapp", "fixtureStartScreen.msapp", "fixtureStartDirectory.msapp", "fixtureSvgText.msapp", "fixtureBareInputs.msapp", "fixtureDependentLayout.msapp", "fixtureSelectionDefaults.msapp", "fixtureModernSelectionDefaults.msapp", "fixtureFlexibleGallery.msapp", "fixtureScaledFlexibleGallery.msapp", "fixtureButtonIcons.msapp", "fixtureNativeLayout.msapp", "fixtureScaledNativeLayout.msapp",
+                         "fixtureModernComponents.msapp", "fixtureNamedFormulas.msapp", "fixtureCheckboxEvents.msapp", "fixtureDataverseState.msapp", "fixtureControlCoercion.msapp", "fixtureControlCoercionV1.msapp", "fixtureNestedGallery.msapp", "fixtureResponsiveGallery.msapp", "fixtureChat.msapp", "fixtureHorizontalGallery.msapp", "fixtureDirectory.msapp", "fixturePlanner.msapp", "fixtureA.msapp", "fixtureForm.msapp", "fixtureCharts.msapp", "fixtureScopes.msapp", "fixtureGallery.msapp", "fixtureTimer.msapp", "fixtureStorage.msapp", "fixtureDataverse.msapp", "fixtureRelationships.msapp", "fixtureSourceFormulas.msapp", "fixtureCanvas.msapp", "fixtureScaledCanvas.msapp", "fixtureNavigation.msapp", "fixtureViews.msapp", "fixtureCardLayout.msapp", "fixtureCollectionAliases.msapp"):
+        solution = fixture_build.FIXTURE_DIR / 'fixtureViews.solution.zip' if fixture_name == 'fixtureViews.msapp' else None
+        ir = analyze(parse(unpack(fixture_build.FIXTURE_DIR / fixture_name)), solution=solution)
         out = synthesize(ir, tmp / fixture_name.removesuffix(".msapp"))
         apps.append((out / "App.js.html").read_text())
     app = "\n".join(apps).replace("<script>\n", "").replace("\n</script>", "")
@@ -83,7 +103,10 @@ def generated_fixture_bare_calls() -> tuple[list[str], Path]:
     app = re.sub(r"//[^\n]*", "", app)
     app = re.sub(r"/\*.*?\*/", "", app, flags=re.S)
     calls = set(re.findall(r"(?<![\w.$])([a-zA-Z_]\w*)\s*\(", app))
-    return sorted(calls), out
+    runtime_calls = set(re.findall(r"\bFXRuntime\.(\w+)\s*\(", app))
+    fx_calls = set(re.findall(r"\bFX\.(\w+)\s*\(", app))
+    collection_calls = set(re.findall(r"\bFX\.collections\.(\w+)\s*\(", app))
+    return sorted(calls), out, runtime_calls, fx_calls, collection_calls
 
 
 def main() -> int:
@@ -93,7 +116,7 @@ def main() -> int:
 
     # 1. collection-helper signatures
     for name, (params, min_args) in EXPECTED.items():
-        m = re.search(rf"{name}\s*=\s*function\s*\(([^)]*)\)", src)
+        m = re.search(rf"(?:{name}\s*=\s*function|function\s+{name})\s*\(([^)]*)\)", src)
         if not m:
             problems.append(f"{name}: not defined in gas-runtime.js")
             continue
@@ -101,12 +124,12 @@ def main() -> int:
         if got[: len(params)] != params:
             problems.append(
                 f"{name}: runtime signature ({', '.join(got)}) does not start with "
-                f"({', '.join(params)}); emitter writes {name}(state, '<Name>', ...)")
+                f"({', '.join(params)}); emitter/runtime argument order differs")
         if len(got) < min_args:
             problems.append(f"{name}: takes {len(got)} args, emitter needs >= {min_args}")
 
     # 2. emitter <-> runtime export surface (real fixture conversion)
-    calls, _out = generated_fixture_bare_calls()
+    calls, _out, runtime_calls, fx_calls, collection_calls = generated_fixture_bare_calls()
     fx = fx_exports()
     for call in calls:
         if call in KEYWORDS or call in fx:
@@ -115,6 +138,29 @@ def main() -> int:
             problems.append(
                 f"emitter generates {call}(...) but gas-runtime.js never exports "
                 f"global.{call} — ReferenceError at app startup")
+
+    # Namespaced helpers are just as critical as bare globals. Check their
+    # actual callable surface in Node, including row-scoped handler helpers.
+    run = subprocess.run(["node", "-e", "global.document={getElementById:()=>null,addEventListener:()=>{}};"
+        "require('./static/gas-runtime.js');"
+        "const FX=require('./static/fx-stdlib.js');"
+        "const functions=o=>Object.keys(o).filter(k=>typeof o[k]==='function');"
+        "process.stdout.write(JSON.stringify({runtime:functions(FXRuntime),fx:functions(FX),collections:functions(FX.collections)}));"],
+        cwd=REPO, text=True, capture_output=True, check=True)
+    surfaces = json.loads(run.stdout)
+    available = set(surfaces["runtime"])
+    for call in sorted(runtime_calls - available):
+        problems.append(f"emitter generates FXRuntime.{call}(...) but runtime has no callable helper")
+    # Cover both actual generation (special emitter rewrites) and ordinary
+    # function-map templates, even before a fixture uses a newly added map.
+    from pfx2gas.fx.function_map import FUNCTION_MAP
+    for spec in FUNCTION_MAP.values():
+        if "special-cased" not in spec.note:
+            fx_calls.update(re.findall(r"\bFX\.(\w+)\s*\(", spec.js))
+    for call in sorted(fx_calls - set(surfaces["fx"])):
+        problems.append(f"emitter generates FX.{call}(...) but stdlib has no callable helper")
+    for call in sorted(collection_calls - set(surfaces['collections'])):
+        problems.append(f'emitter generates FX.collections.{call}(...) but stdlib has no callable helper')
 
     if problems:
         print("RUNTIME-EMITTER DRIFT DETECTED:")

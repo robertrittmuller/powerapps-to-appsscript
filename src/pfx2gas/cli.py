@@ -20,6 +20,7 @@ def main(argv: list[str] | None = None) -> int:
 
     conv = sub.add_parser("convert", help="convert an .msapp to an Apps Script project")
     conv.add_argument("msapp", help="path to the .msapp file")
+    conv.add_argument("--solution", help="exported solution ZIP or customizations.xml supplying Dataverse saved-view filters")
     conv.add_argument("-o", "--output", default=None,
                       help="output directory (default: ./output/<app-name>)")
     conv.add_argument("--report-only", action="store_true",
@@ -86,7 +87,11 @@ def main(argv: list[str] | None = None) -> int:
 
     out.print(f"[bold]{unpacked.app_name}[/bold]: {len(unpacked.screens)} screens, "
               f"{len(unpacked.data_sources)} data sources")
-    ir = analyze(parse(unpacked))
+    try:
+        ir = analyze(parse(unpacked), solution=args.solution)
+    except (OSError, ValueError) as exc:
+        err.print(f"source metadata could not be loaded: {exc}")
+        return 1
     ir.webapp_access = args.webapp_access
     ir.webapp_execute_as = args.execute_as
 
@@ -158,9 +163,12 @@ def main(argv: list[str] | None = None) -> int:
 
 def _llm_fallback(ir, client) -> None:
     """Give the LLM one shot at every stubbed formula, in place."""
-    from .fx import transpile  # noqa: F401  (context import)
+    from .fidelity import iter_expressions
+    import json
 
     def try_fix(expr, context: str) -> None:
+        if expr.blocked_dependencies:
+            return  # A model cannot repair missing contracts or invalid declarations.
         if not expr.raw:
             return
         if expr.js is not None and "FX.unsupported" not in expr.js:
@@ -170,17 +178,28 @@ def _llm_fallback(ir, client) -> None:
         if result and result["js"]:
             expr.js = result["js"]
             expr.translation_status = "llm"
+            expr.fidelity_note = "LLM proposal passed syntax/structural checks; behavioral equivalence remains unverified"
             from .ir import SupportEntry
             ir.support_matrix.append(SupportEntry(
                 subject=expr.raw[:80], status="partial",
                 detail=f"LLM-translated (confidence {result['confidence']:.2f}): {result['notes'][:80]}",
             ))
 
-    if ir.on_start:
-        try_fix(ir.on_start, "App.OnStart")
-    for screen in ir.screens:
-        if screen.on_visible:
-            try_fix(screen.on_visible, f"{screen.name}.OnVisible")
-        for ctrl in screen.walk_controls():
-            for pname, expr in ctrl.properties.items():
-                try_fix(expr, f"{screen.name}.{ctrl.name}.{pname}")
+    screens = {screen.name: screen for screen in ir.screens}
+    for screen_name, control, property_name, expr in iter_expressions(ir):
+        screen = screens.get(screen_name)
+        scope = {"definingScreen": screen.name if screen else None,
+                 "localVariables": screen.context_vars if screen else [],
+                 "globalVariables": ir.global_vars,
+                 "namedFormulas": list(ir.named_formulas),
+                 "componentOwner": expr.component_owner,
+                 "componentPrivate": expr.component_private,
+                 "controlAliases": expr.control_aliases}
+        if expr.component_owner:
+            scope['definingScreen'] = None
+            scope['localVariables'] = []
+            if expr.component_private:
+                # The model must not invent access to host globals or rename
+                # private mutable symbols without the deterministic compiler.
+                continue
+        try_fix(expr, f"{screen_name}.{control}.{property_name}\nScope: {json.dumps(scope)}")

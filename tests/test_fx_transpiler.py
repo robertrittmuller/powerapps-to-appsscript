@@ -24,7 +24,7 @@ def test_concat_operator():
 
 
 def test_arithmetic():
-    assert js("1 + 2 * 3") == "(1 + (2 * 3))"
+    assert js("1 + 2 * 3") == "FX.add(1, (2 * 3))"
 
 
 def test_this_item():
@@ -43,19 +43,19 @@ def test_lowercase_control_and_parent_refs_use_runtime_context():
 
 
 def test_optional_function_arguments_never_leak_template_tokens():
-    assert js("Text(score)") == "FX.text(state.score, null)"
+    assert js("Text(score)") == "FX.text(state.score)"
     assert "{a" not in js("Round(score)")
 
 
 def test_set_behavior():
     assert js("Set(counter, counter + 1)", behavior=True) == (
-        "FXRuntime.setState({counter: (state.counter + 1)});"
+        "FXRuntime.setState({counter: FX.add(state.counter, 1)});"
     )
 
 
-def test_update_context_uses_reactive_state_api():
+def test_update_context_uses_screen_context_api():
     assert js("UpdateContext({menuOpen: true, count: 2})", behavior=True) == (
-        "FXRuntime.setState({'menuOpen': true, 'count': 2});"
+        "FXRuntime.updateContext(null, {'menuOpen': true, 'count': 2});"
     )
 
 
@@ -82,6 +82,29 @@ def test_nested_control_fields_are_blank_safe_before_selection():
 
 def test_navigate():
     assert js("Navigate(Screen2)", behavior=True) == "go('Screen2');"
+
+
+def test_navigation_context_keeps_symbol_names_and_resolves_target_control():
+    result = transpile("Navigate(DetailTitle, ScreenTransition.None, {selectedRecord: ThisItem, 'quoted key': false})",
+        behavior=True, screen_name="Browse", screen_names={"Browse", "Details"},
+        control_names={"DetailTitle"}, control_screens={"DetailTitle": "Details"})
+    assert result.js == "go('Details', {'selectedRecord': item, 'quoted key': false});"
+    # Arbitrary record expressions need symbol/schema inference; fail visibly
+    # instead of silently dropping them or changing camelCase field names.
+    from pfx2gas.fx.lexer import FxSyntaxError
+    with pytest.raises(FxSyntaxError, match="context must be a record"):
+        transpile("Navigate(Details, ScreenTransition.None, contextRecord)", screen_names={"Details"})
+
+
+def test_screen_context_shadowing_preserves_global_bypass_and_record_precedence():
+    assert transpile("[@selectedRecord].FirstName", screen_name="Details", control_names=set()).js == (
+        "FX.field(state.selectedRecord, 'first_name')")
+    result = transpile("With({count: 4}, count + [@count])", screen_name="Details", control_names=set()).js
+    assert "FX.scopeValue([__scope1], 'count', () => FXRuntime.variable('Details', 'count', () => state.count))" in result
+    assert ", state.count)))" in result
+    result = transpile("UpdateContext({CamelCase: camelcase, 'quoted key': Blank()})", behavior=True,
+                      screen_name="Details", control_names=set()).js
+    assert result == "FXRuntime.updateContext('Details', {'CamelCase': FXRuntime.variable('Details', 'camelcase', () => state.camelcase), 'quoted key': null});"
 
 
 def test_navigate_dynamic_component_property_and_known_screen():

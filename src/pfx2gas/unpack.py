@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import base64
 import json
+import math
 import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -24,14 +25,18 @@ class UnpackError(Exception):
 @dataclass
 class UnpackedApp:
     app_name: str
+    layout: dict = field(default_factory=dict)
     app_yaml: dict = field(default_factory=dict)
     screens: dict[str, dict] = field(default_factory=dict)  # name -> yaml dict
+    component_definitions: dict[str, dict] = field(default_factory=dict)
     data_sources: list[dict] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     media_resources: dict[str, str] = field(default_factory=dict)
     # Screen names in the app's own order (first one is the start screen).
     # Legacy: TopParent.Index; modern: archive entry order / ScreenOrder.
     screen_order: list[str] = field(default_factory=list)
+    power_fx_v1: bool = False
+    source_metadata: dict = field(default_factory=dict)
 
 
 _IMAGE_MIME_TYPES = {
@@ -152,18 +157,48 @@ def unpack(msapp_path: str | Path) -> UnpackedApp:
                 break
     app_name = app_name or path.stem
 
+    # Preserve only layout metadata; connection/author identifiers are not
+    # needed by the generated page. Both source formats use these settings.
+    layout = {}
+    power_fx_v1 = False
+    layout_keys = {
+        "DocumentLayoutWidth": "designWidth", "DocumentLayoutHeight": "designHeight",
+        "DocumentLayoutScaleToFit": "scaleToFit",
+        "DocumentLayoutMaintainAspectRatio": "lockAspectRatio",
+        "DocumentLayoutLockOrientation": "lockOrientation",
+        "DocumentLayoutOrientation": "orientation",
+    }
+    for metadata_name in ("CanvasManifest.json", "Properties.json"):
+        try:
+            metadata = json.loads(read(metadata_name) or "{}")
+            if not isinstance(metadata, dict):
+                continue
+            flags = metadata.get("AppPreviewFlagsMap") or {}
+            if isinstance(flags, dict) and "powerfxv1" in flags:
+                if type(flags["powerfxv1"]) is not bool:
+                    raise UnpackError("invalid canvas compatibility setting: powerfxv1")
+                power_fx_v1 = flags["powerfxv1"]
+            for original, key in layout_keys.items():
+                if original in metadata:
+                    value = metadata[original]
+                    if key in {"designWidth", "designHeight"}:
+                        valid = type(value) in {int, float} and math.isfinite(value) and value > 0
+                    elif key == "orientation":
+                        valid = isinstance(value, str) and value.lower() in {"portrait", "landscape"}
+                    else:
+                        valid = isinstance(value, bool)
+                    if not valid:
+                        raise UnpackError(f"invalid canvas layout setting: {original}")
+                    layout[key] = value
+        except (json.JSONDecodeError, TypeError):
+            pass
+
     # --- source files: any .pa.yaml under a src/ folder (any casing) ---
     def is_src(n: str) -> bool:
         parts = n.lower().split("/")
         return "src" in parts and n.lower().endswith(".pa.yaml")
 
     src_files = sorted(n for n in entries if is_src(n))
-    # Archive entry order = screen creation order (Power Apps shows the first
-    # screen); used when no explicit ScreenOrder metadata exists.
-    archive_screen_order = [
-        n.rsplit("/", 1)[-1].removesuffix(".pa.yaml")
-        for n in entries if is_src(n)
-    ]
     if not src_files:
         has_legacy = any(n.lower().replace("\\", "/").startswith("controls/")
                          and n.lower().endswith(".json") for n in entries)
@@ -176,6 +211,8 @@ def unpack(msapp_path: str | Path) -> UnpackedApp:
             legacy["media_resources"] = _extract_media_resources(
                 entries, raw_entries, legacy["warnings"]
             )
+            legacy["layout"] = layout
+            legacy["power_fx_v1"] = power_fx_v1
             return UnpackedApp(**legacy)
         if any(n.lower().endswith(".fx.yaml") for n in entries):
             raise UnpackError(
@@ -184,18 +221,37 @@ def unpack(msapp_path: str | Path) -> UnpackedApp:
             )
         raise UnpackError("no src/*.pa.yaml files found in the .msapp archive")
 
-    out = UnpackedApp(app_name=str(app_name))
+    out = UnpackedApp(app_name=str(app_name), layout=layout, power_fx_v1=power_fx_v1)
     out.media_resources = _extract_media_resources(entries, raw_entries, out.warnings)
+    source_screen_names = {}
     for name in src_files:
         base = name.rsplit("/", 1)[-1]
         if base.startswith("_"):  # _EditorState.pa.yaml etc. are auxiliary
             out.warnings.append(f"skipped auxiliary source file: {name}")
             continue
         data = _load_yaml(entries[name])
-        if base.lower() == "app.pa.yaml":
+        if isinstance(data.get('ComponentDefinitions'), dict):
+            for component, definition in data['ComponentDefinitions'].items():
+                if str(component).casefold() in {key.casefold() for key in out.component_definitions}:
+                    raise UnpackError('duplicate canvas component definition: ' + str(component))
+                out.component_definitions[str(component)] = definition
+        elif 'ComponentDefinitions' in data:
+            raise UnpackError('invalid ComponentDefinitions in ' + name)
+        if 'App' in data or base.lower() == "app.pa.yaml":
             out.app_yaml = data
-        else:
+        if isinstance(data.get('Screens'), dict):
+            source_screen_names[name] = []
+            for screen, node in data['Screens'].items():
+                if str(screen).casefold() in {key.casefold() for key in out.screens}:
+                    raise UnpackError('duplicate canvas screen: ' + str(screen))
+                out.screens[str(screen)] = {'Screens': {str(screen): node}}
+                source_screen_names[name].append(str(screen))
+        elif not any(key in data for key in ('App', 'ComponentDefinitions', 'EditorState', 'DataSources')) and base.lower() != 'app.pa.yaml':
             out.screens[base.removesuffix(".pa.yaml")] = data
+            source_screen_names[name] = [base.removesuffix('.pa.yaml')]
+
+    from .native_defaults import restore_layout_defaults
+    restore_layout_defaults(out, entries)
 
     # --- data sources + connection warnings ---
     for name, content in entries.items():
@@ -211,6 +267,21 @@ def unpack(msapp_path: str | Path) -> UnpackedApp:
     if any("connections/" in f"/{n.lower()}" for n in entries):
         out.warnings.append("connection metadata present; data source credentials are NOT migrated")
 
+    reference_sources = read('References/DataSources.json')
+    if reference_sources:
+        from .legacy import decode_reference_sources
+        direct = {source['Name'].casefold(): source for source in out.data_sources}
+        for source in decode_reference_sources(reference_sources):
+            key = source['Name'].casefold()
+            if key in direct:
+                existing = direct[key]
+                merged = dict(source, **existing)
+                existing.clear()
+                existing.update(merged)
+            else:
+                out.data_sources.append(source)
+                direct[key] = source
+
     if not out.screens and not out.app_yaml:
         raise UnpackError("pa.yaml sources found but none contained parseable app/screen definitions")
 
@@ -225,6 +296,6 @@ def unpack(msapp_path: str | Path) -> UnpackedApp:
         except json.JSONDecodeError:
             pass
     if not order:
-        order = archive_screen_order
+        order = [screen for name in entries for screen in source_screen_names.get(name, [])]
     out.screen_order = [s for s in order if s in out.screens]
     return out

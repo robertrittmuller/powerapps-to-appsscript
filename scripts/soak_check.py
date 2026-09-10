@@ -24,6 +24,7 @@ from pfx2gas.benchmark import (FAIL, PASS, UNASSESSED, build_scorecard,
 from pfx2gas.fidelity import iter_expressions
 from pfx2gas.parse import parse
 from pfx2gas.startup_sim import simulate_project
+from pfx2gas.server_sim import simulate_server
 from pfx2gas.synth.build import synthesize
 from pfx2gas.unpack import unpack
 from pfx2gas.validate import validate_project
@@ -103,6 +104,31 @@ def _formula_fidelity(ir: Any) -> dict[str, Any]:
     }
 
 
+def expected_start_screen(ir, metadata):
+    """Independent expected destination, never copied from runtime output."""
+    from pfx2gas.fx import lexer as lx
+    override = metadata.get('startupExpectedScreen')
+    names = {screen.name for screen in ir.screens}
+    if override is not None:
+        if override not in names:
+            raise ValueError('startupExpectedScreen must name an exported screen')
+        return override
+    expr = ir.properties.get('StartScreen')
+    if not expr or not expr.raw.strip():
+        return ir.start_screen
+    try:
+        roots = lx.parse_formula(expr.raw)
+    except lx.FxSyntaxError:
+        return ir.start_screen  # The runtime must still report the source error.
+    if len(roots)==1:
+        node=roots[0]
+        if node.kind=='ident' and len(parts:=lx.reference_parts(str(node.value)))==1 and parts[0] in names:
+            return parts[0]
+        if (node.kind=='call' and node.value=='Blank' and not node.children) or (node.kind=='str' and not node.value):
+            return ir.start_screen
+    return None  # A dynamic destination requires a source-backed catalog expectation.
+
+
 def _run_app(path: Path, output_dir: Path, metadata: dict[str, Any]) -> dict[str, Any]:
     t0 = time.time()
     app: dict[str, Any] = {
@@ -139,7 +165,10 @@ def _run_app(path: Path, output_dir: Path, metadata: dict[str, Any]) -> dict[str
     shutil.rmtree(output_dir, ignore_errors=True)
     try:
         unpacked = unpack(path)
-        ir = analyze(parse(unpacked))
+        solution = REPO / metadata['solution'] if metadata.get('solution') else None
+        ir = analyze(parse(unpacked), solution=solution)
+        expected_screen = expected_start_screen(ir, metadata)
+        app['sourceMetadata'] = ir.source_metadata
         synthesize(ir, output_dir)
         app["stages"]["convert"] = PASS
         app["name"] = ir.name or metadata["displayName"]
@@ -151,6 +180,7 @@ def _run_app(path: Path, output_dir: Path, metadata: dict[str, Any]) -> dict[str
                 else "modern-pa-yaml"
             ),
             "startScreen": ir.start_screen,
+            "startScreenFormula": ir.properties['StartScreen'].raw if 'StartScreen' in ir.properties else None,
             "screenCount": len(ir.screens),
             "controlCount": len(controls),
             "controlTypes": dict(sorted(Counter(ctrl.type for ctrl in controls).items())),
@@ -166,6 +196,9 @@ def _run_app(path: Path, output_dir: Path, metadata: dict[str, Any]) -> dict[str
         app["stages"]["validate"] = PASS if validation["ok"] else FAIL
         app["problems"].extend(validation["problems"])
         if validation["ok"]:
+            server_verdict = simulate_server(output_dir)
+            app["evidence"]["server"] = server_verdict
+            app["problems"].extend("server: " + error for error in server_verdict["errors"])
             automated = [
                 {"id": journey["id"], "steps": journey["steps"]}
                 for journey in metadata.get("criticalJourneys", [])
@@ -173,7 +206,7 @@ def _run_app(path: Path, output_dir: Path, metadata: dict[str, Any]) -> dict[str
             ]
             verdict = simulate_project(output_dir, automated)
             startup = {
-                "expectedScreen": ir.start_screen,
+                "expectedScreen": expected_screen,
                 "visibleScreens": verdict.get("visible", []),
                 "referenceErrors": verdict.get("refErrors", []),
                 "consoleErrors": verdict.get("consoleErrors", []),
@@ -181,7 +214,9 @@ def _run_app(path: Path, output_dir: Path, metadata: dict[str, Any]) -> dict[str
             app["evidence"]["startup"] = startup
             app["evidence"]["journeys"] = _journey_evidence(metadata, verdict)
             boot_ok = (
-                startup["visibleScreens"] == [ir.start_screen]
+                server_verdict["status"] == PASS
+                and expected_screen is not None
+                and startup["visibleScreens"] == [expected_screen]
                 and not startup["referenceErrors"]
                 and not startup["consoleErrors"]
             )
@@ -189,7 +224,7 @@ def _run_app(path: Path, output_dir: Path, metadata: dict[str, Any]) -> dict[str
             if not boot_ok:
                 app["problems"].append(
                     "startup: expected={expected!r}, visible={visible!r}, errors={errors!r}".format(
-                        expected=ir.start_screen,
+                        expected=expected_screen,
                         visible=startup["visibleScreens"],
                         errors=startup["consoleErrors"],
                     )

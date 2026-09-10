@@ -17,8 +17,283 @@ global.document = {
 global.window = global;
 
 require('../../static/fx-charts.js');
+require('../../static/fx-stdlib.js');
 require('../../static/gas-runtime.js');
 const RT = global.FXRuntime;
+
+test('reverse style dependencies settle without replaying ordinary evaluators, and cycles fail visibly', () => {
+  const vm=require('node:vm'),fs=require('node:fs'),errors=[];
+  const elements=Array.from({length:12},()=>({tagName:'DIV',style:{left:'0px',top:'0px',width:'10px',height:'20px'},getAttribute:()=>null}));
+  const document={...global.document,querySelector:selector=>elements[Number((selector.match(/C(\d+)/)||[])[1])]||null};
+  const ctx=vm.createContext({document,console:{error:(...args)=>errors.push(args.join(' '))}});ctx.window=ctx;
+  vm.runInContext(fs.readFileSync(require.resolve('../../static/gas-runtime.js'),'utf8'),ctx);
+  let anchor=20,ordinaryCalls=0;
+  ctx.FXRuntime.registerControlProps('C5',null,{y:()=>ctx.val('C6').y+24});
+  ctx.FXRuntime.addEvaluator(()=>{ordinaryCalls++;});
+  for(let i=0;i<11;i++) ctx.FXRuntime.styleControl('C'+i,'top',()=>ctx.val('C'+(i+1)).y+24,'px');
+  ctx.FXRuntime.styleControl('C11','top',()=>anchor,'px');
+  ordinaryCalls=0;ctx.FXRuntime.updateBindings();
+  assert.equal(elements[0].style.top,'284px');assert.equal(ordinaryCalls,1);
+  anchor=100;ordinaryCalls=0;ctx.FXRuntime.updateBindings();
+  assert.equal(elements[0].style.top,'364px');assert.equal(ordinaryCalls,1);
+  ctx.FXRuntime.styleControl('C11','left',()=>-30.5,'px');
+  ctx.FXRuntime.updateBindings();assert.equal(elements[11].style.left,'-30.5px');
+  assert.deepEqual(errors,[]);
+  ctx.FXRuntime.styleControl('C11','width',()=>ctx.val('C11').width+1,'px');
+  ctx.FXRuntime.updateBindings();
+  assert.ok(errors.some(message=>message.includes('style layout did not settle after 32 passes')));
+});
+
+test('button presentation preserves source text and exposes unsupported values with recovery', () => {
+  const vm=require('node:vm'),fs=require('node:fs'),errors=[];
+  function element() {
+    return {tagName:'BUTTON',style:{},attrs:{},children:[],caption:'',
+      get textContent() {return this.caption+this.children.map(child=>child.textContent).join('');},
+      set textContent(value) {this.caption=String(value);this.children=[];},
+      appendChild(child) {this.children.push(child);},
+      setAttribute(key,value) {this.attrs[key]=String(value);},
+      getAttribute(key) {return this.attrs[key]??null;},
+      removeAttribute(key) {delete this.attrs[key];},
+    };
+  }
+  const button=element(), document={querySelector:()=>button,getElementById:()=>null,
+    createElement:element,addEventListener:()=>{}};
+  const ctx=vm.createContext({document,console:{error:(...args)=>errors.push(args.join(' '))}});ctx.window=ctx;
+  vm.runInContext(fs.readFileSync(require.resolve('../../static/gas-runtime.js'),'utf8'),ctx);
+  const rt=ctx.FXRuntime;
+  assert.strictEqual(rt.configureButtonIcons.length,1);
+  rt.configureButtonIcons({save:'▣',delete:'×'});
+  let caption='Save draft',icon='Icon.Save',layout='Icon after',rotation=0,label='';
+  const update=()=>rt.rowControl(document,'Action',null,{text:()=>caption,
+    buttonIcon:()=>icon,buttonLayout:()=>layout,buttonRotation:()=>rotation,ariaLabel:()=>label});
+  update();
+  const content=button.__fxButtonContent;
+  assert.strictEqual(button.textContent,'Save draft');
+  assert.strictEqual(content.icon.getAttribute('data-fx-glyph'),'▣');
+  assert.strictEqual(content.host.getAttribute('data-fx-button-layout'),'iconafter');
+  assert.strictEqual(button.getAttribute('aria-label'),'Save draft');
+  caption='';icon='Delete';layout='IconOnly';rotation=90;update();
+  assert.strictEqual(button.__fxButtonContent,content,'updates retain the caption and icon nodes');
+  assert.strictEqual(button.textContent,'');
+  assert.strictEqual(button.getAttribute('aria-label'),'Delete');
+  assert.strictEqual(content.caption.style.display,'none');
+  assert.strictEqual(content.icon.style.transform,'rotate(90deg)');
+  label='Delete entry';update();
+  assert.strictEqual(button.getAttribute('aria-label'),'Delete entry');
+  assert.strictEqual(button.getAttribute('data-fx-inferred-label'),null);
+  icon='UnmappedGlyph';update();
+  assert.match(errors.pop(),/Unsupported button Icon: UnmappedGlyph/);
+  assert.strictEqual(content.icon.getAttribute('data-fx-glyph'),'?');
+  assert.strictEqual(button.getAttribute('data-unsupported-icon'),'UnmappedGlyph');
+  layout='TextOnly';caption='Continue';update();
+  assert.strictEqual(content.icon.style.display,'none');
+  assert.strictEqual(button.getAttribute('data-unsupported-icon'),null);
+  layout='InvalidLayout';update();assert.match(errors.pop(),/Unsupported button Layout/);
+  layout='IconBefore';icon='Save';rotation='invalid';update();
+  assert.match(errors.pop(),/Button IconRotation must be finite/);
+  rotation=0;update();
+  assert.strictEqual(content.icon.getAttribute('data-fx-glyph'),'▣');
+  assert.strictEqual(button.textContent,'Continue');
+  assert.deepStrictEqual(errors,[]);
+});
+
+test('document-scoped input reads retain lazy component properties', () => {
+  const previous = document.querySelector;
+  const host = {tagName:'DIV',style:{},textContent:'',getAttribute:()=>null};
+  let caption = 'First';
+  document.querySelector = selector => selector.includes('ComponentPropertyHost') ? host : null;
+  try {
+    RT.registerControlProps('ComponentPropertyHost', null, {caption:() => caption});
+    assert.strictEqual(RT.rowValue(document, 'ComponentPropertyHost').caption, 'First');
+    caption = 'Changed';
+    assert.strictEqual(RT.rowValue(document, 'ComponentPropertyHost').caption, 'Changed');
+  } finally { document.querySelector = previous; }
+});
+
+test('named values remain lazy, immutable and reactive, with forward references and cycle recovery', () => {
+  assert.strictEqual(RT.registerNamedFormulas.length, 1);
+  let base = 2, reads = 0, broken = true;
+  RT.registerNamedFormulas({
+    NamedLater: () => RT.state.NamedBase + 1,
+    NamedBase: () => { reads++; return base; },
+    NamedCycleA: () => RT.state.NamedCycleB,
+    NamedCycleB: () => RT.state.NamedCycleA,
+    NamedFailure: () => { if (broken) throw new Error('dependency unavailable'); return 8; },
+    NamedPromise: () => Promise.resolve(1),
+  });
+  assert.strictEqual(reads, 0, 'registration must not evaluate unused dependencies');
+  assert.strictEqual(RT.state.NamedLater, 3);
+  base = 8;
+  assert.strictEqual(RT.state.NamedLater, 9);
+  assert.throws(() => { RT.state.NamedBase = 20; }, /read-only/);
+  assert.strictEqual(RT.state.NamedBase, 8);
+  assert.throws(() => RT.state.NamedCycleA, /Circular named formula: NamedCycleA -> NamedCycleB -> NamedCycleA/);
+  assert.throws(() => RT.state.NamedFailure, /dependency unavailable/);
+  broken = false;
+  assert.strictEqual(RT.state.NamedFailure, 8, 'failed reads must release dependency stack');
+  assert.throws(() => RT.state.NamedPromise, /Asynchronous named formula/);
+  assert.throws(() => RT.registerNamedFormulas({NamedNew: () => 1, namedbase: () => 2}), /conflicting/);
+  assert.strictEqual(Object.hasOwn(RT.state, 'NamedNew'), false, 'a rejected registry cannot partly install');
+  assert(!Object.keys(RT.state).includes('NamedCycleA'), 'debug snapshots must not force unused formulas');
+});
+
+test('row property definitions resolve in their own scope and detect actual dependency cycles', () => {
+  const first={tagName:'SPAN',textContent:'first',style:{}},second={tagName:'SPAN',textContent:'second',style:{}};
+  const row1={querySelector:name=>name.includes('ScopedCaption')?first:null};
+  const row2={querySelector:name=>name.includes('ScopedCaption')?second:null};
+  let size=9;
+  RT.registerRowProps(row1,'ScopedCaption',null,{size:()=>size,padding_left:(_read,self)=>self.size+2});
+  RT.registerRowProps(row2,'ScopedCaption',null,{size:()=>RT.rowValue(row1,'ScopedCaption').size+3});
+  assert.strictEqual(RT.rowValue(row1,'ScopedCaption').padding_left,11);
+  assert.strictEqual(RT.rowValue(row2,'ScopedCaption').size,12,'same-named instances are independent dependencies');
+  size=20;
+  assert.strictEqual(RT.rowValue(row1,'ScopedCaption').padding_left,22);
+  assert.strictEqual(RT.rowValue(row2,'ScopedCaption').size,23);
+  RT.registerRowProps(row1,'ScopedCaption',null,{size:(read)=>read('ScopedCaption').size});
+  assert.throws(()=>RT.rowValue(row1,'ScopedCaption').size,/Circular control property/);
+});
+
+test('control lookup caches stable nodes but observes replacements and reordered gallery instances', () => {
+  const original=global.document.querySelector;
+  let calls=0,current={isConnected:true,closest:()=>null};
+  global.document.querySelector=()=>{calls++;return current;};
+  try {
+    assert.strictEqual(RT.controlElement('LookupContract'),current);
+    assert.strictEqual(RT.controlElement('LookupContract'),current);
+    assert.strictEqual(calls,1);
+    current.isConnected=false;
+    current={isConnected:true,closest:()=>null};
+    assert.strictEqual(RT.controlElement('LookupContract'),current);
+    assert.strictEqual(calls,2);
+    current.isConnected=false;
+    const first={isConnected:true,closest:()=>({})},second={isConnected:true,closest:()=>({})};
+    current=first;
+    assert.strictEqual(RT.controlElement('LookupContract'),first);
+    current=second;
+    assert.strictEqual(RT.controlElement('LookupContract'),second);
+    assert.strictEqual(calls,4,'global gallery references must follow current row order');
+  } finally { global.document.querySelector=original; }
+});
+
+test('control references avoid layout measurement when inline geometry is available', () => {
+  const original=global.document.querySelector;
+  let measurements=0;
+  const el={tagName:'SPAN',textContent:'Ready',style:{width:'120px',height:'30px',left:'8px',top:'12px'},
+    getBoundingClientRect() { measurements++; return {width:130,height:40,left:18,top:22}; }};
+  global.document.querySelector=()=>el;
+  try {
+    const inline=global.val('MeasuredLabel');
+    assert.deepStrictEqual([inline.text,inline.width,inline.height,inline.x,inline.y],['Ready',120,30,8,12]);
+    assert.strictEqual(measurements,0,'reading source-sized controls must not force browser layout');
+    delete el.style.height;delete el.style.top;
+    const fallback=global.val('MeasuredLabel');
+    assert.deepStrictEqual([fallback.width,fallback.height,fallback.x,fallback.y],[120,40,8,22]);
+    assert.strictEqual(measurements,1,'missing inline dimensions share one measured rectangle');
+    el.style.width='240px';
+    assert.strictEqual(global.val('MeasuredLabel').width,240);
+    assert.strictEqual(measurements,2,'a later reference must observe current geometry');
+  } finally { global.document.querySelector=original; }
+});
+
+test('gallery template dimensions exist before the first Items binding mounts rows', () => {
+  const vm = require('node:vm'), fs = require('node:fs');
+  const gallery = {tagName:'DIV',style:{width:'390px'},textContent:'',
+    getAttribute:name=>({'data-template-size':'182','data-template-padding':'8'}[name] ?? null)};
+  const ctx = vm.createContext({document:{...global.document,querySelector:()=>gallery}});
+  ctx.window=ctx;
+  vm.runInContext(fs.readFileSync(require.resolve('../../static/gas-runtime.js'),'utf8'),ctx);
+  const ref=ctx.val('Responses');
+  assert.strictEqual(ref.template_height,182);
+  assert.strictEqual(ref.template_size,182);
+  assert.strictEqual(ref.template_padding,8);
+  assert.strictEqual(ref.template_width,390);
+  assert.strictEqual(2*(ref.template_height+ref.template_padding),380);
+});
+
+test('responsive gallery TemplateSize resolves before rows and updates without stale metadata', () => {
+  const vm=require('node:vm'),fs=require('node:fs');
+  const attrs={'data-gallery-layout':'vertical','data-template-padding':'0'};
+  const host={tagName:'DIV',style:{width:'390px',height:'200px'},textContent:'',getAttribute:key=>attrs[key]??null};
+  const ctx=vm.createContext({document:{...global.document,querySelector:()=>host}});ctx.window=ctx;
+  vm.runInContext(fs.readFileSync(require.resolve('../../static/gas-runtime.js'),'utf8'),ctx);
+  const rt=ctx.FXRuntime;
+  assert.equal(rt.registerGalleryTemplate.length,3);
+  let wide=true;
+  rt.registerGalleryTemplate('ResponsiveRows','Card',(_val,self,parent)=>{
+    assert.equal(self.width,390);assert.equal(parent.height,200);
+    return wide?72:84;
+  });
+  assert.equal(ctx.val('ResponsiveRows').template_height,72);
+  assert.equal(ctx.val('ResponsiveRows').template_height*0,0);
+  wide=false;
+  assert.equal(ctx.val('ResponsiveRows').template_height*2,168);
+  attrs['data-gallery-layout']='horizontal';attrs['data-template-size']='999';
+  assert.equal(ctx.val('ResponsiveRows').template_width,84);
+  assert.equal(ctx.val('ResponsiveRows').template_height,200);
+  rt.registerGalleryTemplate('ResponsiveRows','Card',()=>Infinity);
+  assert.throws(()=>ctx.val('ResponsiveRows').template_width,/Non-finite gallery TemplateSize/);
+  rt.registerGalleryTemplate('ResponsiveRows','Card',(_val,self)=>self.template_width);
+  assert.throws(()=>ctx.val('ResponsiveRows').template_width,/Circular gallery TemplateSize/);
+  rt.registerGalleryTemplate('ResponsiveRows','Card',()=>0);
+  assert.equal(ctx.val('ResponsiveRows').template_width,1);
+});
+
+test('explicit gallery wrapping allocates cross-axis space and padding to each template',()=>{
+  const vm=require('node:vm'),fs=require('node:fs');
+  const attrs={'data-template-size':'180','data-template-padding':'10','data-wrap-count':'2'};
+  const host={tagName:'DIV',style:{width:'630px',height:'240px'},textContent:'',getAttribute:key=>attrs[key]??null};
+  const ctx=vm.createContext({document:{...global.document,querySelector:()=>host}});ctx.window=ctx;
+  vm.runInContext(fs.readFileSync(require.resolve('../../static/gas-runtime.js'),'utf8'),ctx);
+  assert.equal(ctx.val('Wrapped').template_width,300);
+  attrs['data-wrap-count']='1';assert.equal(ctx.val('Wrapped').template_width,610);
+  attrs['data-wrap-count']='0';assert.equal(ctx.val('Wrapped').template_width,610);
+  attrs['data-template-padding']='20';host.style.width='640px';assert.equal(ctx.val('Wrapped').template_width,600);
+  attrs['data-gallery-layout']='horizontal';assert.equal(ctx.val('Wrapped').template_width,180);
+  assert.equal(ctx.val('Wrapped').template_height,200);
+});
+
+test('startup waits for session identity before source OnStart snapshots User()', async () => {
+  const vm = require('node:vm'), fs = require('node:fs');
+  let ready, success;
+  const runner = new Proxy({}, {get(_target, name) {
+    if (name === 'withSuccessHandler') return callback => {success=callback; return runner;};
+    if (name === 'withFailureHandler') return () => runner;
+    if (name === 'whoami') return () => {};
+  }});
+  const ctx = vm.createContext({document:{...global.document,addEventListener:(_ev,fn)=>{ready=fn;}},
+    google:{script:{run:runner}},console,setTimeout,clearTimeout});
+  ctx.window=ctx;
+  vm.runInContext(fs.readFileSync(require.resolve('../../static/gas-runtime.js'),'utf8'),ctx);
+  let observed;
+  ctx.APP_MAIN=()=>{observed=ctx.FXUser().email;};
+  const startup=ready();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.strictEqual(observed,undefined);
+  success({email:'actual@example.test',fullName:'Actual User',pictureUrl:'avatar'});
+  await startup;
+  assert.strictEqual(observed,'actual@example.test');
+  assert.strictEqual(ctx.FXUser().full_name,'Actual User');
+  assert.strictEqual(ctx.FXUser().image,'avatar');
+});
+
+test('horizontal gallery template dimensions cannot recursively grow its source width', () => {
+  const vm=require('node:vm'),fs=require('node:fs');
+  const attrs={'data-gallery-layout':'horizontal','data-template-size':'48','data-template-padding':'20'};
+  const host={tagName:'DIV',style:{width:'1px',height:'1px'},textContent:'',getAttribute:key=>attrs[key]??null};
+  const ctx=vm.createContext({document:{...global.document,querySelector:()=>host}});ctx.window=ctx;
+  vm.runInContext(fs.readFileSync(require.resolve('../../static/gas-runtime.js'),'utf8'),ctx);
+  for (let pass=0;pass<50;pass++) {
+    const self=ctx.val('LoadingLogos');
+    host.style.width=((self.template_width+self.template_padding)*3+self.template_padding)+'px';
+    host.style.height=(self.template_width+2*self.template_padding)+'px';
+  }
+  assert.equal(host.style.width,'224px');
+  assert.equal(host.style.height,'88px');
+  assert.equal(ctx.val('LoadingLogos').template_width,48);
+  assert.equal(ctx.val('LoadingLogos').template_height,48);
+  attrs['data-wrap-count']='2';host.style.height='156px';
+  assert.equal(ctx.val('LoadingLogos').template_height,48);
+});
 
 test('launch parameters are case-sensitive text with Blank for absent keys', () => {
   const vm = require('node:vm');
@@ -69,6 +344,136 @@ test('serverRun rejects when the failure handler fires', async () => {
   await assert.rejects(RT.serverRun('api', 'Tasks', 'list', {}), /boom/);
 });
 
+test('connector bindings coalesce reads, surface failures, and discard snapshots invalidated by writes', async () => {
+  const requests=[];
+  global.google={script:{get run() {
+    const handlers={};
+    const runner={withSuccessHandler(fn){handlers.ok=fn;return runner;},
+      withFailureHandler(fn){handlers.fail=fn;return runner;},
+      connector(...args){requests.push({...handlers,args});}};
+    return runner;
+  }}};
+  RT.configureServices({Planner:{operations:{ListTasks:{arity:[1],write:false},CreateTaskV3:{arity:[3],write:true}}}});
+  assert.strictEqual(RT.connectorCall.length,3);
+  assert.strictEqual(RT.connectorRead.length,3);
+  assert.strictEqual(RT.connectorRead('Planner','ListTasks',['p']),null);
+  assert.strictEqual(RT.connectorRead('Planner','ListTasks',['p']),null);
+  assert.strictEqual(requests.length,1);
+  const pendingWrite=RT.connectorCall('Planner','CreateTaskV3',['g','p','new']);
+  requests[1].ok({id:'new'});
+  assert.deepStrictEqual(await pendingWrite,{id:'new'});
+  requests[0].ok({value:[{id:'stale'}]});
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.strictEqual(RT.connectorRead('Planner','ListTasks',['p']),null);
+  requests[2].ok({value:[{id:'new'}]});
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.deepStrictEqual(RT.connectorRead('Planner','ListTasks',['p']),{value:[{id:'new'}]});
+  assert.throws(()=>RT.connectorRead('Planner','CreateTaskV3',['g','p','bad']),/behavior/);
+  assert.throws(()=>RT.connectorRead('Planner','ListTasks',[]),/number/);
+  RT.refreshConnector('Planner');
+  const oldError=console.error;
+  try {
+    console.error=()=>{};
+    RT.connectorRead('Planner','ListTasks',['p']);
+    requests[3].fail(new Error('migration missing'));
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.throws(()=>RT.connectorRead('Planner','ListTasks',['p']),/migration missing/);
+    assert.strictEqual(requests.length,4);
+    RT.refreshConnector('Planner');
+    RT.connectorRead('Planner','ListTasks',['p']);
+    requests[4].ok({value:[]});
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.deepStrictEqual(RT.connectorRead('Planner','ListTasks',['p']),{value:[]});
+    const failedWrite=RT.connectorCall('Planner','CreateTaskV3',['g','p','uncertain']);
+    requests[5].fail(new Error('uncertain write'));
+    await assert.rejects(failedWrite,/uncertain write/);
+    assert.strictEqual(requests.length,6); // No automatic mutation retry.
+    assert.strictEqual(RT.connectorRead('Planner','ListTasks',['p']),null);
+    requests[6].ok({value:[{id:'saved-before-timeout'}]});
+    await new Promise(resolve=>setImmediate(resolve));
+  } finally {console.error=oldError; RT.configureServices({});}
+});
+
+test('apiPatchRecord sends the keyed overload and does not refresh state on failure', async () => {
+  assert.strictEqual(global.apiPatchRecord.length,2);
+  installGoogleMock('ok');
+  const record = {project:'source-key',budget:0,active:false};
+  const saved = await global.apiPatchRecord('Keyed',record);
+  assert.strictEqual(saved.called,'api');
+  assert.deepStrictEqual(saved.args,['Keyed','patchRecord',{record}]);
+  assert.deepStrictEqual(global.state.Keyed.args,['Keyed','list',{}]);
+  const before = global.state.Keyed;
+  installGoogleMock('fail');
+  await assert.rejects(global.apiPatchRecord('Keyed',record),/boom/);
+  assert.strictEqual(global.state.Keyed,before);
+});
+
+test('relationship projections refresh only the first side and require typed, unambiguous records', async () => {
+  const contracts = {
+    People:{primaryKey:'key',keys:['key'],navigation:{groups:{kind:'many-to-many',schema:'members',side:2,target:'Groups'}}},
+    Groups:{primaryKey:'key',keys:['key'],navigation:{people:{kind:'many-to-many',schema:'members',side:1,target:'People'},
+      unsupported:{error:'one-to-many adapter missing'}}},
+  };
+  const rows = {People:[{key:'p',name:'Ada'}],Groups:[{key:'g',name:'Group'}]};
+  let links = [], calls = [], failure = false, handlers = {};
+  const runner = new Proxy({}, {get(_target,name) {
+    if (name === 'withSuccessHandler') return cb=>{handlers.ok=cb;return runner;};
+    if (name === 'withFailureHandler') return cb=>{handlers.fail=cb;return runner;};
+    return (ds,op,payload)=>{
+      const captured=handlers; handlers={}; calls.push([ds,op,payload]);
+      queueMicrotask(()=>{
+        if (failure) {captured.fail(new Error('relationship service failed'));return;}
+        if (op === 'relate') links=[['members','g','p']];
+        if (op === 'unrelate') links=[];
+        captured.ok(JSON.parse(JSON.stringify(op==='list'?rows[ds]:op==='relationshipSnapshot'?{links,targets:rows}:null)));
+      });
+    };
+  }});
+  global.google={script:{run:runner}};
+  RT.configureRelationships(contracts);
+  try {
+    await Promise.all([global.refreshData('People'),global.refreshData('Groups')]);
+    assert.strictEqual(global.apiRelate.length,3);
+    const group=global.state.Groups[0], person=global.state.People[0];
+    assert.deepStrictEqual(FX.field(group,'people'),[]);
+    calls=[];
+    assert.strictEqual(await global.apiRelate(FX.field(group,'people'),person,false),null);
+    assert.deepStrictEqual(calls.map(c=>c.slice(0,2)),[['Groups','relate'],['Groups','list'],['Groups','relationshipSnapshot']]);
+    assert.deepStrictEqual(calls[0][2],{relationship:'people',base:{key:'g'},record:person});
+    assert.deepStrictEqual(FX.field(group,'people').map(r=>r.name),['Ada']);
+    assert.deepStrictEqual(FX.field(person,'groups'),[]);
+    await global.refreshData('People');
+    assert.deepStrictEqual(FX.field(person,'groups').map(r=>r.name),['Group']);
+    assert.deepStrictEqual(FX.scopeValue([group],'people',()=>null).map(r=>r.name),['Ada']);
+    failure=true;
+    await assert.rejects(global.apiRelate(FX.field(group,'people'),person,true),/service failed/);
+    assert.strictEqual(FX.field(group,'people').length,1);
+    failure=false;
+    await global.apiRelate(FX.field(group,'people'),person,true);
+    assert.deepStrictEqual(FX.field(group,'people'),[]);
+    await assert.rejects(global.apiRelate([],person,false),/direct exported relationship/);
+    assert.throws(()=>FX.field(group,'unsupported'),/adapter missing/);
+    contracts.People.navigation.people=contracts.Groups.navigation.people;
+    assert.throws(()=>FX.field({key:'g'},'people'),/ambiguous relationship record/);
+    // Typed loaded rows still resolve when different tables share a key label.
+    assert.deepStrictEqual(FX.field(group,'people'),[]);
+    assert.throws(()=>FX.field({key:17},'people'),/invalid relationship primary key/);
+  } finally {RT.configureRelationships({});}
+});
+
+test('serverRun encodes nested dates without changing client records or hiding invalid values', async () => {
+  installGoogleMock('ok');
+  const record = {when: new Date('2026-09-09T12:34:56Z'), nested: [{done: false, count: 0, blank: null}]};
+  const out = await RT.serverRun('api', 'Projects', 'patch', {record});
+  assert.strictEqual(out.args[2].record.when, '2026-09-09T12:34:56.000Z');
+  assert.deepStrictEqual(out.args[2].record.nested, [{done: false, count: 0, blank: null}]);
+  assert.ok(record.when instanceof Date);
+  await assert.rejects(RT.serverRun('api', {when: new Date('invalid')}), /invalid date/);
+  await assert.rejects(RT.serverRun('api', {callback() {}}), /argument type/);
+  const cyclic = {}; cyclic.self = cyclic;
+  await assert.rejects(RT.serverRun('api', cyclic), /circular/);
+});
+
 test('apiChoices bridges the emitted client call to Apps Script', async () => {
   installGoogleMock('ok');
   const out = await global.apiChoices('Students', 'Subject');
@@ -77,8 +482,45 @@ test('apiChoices bridges the emitted client call to Apps Script', async () => {
 });
 
 test('goBack without history is a no-op, not a crash', () => {
-  RT.goBack();
-  assert.ok(true);
+  assert.strictEqual(RT.goBack(), false);
+});
+
+test('navigation contexts preserve Blank, false, zero, scope and history', async () => {
+  const vm = require('node:vm'), fs = require('node:fs');
+  const ctx = vm.createContext({document: {...global.document}, console});
+  ctx.window = ctx;
+  vm.runInContext(fs.readFileSync(require.resolve('../../static/gas-runtime.js'), 'utf8'), ctx);
+  const rt = ctx.FXRuntime;
+  assert.strictEqual(ctx.go.length, 2);
+  assert.strictEqual(rt.updateContext.length, 2);
+  rt.configureCanvas({}, {}, {Browse: {}, Detail: {}});
+  rt.configureContexts({Browse:['selected', 'shared'], Detail:['selected', 'shared', 'CamelCase']});
+  let fallbacks = 0;
+  const fallback = () => { fallbacks++; return 'global'; };
+  assert.strictEqual(rt.variable('Detail', 'selected', fallback), null);
+  assert.strictEqual(fallbacks, 0);
+  assert.strictEqual(rt.variable('Detail', 'undeclared', fallback), 'global');
+  assert.strictEqual(ctx.goBack(), false);
+  ctx.go('Browse', {shared:'browse'});
+  const record = {id:'two', first_name:'Grace'};
+  let entered;
+  rt.registerScreenHandler('Detail', () => { entered = rt.variable('Detail','selected'); });
+  assert.strictEqual(ctx.go('Detail', {selected:record, shared:false, CamelCase:0}), true);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.strictEqual(entered, record);
+  assert.strictEqual(rt.variable('Detail', 'SHARED', fallback), false);
+  assert.strictEqual(rt.variable('Detail', 'camelcase', fallback), 0);
+  assert.strictEqual(rt.variable('Browse', 'shared'), 'browse');
+  assert.strictEqual(ctx.go('missing', {shared:'lost'}), false);
+  assert.strictEqual(ctx.val('App').active_screen, 'Detail');
+  assert.strictEqual(ctx.goBack(), true);
+  assert.strictEqual(ctx.val('App').active_screen, 'Browse');
+  // An awaited old-screen handler explicitly retains its defining screen.
+  rt.updateContext('Detail', {selected:null});
+  assert.strictEqual(rt.variable('Detail', 'selected', fallback), null);
+  assert.strictEqual(rt.variable('Browse', 'selected', fallback), null);
+  assert.strictEqual(rt.variable('Detail', 'shared'), false);
+  assert.strictEqual(ctx.goBack(), false);
 });
 
 test('setState immediately re-evaluates reactive bindings', () => {
@@ -113,6 +555,40 @@ test('App.ActiveScreen reflects navigation for component menu inputs', () => {
   assert.equal(val('App').active_screen, 'HOME');
   go('DETAIL');
   assert.equal(val('App').active_screen, 'DETAIL');
+});
+
+test('checkbox Value is boolean, slider Value is numeric, and button Text is its caption', () => {
+  const checkbox = {tagName:'INPUT',type:'checkbox',value:'on',checked:false,style:{}};
+  assert.strictEqual(val('Toggle', checkbox).value, false);
+  checkbox.checked = true;
+  assert.strictEqual(val('Toggle', checkbox).value, true);
+  assert.strictEqual(val('Slider', {tagName:'INPUT',type:'range',value:'42',style:{}}).value, 42);
+  assert.strictEqual(val('Button', {tagName:'BUTTON',value:'',textContent:'Continue',style:{}}).text, 'Continue');
+});
+
+test('canvas dimensions are available before navigation and update on viewport resize', () => {
+  const vm = require('node:vm'), fs = require('node:fs');
+  const events = {};
+  const screen = {style:{}};
+  const context = vm.createContext({innerWidth:1000,innerHeight:700,
+    addEventListener:(name,fn)=>{events[name]=fn;},
+    document:{...global.document,querySelector:()=>screen},console});
+  context.window = context;
+  vm.runInContext(fs.readFileSync(require.resolve('../../static/gas-runtime.js'),'utf8'),context);
+  context.FXRuntime.configureCanvas({designWidth:1366,designHeight:768,scaleToFit:false}, {
+    min_screen_width:()=>320, min_screen_height:()=>320, size_breakpoints:()=>[600,900,1200,1400],
+  }, {'Home':{width:read=>Math.max(read('App').width,read('App').min_screen_width)}});
+  assert.strictEqual(context.val('App').width,1000);
+  assert.strictEqual(context.val('Home').width,1000);
+  assert.strictEqual(context.val('Home').size,3);
+  assert.strictEqual(context.val('Home').orientation,'Horizontal');
+  context.innerWidth=300; context.innerHeight=700; events.resize();
+  assert.strictEqual(context.val('App').width,300);
+  assert.strictEqual(context.val('Home').width,320);
+  assert.strictEqual(context.val('Home').orientation,'Vertical');
+  assert.strictEqual(screen.style.width,'320px');
+  context.innerWidth=1500; events.resize();
+  assert.strictEqual(context.val('Home').size,5);
 });
 
 test('dependent evaluators receive Parent control properties', () => {
@@ -160,6 +636,8 @@ test('record-valued dropdown options choose a readable scalar label', () => {
   assert.deepStrictEqual(RT.optionRecord('plain'), { value: 'plain', label: 'plain' });
   assert.deepStrictEqual(RT.optionRecord({ first_name: 'Ada' }, ['FirstName']),
     { value: 'Ada', label: 'Ada' });
+  assert.deepStrictEqual(RT.optionRecord({id:'source-team',display_name:'Facilities'}, 'displayName'),
+    {value:'source-team',label:'Facilities'});
 });
 
 test('Dropdown Selected and ComboBox SelectedItems preserve source records', () => {
@@ -185,8 +663,80 @@ test('Dropdown Selected and ComboBox SelectedItems preserve source records', () 
   global.document.querySelector = original;
 });
 
-test('gallery row selection exposes Selected and AllItems records', () => {
+test('Reset restores single-record, table and Blank select defaults without stringifying them', () => {
+  const vm=require('node:vm'),fs=require('node:fs');
+  const records=[{id:'a',name:'Ada'},{id:'b',name:'Grace'}],attrs={};
+  const options=records.map((record,index)=>({value:record.id,index,selected:false,
+    getAttribute:()=>String(index)}));
+  const el={tagName:'SELECT',style:{},options,__fxRecords:records,
+    get selectedOptions() {return options.filter(option=>option.selected);},
+    get selectedIndex() {return options.findIndex(option=>option.selected);},
+    set selectedIndex(index) {options.forEach((option,i)=>{option.selected=i===index;});},
+    get value() {return this.selectedOptions[0]?.value || '';},
+    set value(value) {options.forEach(option=>{option.selected=option.value===value;});},
+    getAttribute:key=>attrs[key]??null,setAttribute:(key,value)=>{attrs[key]=value;}};
+  const document={querySelector:()=>el,getElementById:()=>null,addEventListener:()=>{}};
+  const ctx=vm.createContext({document});ctx.window=ctx;
+  vm.runInContext(fs.readFileSync(require.resolve('../../static/gas-runtime.js'),'utf8'),ctx);
+  const rt=ctx.FXRuntime;
+  for (const defaults of [records[1],records,null]) {
+    rt.rowControl(document,'People',null,{default:()=>defaults});
+    rt.applyDefaultSelection(el,records[0]);
+    rt.resetRowControl(document,'People');
+    const expected=defaults===null?[]:Array.isArray(defaults)?['a','b']:['b'];
+    assert.deepStrictEqual(options.filter(option=>option.selected).map(option=>option.value),expected);
+  }
+});
+
+test('date controls expose local dates and Blank, including pre-100 years and invalid values', () => {
+  const previous=global.document.querySelector;
+  const attrs={'data-fx-date-value':'local'};
+  const el={type:'date',tagName:'INPUT',style:{},value:'2026-03-10',getAttribute:key=>attrs[key]??null};
+  global.document.querySelector=()=>el;
+  try {
+    let value=global.val('Due');
+    assert.ok(value.value instanceof Date);
+    assert.strictEqual(value.value.getFullYear(),2026);
+    assert.strictEqual(value.value.getMonth(),2);
+    assert.strictEqual(value.value.getDate(),10);
+    assert.strictEqual(value.value.getHours(),0);
+    assert.strictEqual(value.selected_date.getTime(),value.value.getTime());
+    el.value='';assert.strictEqual(global.val('Due').value,null);
+    el.value='0099-01-01';assert.strictEqual(global.val('Due').value.getFullYear(),99);
+    el.value='2026-02-30';assert.throws(()=>global.val('Due'),/Invalid date picker/);
+    delete attrs['data-fx-date-value'];el.value='2026-03-10';
+    assert.ok(global.val('Classic').selected_date instanceof Date);
+  } finally {global.document.querySelector=previous;}
+});
+
+test('Self semantic properties resolve forward dependencies and reject cycles', () => {
+  const vm=require('node:vm'),fs=require('node:fs');
+  const el={tagName:'SPAN',textContent:'Header',style:{},getAttribute:()=>null};
+  const ctx=vm.createContext({document:{...global.document,querySelector:()=>el},console:{error:()=>{}}});
+  ctx.window=ctx;
+  vm.runInContext(fs.readFileSync(require.resolve('../../static/gas-runtime.js'),'utf8'),ctx);
+  const rt=ctx.FXRuntime;
+  let fontSize=12, reads=0;
+    rt.registerControlProps('SelfHeader','ParentHeader',{
+      width:()=>ctx.selfRef.size*6+ctx.selfRef.padding_left,
+      size:()=>{reads++;return fontSize;},
+      padding_left:()=>3,
+    });
+    assert.strictEqual(ctx.val('SelfHeader').width,75);
+    reads=0;
+    const snapshot=ctx.val('SelfHeader');
+    assert.strictEqual(snapshot.size+snapshot.size,24);
+    assert.strictEqual(reads,1);
+    fontSize=16;
+    assert.strictEqual(ctx.val('SelfHeader').size,16);
+    rt.updateBindings();assert.strictEqual(ctx.val('SelfHeader').width,99);
+    rt.registerControlProps('CircularHeader','ParentHeader',{size:()=>ctx.selfRef.size});
+    assert.throws(()=>ctx.val('CircularHeader').size,/Circular control property/);
+});
+
+test('gallery row selection exposes Selected and row-specific AllItems control records', () => {
   const original = global.document.querySelector;
+  const originalCreate = global.document.createElement;
   const rows = [];
   function rowElement() {
     const child = { tagName: 'SPAN', style: { width: '60px', height: '20px' },
@@ -195,45 +745,126 @@ test('gallery row selection exposes Selected and AllItems records', () => {
       style: {}, listeners: {}, child,
       addEventListener(ev, fn) { this.listeners[ev] = fn; },
       querySelector(selector) { return selector.includes('Name') ? child : null; },
+      querySelectorAll() { return []; },
       click() { this.listeners.click(); },
     };
   }
-  const rowsEl = { style: {}, children: [] };
-  Object.defineProperty(rowsEl, 'innerHTML', {
-    set(markup) {
-      const count = (String(markup).match(/class="fx-row"/g) || []).length;
-      rows.length = 0;
-      for (let i = 0; i < count; i += 1) rows.push(rowElement());
-      this.children = rows;
+  const rowsEl = { style: {}, children: rows,
+    insertBefore(row, before) {
+      const existing = rows.indexOf(row);
+      if (existing >= 0) rows.splice(existing, 1);
+      rows.splice(before ? rows.indexOf(before) : rows.length, 0, row);
     },
+  };
+  global.document.createElement = () => ({
+    set innerHTML(markup) {
+      assert.strictEqual(markup, template.innerHTML, 'new rows must use the owning gallery template');
+    },
+    firstElementChild: rowElement(),
   });
   const template = { innerHTML: '<div class="fx-row"><span data-control="Name"></span></div>' };
   const attrs = { 'data-template-size': '87', 'data-template-padding': '3' };
   const host = {
     tagName: 'DIV', textContent: '', style: { width: '210px' }, selectedOptions: [],
     getAttribute(name) { return attrs[name] === undefined ? null : attrs[name]; },
-    querySelector(selector) { return selector === 'template' ? template : rowsEl; },
+    querySelector(selector) {
+      if (selector === ':scope > template') return template;
+      // Once rows are mounted, a descendant query finds a nested gallery first.
+      if (selector === 'template') return rows.length ? {innerHTML:'nested rating template'} : template;
+      if (selector === ':scope > .fx-rows' || selector === '.fx-rows') return rowsEl;
+      return null;
+    },
   };
   global.document.querySelector = (selector) => selector.includes('PeopleGallery') ? host
     : rows[0] ? rows[0].child : null;
   const items = [{ id: 1, name: 'Ada' }, { id: 2, name: 'Grace' }];
+  items.forEach(item => Object.defineProperty(item, 'source_name', {
+    configurable:true, get() { return this.name; },
+  }));
+  const rowScopes = [];
   RT.gallery('PeopleGallery', () => items, (item, row) => {
+    rowScopes.push(item);
     RT.rowControl(row, 'Name', 'PeopleGallery', {
       text: () => item.name,
-      left: () => global.parentRef.template_width - 5,
+      left: (_read, _self, parent) => parent.template_width - 5,
+      height: (_read, _self, parent) => parent.template_height,
     });
-  }, null);
+  }, null, {Name:'name_control'});
+  assert.strictEqual(RT.gallery.length,6);
+  assert.strictEqual(RT.rowGallery.length,7);
   RT.updateBindings();
   assert.strictEqual(rows.length, 2);
   assert.strictEqual(rows[0].style.minHeight, '87px');
   assert.strictEqual(rows[0].style.padding, '3px');
   assert.strictEqual(rows[0].child.textContent, 'Ada');
   assert.strictEqual(rows[1].child.textContent, 'Grace');
+  assert.strictEqual(rowScopes[0].source_name,'Ada','ThisItem must retain non-enumerable source aliases');
+  assert.strictEqual(rowScopes[1].source_name,'Grace');
+  assert.strictEqual(rowScopes[0].is_selected,true);
+  assert.strictEqual(rowScopes[1].is_selected,false);
+  assert.strictEqual(items[0].is_selected,undefined,'selection metadata must not mutate data records');
   assert.strictEqual(rows[0].child.style.left, '205px');
+  const retained = rows.slice();
+  RT.setState({unrelatedUpdate: 1});
+  assert.strictEqual(rows[0], retained[0]);
+  assert.strictEqual(rows[1], retained[1]);
+  assert.strictEqual(RT.rowValue(rows[1], 'Name').text, 'Grace');
   rows[1].click();
   assert.deepStrictEqual(global.val('PeopleGallery').selected, items[1]);
-  assert.deepStrictEqual(global.val('PeopleGallery').all_items, items);
+  const loaded=global.val('PeopleGallery').all_items;
+  assert.deepStrictEqual(loaded.map(row=>row.source_name),['Ada','Grace'],'AllItems must retain source aliases');
+  assert.deepStrictEqual(loaded.map(row=>[row.id,row.name,row.name_control.text]),[[1,'Ada','Ada'],[2,'Grace','Grace']]);
+  assert.strictEqual(global.val('PeopleGallery').all_items_count,2);
+  assert.strictEqual(loaded[1].name_control.el,undefined);
+  assert.doesNotThrow(()=>JSON.stringify(loaded));
+  rows[1].child.textContent='Edited after reading AllItems';
+  assert.strictEqual(loaded[1].name_control.text,'Edited after reading AllItems');
+  assert.deepStrictEqual(items,[{id:1,name:'Ada'},{id:2,name:'Grace'}],'control columns cannot mutate source records');
+  items.push({id:3, name:'Katherine'});
+  RT.updateBindings();
+  assert.strictEqual(rows.length,3);
+  assert.strictEqual(rows[2].child.textContent,'Katherine');
+  assert.strictEqual(rows[0],retained[0]);
+  assert.strictEqual(rows[1],retained[1]);
+  attrs['data-gallery-layout']='horizontal';
+  host.style.height='50px';
+  RT.styleControl('PeopleGallery','height',()=>100,'px');
+  RT.updateBindings();
+  assert.strictEqual(rows[0].child.style.height,'94px','row geometry must see the height set by a later style binding');
+  assert.strictEqual(rows[0].child.style.left,'82px');
   global.document.querySelector = original;
+  global.document.createElement = originalCreate;
+});
+
+test('formula-created unkeyed gallery records retain controls without stealing existing identities', () => {
+  const original=global.document.querySelector, create=global.document.createElement;
+  const rows=[];
+  const rowsEl={children:rows,style:{},insertBefore(row,before) {
+    const prior=rows.indexOf(row);if(prior>=0) rows.splice(prior,1);
+    rows.splice(before ? rows.indexOf(before) : rows.length,0,row);
+  }};
+  function rowElement() { return {style:{},draft:'',addEventListener(){},querySelectorAll:()=>[],
+    remove(){const index=rows.indexOf(this);if(index>=0)rows.splice(index,1);}}; }
+  const host={tagName:'DIV',style:{},getAttribute:()=>null,querySelector:selector=>
+    selector===':scope > template' ? {innerHTML:'<div></div>'} : selector===':scope > .fx-rows' ? rowsEl : null};
+  global.document.querySelector=selector=>selector.includes('FreshRecords') ? host : null;
+  global.document.createElement=()=>({firstElementChild:rowElement()});
+  const first={name:'same',info:{active:true,day:new Date('2026-09-09T00:00:00Z')}},second={...first};
+  let items=[first,second];
+  try {
+    RT.gallery('FreshRecords',()=>items,null,{});RT.updateBindings();
+    const retained=rows.slice();retained[0].draft='first unsaved';retained[1].draft='second unsaved';
+    // A new equal record must not take the control of the existing later object.
+    items=[{info:{day:new Date('2026-09-09T00:00:00Z'),active:true},name:'same'},second];
+    RT.updateBindings();assert.deepStrictEqual(rows,retained);
+    items=items.map(item=>({name:item.name,info:{...item.info}}));
+    RT.updateBindings();assert.deepStrictEqual(rows,retained);
+    assert.deepStrictEqual(rows.map(row=>row.draft),['first unsaved','second unsaved']);
+    items.reverse();RT.updateBindings();assert.deepStrictEqual(rows,[retained[1],retained[0]]);
+    // A date and its text spelling are different typed values.
+    items=[{name:'same',info:{active:true,day:'2026-09-09T00:00:00.000Z'}}];
+    RT.updateBindings();assert.strictEqual(rows.length,1);assert.ok(!retained.includes(rows[0]));
+  } finally {global.document.querySelector=original;global.document.createElement=create;}
 });
 
 test('renderChart exposes SeriesLabels for a separate Legend control', () => {
@@ -377,4 +1008,31 @@ test('registerScreenHandler + showScreen invokes handler', async () => {
   RT.showScreen('S1');
   await new Promise((r) => setTimeout(r, 0));
   assert.ok(called);
+});
+
+test('screen exit awaits its work before entry and runs only on an actual exit', async () => {
+  const events = [];
+  RT.configureCanvas({}, {}, {ExitA: {}, ExitB: {}, ExitC: {}});
+  RT.registerScreenHiddenHandler('ExitA', async (read, self) => {
+    events.push('hide:' + self.name);
+    await Promise.resolve();
+    events.push('saved');
+  });
+  RT.registerScreenHandler('ExitB', (read, self) => events.push('show:' + self.name));
+  RT.showScreen('ExitA');
+  RT.showScreen('ExitA');
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.deepEqual(events, []);
+  RT.showScreen('ExitB');
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.deepEqual(events, ['hide:ExitA', 'saved', 'show:ExitB']);
+  let finish;
+  RT.registerScreenHiddenHandler('ExitB', () => new Promise(resolve => { finish = resolve; }));
+  RT.registerScreenHandler('ExitA', () => events.push('obsolete'));
+  RT.showScreen('ExitA');
+  await Promise.resolve();
+  RT.showScreen('ExitC');
+  finish();
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.ok(!events.includes('obsolete'));
 });

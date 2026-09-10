@@ -24,11 +24,20 @@ then reads explicitly named CAB/ZIP members. It preserves the original `.msapp`
 bytes. Full source paths and per-export hashes are retained in
 `.artifacts/microsoft/provenance.json`; exports live in gitignored
 `samples/microsoft/`. Nothing is installed in a Microsoft tenant.
+The fetcher also retains the three companion `*.solution.zip` files and their
+hashes. Their `customizations.xml` supplies saved-view FetchXML omitted from
+the canvas exports. Conversion and browser evidence record the solution hash;
+evidence from different solution metadata cannot be merged.
 
 Upstream code is [MIT licensed, copyright Microsoft Corporation](https://github.com/microsoft/teams-powerapps-app-templates/blob/main/LICENSE).
 Microsoft's README separately documents trademark restrictions. We link to and
 fetch the upstream packages; no sample binary is redistributed in this repo.
 Keep the upstream license with any separately redistributed sample package.
+Two complete source formulas are retained in
+`tests/fixtures/microsoft-formulas.json`, with input/formula hashes and original
+screen/control names, under `tests/fixtures/MICROSOFT-LICENSE.txt`. The generated
+`fixtureSourceFormulas.msapp` wraps those unchanged formulas in test controls and
+sample collections. It is a regression fixture, not a real acceptance app.
 
 Reproduce with Docker:
 
@@ -38,12 +47,30 @@ Reproduce with Docker:
 ./pfx2gas browser scripts/assess_microsoft_samples.py
 ```
 
-The September 6 assessment exits **1**: all six generate syntactically valid
-projects; four fail startup. Employee Ideas and Inspection have error-free
-startup checks but still show their loading screen. Their usability and visual
-grades remain unassessed; the other four fail the startup prerequisite. See
-`GAP_ASSESSMENT.md` for the fix sequence. This is a separate acceptance baseline,
-not a hidden allowance in the existing passing regression corpus.
+The solution-aware September 9 assessment exits **1**: all six generate valid
+code and pass generated-server setup/read checks. Employee Ideas and Inspection
+pass the short startup check. Inspection's seven/thirty/sixty-day views now use
+exported UserLocal behavior with ledgered browser-clock/timezone assumptions.
+Its primary action reaches Items Screen, but an unsupported Planner call keeps
+the overall probe failed. Missing identities, layout errors and connector
+dependencies remain; all three default first-action probes fail.
+The separate populated Employee Ideas probe supplies
+one authored user, four campaigns and three questions through generated Code.gs:
+29 checks pass for active filtering/order/search, campaign selection, mobile
+fields and labels, required-title validation, single/multiline custom responses,
+submission, persistence, reload, reopening and per-campaign idea counts. The unrelated campaign question
+is excluded. The source warning path handles the unsupported Teams post.
+The optional `--voting` probe persists a count of one and executes Relate/Unrelate,
+but fails its membership assertion. The source Concurrent contains an
+unconditional Unrelate branch that removes the voting-user link in this run;
+the ordering risk is ledgered and retained for source review.
+Ratings, attachments, manager workflows and complete usability remain
+unassessed. Source app and solution bytes stay unchanged.
+The combined scorecard retains failures with matching source/converter/solution
+hashes. Authored record contents and a data hash accompany the populated probe.
+All six remain below complete usability acceptance. See `GAP_ASSESSMENT.md` for the fix
+sequence. This is a separate acceptance baseline, not a hidden allowance in
+the existing passing regression corpus.
 
 ## Existing modern regression corpus
 

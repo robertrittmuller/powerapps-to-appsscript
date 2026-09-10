@@ -14,13 +14,21 @@ def transpile(fx: str, behavior: bool = False, row_fields: set[str] | None = Non
               collections: set[str] | None = None,
               screen_names: set[str] | None = None,
               global_names: set[str] | None = None,
-              media_resources: dict[str, str] | None = None) -> TranspileResult:
+              media_resources: dict[str, str] | None = None,
+              row_alias: str | None = None, screen_name: str | None = None,
+              control_screens: dict[str, str] | None = None,
+              view_sets: dict | None = None, relationship_keys: set[str] | None = None,
+              service_adapters: dict | None = None, power_fx_v1: bool = False,
+              named_formulas: set[str] | None = None, control_aliases: dict[str, str] | None = None,
+              component_owner: str | None = None, component_private: bool = False) -> TranspileResult:
     """Transpile one Power Fx formula (may contain ;-chained statements)."""
     res = TranspileResult()
     try:
         stmts = lx.parse_formula(fx)
     except lx.FxSyntaxError as exc:
         raise TranspileError(f"cannot parse formula: {fx!r}: {exc}") from exc
-    em = Emitter(res, behavior, row_fields, control_names, collections, screen_names, global_names, media_resources)
+    em = Emitter(res, behavior, row_fields, control_names, collections, screen_names, global_names, media_resources, row_alias,
+                 screen_name, control_screens, view_sets, relationship_keys, service_adapters, power_fx_v1, named_formulas,
+                 control_aliases, component_owner, component_private)
     res.js = em.emit(stmts)
     return res

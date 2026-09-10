@@ -26,9 +26,19 @@ def iter_expressions(ir: AppIR):
     on_start = getattr(ir, "on_start", None)
     if on_start and on_start.raw:
         yield "App", "App", "OnStart", on_start
+    for name, expr in getattr(ir, 'properties', {}).items():
+        if name == 'Formulas' and not getattr(ir, 'named_formula_error', None):
+            continue  # each declaration has its own fidelity row
+        if expr.raw:
+            yield "App", "App", name, expr
+    for name, expr in getattr(ir, 'named_formulas', {}).items():
+        yield 'App', 'App', 'Formulas.' + name, expr
     for screen in ir.screens:
         if screen.on_visible and screen.on_visible.raw:
             yield screen.name, screen.name, "OnVisible", screen.on_visible
+        for name, expr in getattr(screen, 'properties', {}).items():
+            if expr.raw:
+                yield screen.name, screen.name, name, expr
         for ctrl in screen.walk_controls():
             for prop_name, expr in ctrl.properties.items():
                 if expr.raw:
@@ -48,6 +58,11 @@ def finalize_fidelity(ir: AppIR) -> None:
                 expr.fidelity_note = (
                     f"{prop_name} translated to JavaScript but is not consumed by synthesis"
                 )
+        if expr.approximations and expr.emission_status in {"emitted", "approximated"}:
+            expr.emission_status = "approximated"
+            notes = [expr.fidelity_note] if expr.fidelity_note else []
+            notes.extend(note for note in expr.approximations if note not in expr.fidelity_note)
+            expr.fidelity_note = '; '.join(notes)
 
 
 def ledger_rows(ir: AppIR) -> list[dict]:

@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import ast
 import html
+import json
 import re
 
 from ..fidelity import mark_emission
@@ -24,6 +25,12 @@ from ..controls import EXPLICITLY_UNSUPPORTED_INPUTS
 from ..fx.naming import snake as _snake
 from ..icons import icon_glyph, is_icon_name
 from ..ir import AppIR, ControlNode
+from . import composites
+
+
+def _behavior_js(expr, subject: str) -> str:
+    """A failed behavior translation must remain an observable failure."""
+    return expr.js or f"FX.unsupported({json.dumps(subject + ': formula could not be translated')});"
 
 ELEMENT_MAP = {
     "Button": "button",
@@ -35,6 +42,7 @@ ELEMENT_MAP = {
     "ListBox": "select",
     "CheckBox": "input",
     "DatePicker": "input",
+    "FluentDatePicker": "input",
     "Gallery": "div",
     "GalleryTemplate": "div",
     "Image": "img",
@@ -44,7 +52,7 @@ ELEMENT_MAP = {
     "Screen": "section",
     "GroupContainer": "div",
     "Header": "header",
-    "Timer": "div",
+    "Timer": "button",
     "Slider": "input",
     "Rectangle": "div",
     "Chart": "div",
@@ -210,7 +218,7 @@ def _sanitize_static_html(content: str) -> str:
 
 DIRECTION_MAP = {"Horizontal": "row", "Vertical": "column"}
 ALIGN_MAP = {"Start": "flex-start", "Center": "center", "End": "flex-end",
-             "Stretch": "stretch"}
+             "Stretch": "stretch", "SetByContainer": "auto"}
 JUSTIFY_MAP = {"Start": "flex-start", "Center": "center", "End": "flex-end",
                "SpaceBetween": "space-between"}
 WRAP_MAP = {"Wrap": "wrap", "Single": "nowrap"}
@@ -219,11 +227,19 @@ SHADOW_MAP = {
     "Light": "0 2px 4px rgba(0,0,0,.25)", "Regular": "0 3px 8px rgba(0,0,0,.30)",
     "Heavy": "0 6px 14px rgba(0,0,0,.34)", "Bold": "0 10px 24px rgba(0,0,0,.40)",
 }
-WEIGHT_MAP = {"Bold": "bold", "Semibold": "600", "Light": "300", "Regular": "400"}
+WEIGHT_MAP = {"Bold": "bold", "Semibold": "600", "Normal": "normal", "Lighter": "lighter",
+              "Light": "300", "Regular": "400", "bold": "bold", "600": "600",
+              "normal": "normal", "lighter": "lighter"}
 
 
 def _font_stack(font: str) -> str:
     """Keep the requested Power Apps face with a platform-safe fallback."""
+    if ',' in font:
+        # Canvas enum values can already contain an ordered CSS fallback list.
+        # Sanitizing the whole string as one face silently creates a bogus font.
+        faces = [re.sub(r'[^\w .-]', '', face).strip() for face in font.split(',')]
+        generic = {'serif', 'sans-serif', 'monospace', 'cursive', 'fantasy', 'system-ui'}
+        return ', '.join(face if face.lower() in generic else f"'{face}'" for face in faces if face) or 'system-ui'
     safe = re.sub(r"[^A-Za-z0-9 ._-]", "", font) or "system-ui"
     lower = safe.lower()
     if lower in {"georgia", "times new roman", "times"}:
@@ -273,11 +289,39 @@ ACCESSIBILITY_ROLES = {
 
 
 def _is_flex_container(ctrl: ControlNode) -> bool:
+    if ctrl.type in composites.PROPERTIES:
+        return False  # Their own content layout is separate from child containers.
+    # Studio exports include LayoutDirection even when LayoutMode is Manual.
+    mode = ctrl.properties.get("LayoutMode")
+    if mode and mode.raw.strip() in {"LayoutMode.Manual", "LayoutMode.Auto"}:
+        mark_emission(mode)
+        return mode.raw.strip() == "LayoutMode.Auto"
+    if ctrl.variant == "ManualLayout":
+        return False
     expr = ctrl.properties.get("LayoutDirection")
     return bool(expr and expr.js)
 
 
-def _static_style(ctrl: ControlNode, in_flex: bool, rules: list[str]) -> str:
+def _container_controlled_dimensions(ctrl: ControlNode, parent: ControlNode | None) -> set[str]:
+    if parent is None or not _is_flex_container(parent):
+        return set()
+    direction = _static_raw(parent.properties.get('LayoutDirection'))
+    if direction not in {'Horizontal','Vertical'}:
+        return set()
+    main,cross = ('Width','Height') if direction == 'Horizontal' else ('Height','Width')
+    controlled = set()
+    portions = _static_scalar(ctrl.properties.get('FillPortions'))
+    if portions is not None and _NUM_RE.fullmatch(portions) and float(portions) > 0:
+        controlled.add(main)
+    align = _static_raw(ctrl.properties.get('AlignInContainer'))
+    if align in {None,'SetByContainer'}:
+        align = _static_raw(parent.properties.get('LayoutAlignItems'))
+    if align == 'Stretch':
+        controlled.add(cross)
+    return controlled
+
+
+def _static_style(ctrl: ControlNode, in_flex: bool, rules: list[str], parent: ControlNode | None = None) -> str:
     """Full static inline style: position/size, layout, cosmetics, colors."""
     props = ctrl.properties
     css: list[str] = []
@@ -321,10 +365,10 @@ def _static_style(ctrl: ControlNode, in_flex: bool, rules: list[str]) -> str:
     # --- position / size ----------------------------------------------------
     if in_flex:
         fp = props.get("FillPortions")
-        if fp and fp.js and _NUM_RE.match(fp.js.strip()) and fp.js.strip() != "0":
-            css.append(f"flex:{fp.js.strip()} 1 0%")
+        if fp and fp.js and _NUM_RE.fullmatch(fp.js.strip()):
+            css.append(f"flex:{fp.js.strip()} 1 0%" if float(fp.js) > 0 else 'flex:0 0 auto')
             mark_emission(fp)
-        align = mapped("Align", ALIGN_MAP)
+        align = mapped("AlignInContainer", ALIGN_MAP)
         if align:
             css.append(f"align-self:{align}")
     else:
@@ -336,7 +380,11 @@ def _static_style(ctrl: ControlNode, in_flex: bool, rules: list[str]) -> str:
         z = px("ZIndex")
         if z:
             css.append(f"z-index:{z[:-2]}")
-    w, h = px("Width"), px("Height")
+    controlled = _container_controlled_dimensions(ctrl,parent)
+    for dimension in controlled:
+        mark_emission(props.get(dimension), 'approximated', 'size follows its source container fill/stretch setting')
+    w = px('Width') if 'Width' not in controlled else None
+    h = px('Height') if 'Height' not in controlled else None
     if w:
         css.append(f"width:{w}")
     auto_h = boolean("AutoHeight")
@@ -416,11 +464,10 @@ def _static_style(ctrl: ControlNode, in_flex: bool, rules: list[str]) -> str:
     vwrap_y = raw("LayoutOverflowY")
     if vwrap_y == "Overflow":
         css.append("overflow-y:auto")
-    ov = raw("Overflow")
-    if ov == "Overflow":
-        css.append("overflow:visible")
-    elif ov in {"Hide", "Scrollbar"}:
-        css.append("overflow:hidden")
+    overflow = mapped("Overflow", {"Overflow":"visible", "Hide":"hidden", "Hidden":"hidden",
+                                   "Scroll":"auto", "Scrollbar":"auto"})
+    if overflow:
+        css.append(f"overflow:{overflow}")
     wrap = boolean("Wrap")
     if wrap is False:
         css.append("white-space:nowrap")
@@ -458,10 +505,17 @@ def _static_style(ctrl: ControlNode, in_flex: bool, rules: list[str]) -> str:
 def _static_text(ctrl: ControlNode) -> str:
     expr = ctrl.properties.get("Text")
     text = _static_raw(expr)
-    if text is not None and ctrl.type in {"Button", "Label"}:
+    if text is not None and ctrl.type in {"Button", "Label", "Timer"}:
         mark_emission(expr)
         return html.escape(text)
     return ""
+
+
+def _button_visual_properties(ctrl: ControlNode):
+    if ctrl.type != 'Button' or not {'Icon','Layout'} & ctrl.properties.keys():
+        return []
+    return [('Icon','buttonIcon'),('Layout','buttonLayout'),('IconRotation','buttonRotation'),
+            ('AccessibleLabel','ariaLabel'),('Tooltip','title')]
 
 
 def _static_html(ctrl: ControlNode) -> str:
@@ -495,7 +549,7 @@ def _static_scalar(expr) -> str | None:
 def _input_attrs(ctrl: ControlNode) -> str:
     """Static input defaults used both at first paint and by Reset()."""
     if ctrl.type not in {"TextInput", "TextArea", "Dropdown", "ComboBox",
-                          "CheckBox", "DatePicker", "Slider"}:
+                          "CheckBox", "DatePicker", "FluentDatePicker", "Slider"}:
         return ""
     props = ctrl.properties
     out = ""
@@ -587,7 +641,7 @@ def _static_attrs(ctrl: ControlNode) -> str:
     # DisplayMode: static Disabled -> disabled/readonly attribute
     if _static_raw(props.get("DisplayMode")) == "Disabled":
         if ctrl.type in {"Button", "Icon", "Dropdown", "ComboBox",
-                         "CheckBox", "DatePicker", "Slider"}:
+                         "CheckBox", "DatePicker", "FluentDatePicker", "Slider"}:
             out += " disabled"
         elif ctrl.type in {"TextInput", "TextArea"}:
             out += " readonly"
@@ -633,28 +687,44 @@ def _render_control(
     in_flex: bool,
     rules: list[str],
     media_resources: dict[str, str],
+    parent: ControlNode | None = None,
 ) -> str:
     tag = ELEMENT_MAP.get(ctrl.type, "div")
+    input_mode = _static_raw(ctrl.properties.get('Mode')) if ctrl.type in {'TextInput', 'TextArea'} else None
+    if input_mode in {'SingleLine', 'MultiLine', 'Password'}:
+        tag = 'textarea' if input_mode == 'MultiLine' else 'input'
     indent = "  " * (depth + 1)
-    style = _static_style(ctrl, in_flex, rules)
+    style = _static_style(ctrl, in_flex, rules, parent)
     style_attr = f' style="{style}"' if style else ""
+    if ctrl.primary_output:
+        style_attr += f' data-fx-primary-output="{html.escape(_snake(ctrl.primary_output), quote=True)}"'
     flex = _is_flex_container(ctrl)
     extra = ""
     if ctrl.type in {"TextInput", "TextArea"}:
-        extra = ' type="text"'
+        extra = ' type="password"' if input_mode == 'Password' else ' type="text"' if tag == 'input' else ''
     elif ctrl.type == "CheckBox":
         extra = ' type="checkbox"'
-    elif ctrl.type == "DatePicker":
+    elif ctrl.type in {"DatePicker", "FluentDatePicker"}:
         extra = ' type="date"'
+        if ctrl.type == 'FluentDatePicker':
+            extra += ' data-fx-date-value="local"'
     elif ctrl.type == "Slider":
         extra = ' type="range"'
     if ctrl.type == "CanvasComponent":
         template = html.escape(ctrl.component_template or "unknown", quote=True)
         extra += f' class="fx-component" data-component-template="{template}"'
+        if ctrl.component_error:
+            return (f'{indent}<div data-control="{html.escape(ctrl.name, quote=True)}"{style_attr} '
+                    f'class="fx-unsupported-control" data-unsupported-control="CanvasComponent" role="alert">'
+                    f'Unsupported component: {html.escape(ctrl.component_error)}</div>')
+    elif ctrl.type == "GroupContainer" and not flex:
+        extra += ' class="fx-manual-container"'
     elif ctrl.type == "Image":
         extra += ' class="fx-image"'
     elif ctrl.type == "Form":
-        extra += ' class="fx-form"'
+        extra += ' class="fx-form fx-card-layout"'
+    elif ctrl.type == "FluidGrid":
+        extra += ' class="fx-card-layout"'
     elif ctrl.type == "DataCard":
         extra += ' class="fx-data-card"'
 
@@ -683,25 +753,34 @@ def _render_control(
     if ctrl.type == "Gallery" or ctrl.type == "GalleryTemplate":
         row_controls = _gallery_row_controls(ctrl)
         inner_row = "\n".join(
-            _render_control(c, depth + 2, flex, rules, media_resources)
+            _render_control(c, depth + 2, flex, rules, media_resources, ctrl)
             for c in row_controls
         )
         row_size = _static_scalar(ctrl.properties.get("TemplateSize"))
         row_padding = _static_scalar(ctrl.properties.get("TemplatePadding"))
         wrap_count = _static_scalar(ctrl.properties.get("WrapCount"))
+        orientation = (_static_raw(ctrl.properties.get("Layout")) or '').lower()
         gallery_attrs = ""
+        if ctrl.variant == 'VariableHeight':
+            gallery_attrs += ' data-gallery-flexible-height="true"'
+        if orientation in {"horizontal", "vertical"}:
+            gallery_attrs += f' data-gallery-layout="{orientation}"'
+            mark_emission(ctrl.properties.get("Layout"), "approximated",
+                          "gallery preserves its static orientation; dynamic orientation requires review")
         if row_size:
             gallery_attrs += f' data-template-size="{html.escape(row_size, quote=True)}"'
             mark_emission(ctrl.properties.get("TemplateSize"), "approximated",
-                          "gallery row minimum height follows TemplateSize")
+                          "flexible gallery retains editor template extent; rendered rows follow visible child bounds"
+                          if ctrl.variant == 'VariableHeight' else
+                          "gallery template extent follows TemplateSize in its source orientation")
         if row_padding:
             gallery_attrs += f' data-template-padding="{html.escape(row_padding, quote=True)}"'
             mark_emission(ctrl.properties.get("TemplatePadding"), "approximated",
-                          "gallery row padding follows TemplatePadding")
+                          "gallery template spacing follows source padding; grid and legacy row layouts remain approximated")
         if wrap_count:
             gallery_attrs += f' data-wrap-count="{html.escape(wrap_count, quote=True)}"'
             mark_emission(ctrl.properties.get("WrapCount"), "approximated",
-                          "gallery wrap count is retained as runtime metadata")
+                          "source wrap count drives grid cells and updates with state/viewport")
         return (
             f'{indent}<div data-control="{ctrl.name}"{style_attr}{gallery_attrs} class="fx-gallery">\n'
             f'{indent}  <div class="fx-rows"></div>\n'
@@ -724,11 +803,14 @@ def _render_control(
             f'role="status">Unsupported input: {control_type}</div>'
         )
 
+    if ctrl.type in composites.PROPERTIES:
+        return indent + composites.markup(ctrl, style_attr, _static_attrs(ctrl))
+
     inner = ""
     close = f"</{tag}>" if tag not in {"input", "img", "br", "hr"} else ""
     if ctrl.children and ctrl.type not in VOID_CONTENT_TYPES:
         child_html = "\n".join(
-            _render_control(c, depth + 1, flex, rules, media_resources)
+            _render_control(c, depth + 1, flex, rules, media_resources, ctrl)
             for c in ctrl.children
         )
         inner = "\n" + child_html + "\n" + indent
@@ -759,7 +841,7 @@ def _control_parents(ir: AppIR) -> dict[str, str]:
     def visit(ctrl: ControlNode, parent_name: str) -> None:
         parents[ctrl.name] = parent_name
         for child in ctrl.children:
-            visit(child, ctrl.name)
+            visit(child, parent_name if ctrl.type == "GalleryTemplate" else ctrl.name)
 
     for screen in ir.screens:
         for ctrl in screen.controls:
@@ -774,20 +856,36 @@ def _referenced_control_properties(ir: AppIR, parents: dict[str, str]) -> dict[s
     for screen in ir.screens:
         for owner in screen.walk_controls():
             for expr in owner.properties.values():
-                for base, prop in re.findall(
-                    r"(?<![A-Za-z0-9_])([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)",
-                    expr.raw,
-                ):
-                    if base == "Parent" and owner.name in parents:
+                from ..fx import lexer as lx
+                from ..analyze import walk_formula
+                try:
+                    roots = lx.parse_formula(expr.raw)
+                except lx.FxSyntaxError:
+                    continue
+                refs = set()
+                for node in (node for root in roots for node in walk_formula(root)):
+                    value = str(node.value) if node.kind == 'ident' else (
+                        str(node.children[0].value) + '.' + str(node.value)
+                        if node.kind == 'member' and node.children[0].kind == 'ident' else '')
+                    parts = lx.reference_parts(value)
+                    if len(parts) >= 2:
+                        refs.add((parts[0], parts[1]))
+                aliases = {name.casefold(): target for name, target in expr.control_aliases.items()}
+                for base, prop in refs:
+                    if base == 'Self':
+                        referenced.setdefault(owner.name, set()).add(prop)
+                    elif base == "Parent" and owner.name in parents:
                         referenced.setdefault(parents[owner.name], set()).add(prop)
-                    elif base in controls:
-                        referenced.setdefault(base, set()).add(prop)
+                    else:
+                        target = aliases.get(base.casefold(), base)
+                        if target in controls:
+                            referenced.setdefault(target, set()).add(prop)
     return referenced
 
 
 FORM_INPUT_TYPES = {
     "TextInput", "TextArea", "Dropdown", "ComboBox", "ListBox",
-    "CheckBox", "DatePicker", "Slider",
+    "CheckBox", "DatePicker", "FluentDatePicker", "Slider",
 }
 
 
@@ -829,6 +927,7 @@ def _fallback_input_value(input_ctrl: ControlNode) -> str:
     prop = {
         "CheckBox": "checked",
         "DatePicker": "selected_date",
+        "FluentDatePicker": "value",
         "Dropdown": "selected",
         "ComboBox": "selected",
         "ListBox": "selected",
@@ -899,9 +998,9 @@ def _emit_form_registration(lines: list[str], form: ControlNode) -> bool:
     lines.append("    ],")
     for prop_name, config_name in (("OnSuccess", "onSuccess"), ("OnFailure", "onFailure")):
         expr = form.properties.get(prop_name)
-        if expr and expr.js:
+        if expr and expr.raw:
             lines.append(f"    {config_name}: async function () {{")
-            for stmt in expr.js.splitlines():
+            for stmt in _behavior_js(expr, f"{form.name}.{prop_name}").splitlines():
                 lines.append(f"      {stmt}")
             lines.append("    },")
             mark_emission(expr)
@@ -909,27 +1008,295 @@ def _emit_form_registration(lines: list[str], form: ControlNode) -> bool:
     return True
 
 
+def _row_descendants(ctrl: ControlNode):
+    """Visit controls owned by this row, stopping at nested gallery templates."""
+    def visit(child):
+        yield child
+        if child.type != 'Gallery':
+            for descendant in child.children:
+                yield from visit(descendant)
+    for child in _gallery_row_controls(ctrl):
+        yield from visit(child)
+
+
+def _emit_gallery(lines: list[str], ctrl: ControlNode, parent_names: dict[str, str], referenced_props: dict[str, set[str]], nested: bool = False):
+    items = ctrl.properties.get("Items")
+    if items and items.js:
+        mark_emission(items)
+        row_fns = []
+        handlers = {}
+        gallery_select = ctrl.properties.get("OnSelect")
+        # Legacy exports store row selection on the structural
+        # GalleryTemplate. Its DOM wrapper is flattened, but its
+        # action must survive Select(Parent) from a row child.
+        selection_owner = ctrl
+        if not gallery_select or not gallery_select.raw:
+            templates = [child for child in ctrl.children if child.type == "GalleryTemplate"]
+            if len(templates) == 1:
+                selection_owner = templates[0]
+                gallery_select = selection_owner.properties.get("OnSelect")
+        if gallery_select and gallery_select.raw:
+            handlers[ctrl.name] = (parent_names.get(selection_owner.name), {"OnSelect": _behavior_js(gallery_select, f"{selection_owner.name}.OnSelect")})
+            mark_emission(gallery_select)
+        row_controls = list(_row_descendants(ctrl))
+        row_nodes = {node.name:node for node in ctrl.walk()}
+        referenced_expressions = []
+        # Register all row-owned property definitions before any visual formula
+        # reads Self/another row control, including later siblings.
+        for child in row_controls:
+            controlled = _container_controlled_dimensions(child,row_nodes.get(parent_names.get(child.name)))
+            registered = [(prop, expr) for prop, expr in child.properties.items()
+                          if prop in referenced_props.get(child.name, set()) and expr.js
+                          and prop not in controlled
+                          and 'await ' not in expr.js
+                          and not (child.type == 'FluentDatePicker' and prop == 'Value')]
+            if registered:
+                row_fns.append(f'        FXRuntime.registerRowProps(row, {child.name!r}, {parent_names.get(child.name)!r}, {{')
+                for prop, expr in registered:
+                    row_fns.append(f'          {_snake(prop)!r}: function (val, selfRef, parentRef) {{ return {expr.js}; }},')
+                    referenced_expressions.append(expr)
+                row_fns.append('        });')
+        for child in row_controls:
+            if child.type == 'Gallery':
+                nested_lines=[]
+                _emit_gallery(nested_lines, child, parent_names, referenced_props, nested=True)
+            else:
+                nested_lines=[]
+            texpr = child.properties.get("Text")
+            row_properties: list[tuple[str, object]] = []
+            if texpr and texpr.js and _static_raw(texpr) is None:
+                row_properties.append(("text", texpr))
+            row_inputs = [('TemplateSize','templateSize')] if child.type == 'Gallery' else []
+            row_inputs.extend(_button_visual_properties(child))
+            if child.type in {"Dropdown", "ComboBox", "ListBox"}:
+                display_property = "Value" if child.type == "Dropdown" and "Value" in child.properties else "DisplayFields"
+                row_inputs.extend([('SelectMultiple','multiple'),('AccessibleLabel','ariaLabel'),('Tooltip','title'),
+                                   (display_property, "displayFields"), ("Items", "items"),
+                                   ("DefaultSelectedItems", "default")])
+            if child.type in {"TextInput", "TextArea", "Dropdown", "ComboBox", "ListBox",
+                              "CheckBox", "DatePicker", "FluentDatePicker", "Slider"}:
+                if "DefaultSelectedItems" not in child.properties:
+                    default_prop = 'Value' if child.type == 'FluentDatePicker' else 'DefaultDate' if child.type == 'DatePicker' else 'Default'
+                    row_inputs.append((default_prop, "default"))
+                row_inputs.extend([("DisplayMode", "disabled"), ("Reset", "reset")])
+            if child.type == 'FluentDatePicker':
+                row_inputs.append(('AcceptsFocus', 'acceptsFocus'))
+                row_inputs.extend([('AccessibleLabel', 'ariaLabel'), ('Tooltip', 'title')])
+            if child.type == "Image":
+                row_inputs.append(("Image", "src"))
+            if child.type in {'TextInput', 'TextArea'}:
+                row_inputs.insert(0, ('Mode', 'mode'))
+            for prop_name, runtime_key in row_inputs:
+                prop_expr = child.properties.get(prop_name)
+                if prop_expr and prop_expr.js and "await " not in prop_expr.js:
+                    # Static image assets/icons are resolved by the HTML renderer.
+                    if runtime_key == "src" and _static_raw(prop_expr) is not None:
+                        continue
+                    row_properties.append((runtime_key, prop_expr))
+            row_reactive = [
+                ("X", "left"), ("Y", "top"),
+                ("Width", "width"), ("Height", "height"),
+                ("Fill", "backgroundColor"), ("Color", "color"),
+                ("FontColor", "color"), ("Size", "fontSize"),
+                ("FontSize", "fontSize"), ("Visible", "display"),
+            ]
+            for prop_name, runtime_key in row_reactive:
+                parent_node = row_nodes.get(parent_names.get(child.name))
+                if prop_name in _container_controlled_dimensions(child,parent_node):
+                    continue
+                if prop_name in {'X','Y'} and parent_node and _is_flex_container(parent_node):
+                    continue
+                prop_expr = child.properties.get(prop_name)
+                if not prop_expr or not prop_expr.js:
+                    continue
+                if prop_name in {"Fill", "Color", "FontColor"} \
+                        and _static_color(prop_expr) is not None:
+                    continue
+                if prop_name in {"X", "Y", "Width", "Height", "Size", "FontSize"} \
+                        and _static_px(prop_expr) is not None:
+                    continue
+                if prop_expr.js.startswith("'"):
+                    continue
+                row_properties.append((runtime_key, prop_expr))
+            if row_properties:
+                row_fns.append(
+                    f"        FXRuntime.rowControl(row, {child.name!r}, {parent_names.get(child.name)!r}, {{"
+                )
+                for runtime_key, prop_expr in row_properties:
+                    row_fns.append(
+                        f"          {runtime_key!r}: function (val, selfRef, parentRef) {{ return {prop_expr.js}; }},"
+                    )
+                    mark_emission(
+                        prop_expr,
+                        "approximated" if runtime_key in {"display", "src", "buttonIcon"} else "emitted",
+                        "portable button glyph; exact Fluent icon appearance is not reproduced" if runtime_key == 'buttonIcon'
+                        else "gallery-row formula is evaluated in ThisItem/Self/Parent context",
+                    )
+                row_fns.append("        });")
+            composites.emit(row_fns, child, parent_names.get(child.name), row=True)
+            row_fns.extend('      '+line for line in nested_lines)
+            if child.type == 'Gallery':
+                continue  # Its events belong to its own selected child row.
+            events = {}
+            for event in (("OnSelect", "OnChange", "OnCheck", "OnUncheck") if child.type == 'CheckBox' else ("OnSelectLogo",) if child.type == 'Header' else ("OnSelect", "OnChange")):
+                expr = child.properties.get(event)
+                if expr and expr.raw:
+                    events[event] = _behavior_js(expr, f"{child.name}.{event}")
+                    mark_emission(expr)
+            if events:
+                handlers[child.name] = (parent_names.get(child.name), events)
+        lines.append(f"  // {ctrl.name}.Items (gallery)")
+        lines.append("  FXRuntime.rowGallery(" if nested else "  FXRuntime.gallery(")
+        if nested:
+            lines.append("    row,")
+        lines.append(f"    {ctrl.name!r},")
+        read = "var val = function (name) { return FXRuntime.rowValue(row, name); }; " if nested else ""
+        lines.append(f"    function () {{ {read}var selfRef = val({ctrl.name!r}), parentRef = val({parent_names.get(ctrl.name)!r}); return {items.js}; }},")
+        lines.append("    function (item, row) {")
+        for rf in row_fns:
+            lines.append(rf)
+        lines.append("    },")
+        if handlers:
+            lines.append("    {")
+            for cname, (parent, events) in handlers.items():
+                lines.append(f"      {cname!r}: {{ parent: {parent!r},")
+                for event, js in events.items():
+                    lines.append(f"        {event!r}: async function (item, row, selectControl, checkedValue) {{")
+                    lines.append("          var val = function (name) { return FXRuntime.rowValue(row, name); };")
+                    lines.append(f"          var selfRef = val({cname!r}), parentRef = val({parent!r});")
+                    if event in {'OnCheck', 'OnUncheck'}:
+                        lines.append("          selfRef.value = selfRef.checked = checkedValue;")
+                    lines.append(f"          var resetControl = function (name) {{ return FXRuntime.resetRowControl(row, name === 'Self' ? {cname!r} : name === 'Parent' ? {parent!r} : name); }};")
+                    for stmt in js.splitlines():
+                        lines.append(f"          {stmt}")
+                    lines.append("        },")
+                lines.append("      },")
+            lines.append("    },")
+        else:
+            lines.append("    null,")
+        lines.append("    " + json.dumps({child.name: _snake(child.name) for child in row_controls}) + ",")
+        lines.append("    {")
+        for prop in ('WrapCount','TemplatePadding'):
+            expr=ctrl.properties.get(prop)
+            if expr and expr.js and 'await ' not in expr.js:
+                lines.append(f"      {prop}: function () {{ {read}var selfRef=val({ctrl.name!r}), parentRef=val({parent_names.get(ctrl.name)!r}); return {expr.js}; }},")
+                mark_emission(expr,'approximated','explicit gallery grid count/padding updates with source state and viewport; zero columns render as one until layout settles; row identity is retained')
+        default=ctrl.properties.get('Default')
+        if default and default.js and 'await ' not in default.js:
+            lines.append(f"      Default: function () {{ {read}var selfRef=val({ctrl.name!r}), parentRef=val({parent_names.get(ctrl.name)!r}); return {default.js}; }},")
+            mark_emission(default, 'approximated', 'gallery default selects its matching loaded row; otherwise the first loaded row is selected')
+        lines.append("    }")
+        lines.append("  );")
+        for expr in referenced_expressions:
+            # A readable property does not make an approximated UI/layout
+            # adapter exact. Let actual rendering classify it first.
+            if expr.emission_status in {'pending', 'ignored'}:
+                mark_emission(expr, 'emitted', 'exposed to dependent formulas in its owning gallery row')
+
+
 def render_app_js(ir: AppIR) -> str:
+    from ..data_contract import external_tables
+    from ..services import service_contracts
+    import json
     lines = [
         "// App.js — generated by pfx2gas; transpiled Power Fx lives here.",
         "APP_MAIN = async function () {",
     ]
+    for screen in ir.screens:
+        for ctrl in screen.walk_controls():
+            if ctrl.component_error:
+                lines.append('  console.error(new Error(' + json.dumps('Canvas component ' + ctrl.name + ': ' + ctrl.component_error) + '));')
+    if ir.named_formula_error:
+        lines.append('  FX.unsupported(' + json.dumps(ir.named_formula_error) + ');')
+        mark_emission(ir.properties.get('Formulas'), 'unsupported', ir.named_formula_error)
+    elif ir.named_formulas:
+        lines.append('  FXRuntime.registerNamedFormulas({')
+        for name, expr in ir.named_formulas.items():
+            js = expr.js if expr.js else (
+                'FX.unsupported(' + json.dumps(expr.fidelity_note or 'named formula ' + name) + ')')
+            lines.append(f'    {json.dumps(name)}: function (val, selfRef, parentRef) {{ return {js}; }},')
+            mark_emission(expr, 'approximated', 'Immutable named value reevaluated on demand; dependency caching and source scheduling are not reproduced')
+        lines.append('  });')
     parent_names = _control_parents(ir)
+    control_nodes = {ctrl.name:ctrl for screen in ir.screens for ctrl in screen.walk_controls()}
+    if any(_button_visual_properties(ctrl) for ctrl in control_nodes.values()):
+        from ..icons import icon_map
+        lines.append('  FXRuntime.configureButtonIcons(' + json.dumps(icon_map()) + ');')
     referenced_props = _referenced_control_properties(ir, parent_names)
+    contexts = {screen.name: screen.context_vars for screen in ir.screens}
+    lines.append(f"  FXRuntime.configureContexts({json.dumps(contexts)});")
+    lines.append('  FXRuntime.configureServices(' + json.dumps(service_contracts(ir)).replace('<', '\\u003c') + ');')
+    lines.append(f"  FXRuntime.configureCanvas({json.dumps(ir.layout)}, {{")
+    def canvas_properties(properties, supported):
+        for name in supported:
+            expr = properties.get(name)
+            if not expr or not expr.raw:
+                continue
+            js = expr.js if expr.js and "await " not in expr.js else (
+                f"FX.unsupported({json.dumps('canvas property ' + name)})")
+            lines.append(f"    {_snake(name)!r}: function (val, selfRef, parentRef) {{ return {js}; }},")
+            mark_emission(expr, "emitted" if expr.js and "await " not in expr.js else "unsupported")
+    canvas_properties(ir.properties, ("MinScreenWidth", "MinScreenHeight", "SizeBreakpoints"))
+    lines.append("  }, {")
+    for screen in ir.screens:
+        lines.append(f"  {screen.name!r}: {{")
+        canvas_properties(screen.properties, ("Width", "Height", "Size", "Orientation", "Fill"))
+        lines.append("  },")
+    lines.append("  });")
+    row_scoped = {"Gallery", "DataTable"}
+    gallery_children = {c.name for s in ir.screens for ctrl in s.walk_controls()
+                        if ctrl.type in row_scoped
+                        for child in ctrl.children for c in child.walk()}
+    # Register lazy template formulas before OnStart or any dependent layout.
+    # In particular Height can read Self.TemplateHeight before Items exists.
+    for screen in ir.screens:
+        for ctrl in screen.walk_controls():
+            if ctrl.type != "Gallery" or ctrl.name in gallery_children:
+                continue
+            expr = ctrl.properties.get("TemplateSize")
+            if expr and expr.js and "await " not in expr.js and not re.search(r"\bitem\b", expr.js):
+                lines.append(f"  FXRuntime.registerGalleryTemplate({ctrl.name!r}, {parent_names.get(ctrl.name)!r}, "
+                             f"function (val, selfRef, parentRef) {{ return {expr.js}; }});")
+                mark_emission(expr, "approximated", "gallery TemplateSize formula updates template extent with state and viewport changes")
     # Collections are client-side state; declare them as empty arrays instead
     # of refreshing them from the server.
     for ds in ir.data_sources:
         if ds.origin == "collection":
             lines.append(f"  state[{ds.name!r}] = [];")
-    external_sources = [ds.name for ds in ir.data_sources
-                        if ds.fields and ds.origin != "collection"]
+        elif ds.origin == "option_set":
+            values = {_snake(option["name"]): option["value"] for option in ds.option_values}
+            for name in dict.fromkeys([ds.name, *ds.aliases]):
+                lines.append(f"  state[{name!r}] = {json.dumps(values)};")
+    collection_contracts = {ds.name: {'aliases':ds.metadata.get('columnAliases', {}),
+                            'error':ds.metadata.get('collectionContractError')}
+                           for ds in ir.data_sources if ds.origin == 'collection'
+                           and ds.metadata.get('columnAliases')}
+    if collection_contracts:
+        lines.append('  FX.collections.configureContracts(state, ' + json.dumps(collection_contracts).replace('<', '\\u003c') + ');')
+    external_sources = [ds.name for ds in external_tables(ir.data_sources)]
     if external_sources:
+        from ..relationships import relationship_contracts
+        lines.append('  FXRuntime.configureRelationships(' + json.dumps(relationship_contracts(ir)).replace('<', '\\u003c') + ');')
         calls = ", ".join(f"refreshData({name!r})" for name in external_sources)
         lines.append("  // Load external data before formulas/evaluators consume it.")
         lines.append(f"  await Promise.all([{calls}]);")
-    if ir.on_start and ir.on_start.js:
+    start = ir.properties.get('StartScreen')
+    if start and start.raw.strip():
+        from ..validate import js_syntax_ok
+        expression = start.js
+        if not expression or not js_syntax_ok('(function () { return (\n' + expression + '\n); })')[0]:
+            expression = 'FX.unsupported(' + json.dumps(start.fidelity_note or 'App.StartScreen') + ')'
+            mark_emission(start, 'unsupported', start.fidelity_note or 'StartScreen requires a value formula')
+        else:
+            mark_emission(start, 'approximated',
+                'Evaluated before OnStart using loaded user/data and settled connector reads; blank/error falls back to screen order. '
+                'Global variables/collections are unavailable. Initial paint still waits for serialized OnStart; nonblocking source scheduling is not reproduced.')
+        external_names = {name for ds in ir.data_sources if ds.origin != 'collection' for name in [ds.name, *ds.aliases]}
+        unavailable = sorted((set(ir.global_vars) - external_names) | {ds.name for ds in ir.data_sources if ds.origin == 'collection'})
+        lines.append(f'  await FXRuntime.resolveStartScreen(function () {{ return {expression}; }}, {json.dumps(ir.start_screen)}, {json.dumps(unavailable)});')
+    if ir.on_start and ir.on_start.raw:
         lines.append("  // OnStart (transpiled from Power Fx)")
-        for stmt in ir.on_start.js.splitlines():
+        for stmt in _behavior_js(ir.on_start, "App.OnStart").splitlines():
             lines.append(f"  {stmt}")
         mark_emission(ir.on_start)
     lines.append("  var __INITIAL_STATE_ONLY = null;")
@@ -942,12 +1309,17 @@ def render_app_js(ir: AppIR) -> str:
                 registered_forms.add(ctrl.name)
 
     for screen in ir.screens:
-        if screen.on_visible and screen.on_visible.js:
-            lines.append(f"  FXRuntime.registerScreenHandler({screen.name!r}, async function () {{")
-            for stmt in screen.on_visible.js.splitlines():
+        for event, expr, helper in (
+            ("OnVisible", screen.on_visible, "registerScreenHandler"),
+            ("OnHidden", screen.properties.get("OnHidden"), "registerScreenHiddenHandler"),
+        ):
+            if not expr or not expr.raw:
+                continue
+            lines.append(f"  FXRuntime.{helper}({screen.name!r}, async function (val, selfRef, parentRef) {{")
+            for stmt in _behavior_js(expr, f"{screen.name}.{event}").splitlines():
                 lines.append(f"    {stmt}")
             lines.append("  });")
-            mark_emission(screen.on_visible)
+            mark_emission(expr)
 
     for screen in ir.screens:
         # Row-scoped container children (gallery rows, data-table rows) are
@@ -955,18 +1327,49 @@ def render_app_js(ir: AppIR) -> str:
         # registering them at top level produces "control not found" and
         # "item is not defined". Descendants only — the container itself must
         # still emit its own registration.
-        row_scoped = {"Gallery", "DataTable"}
-        gallery_children = {c.name for s in ir.screens for ctrl in s.walk_controls()
-                            if ctrl.type in row_scoped
-                            for child in ctrl.children for c in child.walk()}
+        form_children = {child.name for form in screen.walk_controls() if form.type == "Form"
+                         for child in _descendants(form)}
         for ctrl in screen.walk_controls():
             if ctrl.name in gallery_children:
                 continue
+            composites.emit(lines, ctrl, parent_names.get(ctrl.name))
+            if ctrl.type in {"TextInput", "TextArea", "CheckBox", "DatePicker", "FluentDatePicker", "Slider", "Button"}:
+                inputs = [("DisplayMode", "disabled"), ("Reset", "reset")]
+                # Form/DataCard record application already owns their defaults.
+                # Standalone inputs need the same reactive default contract as
+                # gallery rows, including defaults populated by LoadData.
+                if ctrl.name not in form_children and ctrl.type != "Button":
+                    default_prop = 'Value' if ctrl.type == 'FluentDatePicker' else 'DefaultDate' if ctrl.type == 'DatePicker' else 'Default'
+                    inputs.insert(0, (default_prop, "default"))
+                if ctrl.type == 'FluentDatePicker':
+                    inputs.append(('AcceptsFocus', 'acceptsFocus'))
+                    inputs.extend([('AccessibleLabel', 'ariaLabel'), ('Tooltip', 'title')])
+                if ctrl.type in {'TextInput', 'TextArea'}:
+                    inputs.insert(0, ('Mode', 'mode'))
+                button_visuals = _button_visual_properties(ctrl)
+                if button_visuals:
+                    inputs.extend([('Text','text'),*button_visuals])
+                properties = [(key, ctrl.properties[prop]) for prop, key in inputs
+                              if prop in ctrl.properties and ctrl.properties[prop].js
+                              and "await " not in ctrl.properties[prop].js]
+                if properties or ctrl.type != 'Button':
+                    # Every editable value participates in reactive formulas,
+                    # including controls that use only native defaults and
+                    # have neither an authored Default nor OnChange behavior.
+                    lines.append(f"  FXRuntime.inputControl({ctrl.name!r}, {parent_names.get(ctrl.name)!r}, {{")
+                    for key, expr in properties:
+                        lines.append(f"    {key!r}: function (val, selfRef, parentRef) {{ return {expr.js}; }},")
+                        mark_emission(expr, 'approximated' if key == 'buttonIcon' else 'emitted',
+                                      'portable button glyph; exact Fluent icon appearance is not reproduced' if key == 'buttonIcon' else '')
+                    lines.append("  });")
             wanted_props = set(referenced_props.get(ctrl.name, set()))
             wanted_props.update(ctrl.component_inputs)
+            wanted_props.difference_update(_container_controlled_dimensions(ctrl,control_nodes.get(parent_names.get(ctrl.name))))
             if wanted_props:
                 registered = []
                 for prop_name in ctrl.properties:
+                    if ctrl.type == 'FluentDatePicker' and prop_name == 'Value':
+                        continue  # Value reads the user's current date, not its initial formula.
                     if prop_name not in wanted_props:
                         continue
                     expr = ctrl.properties.get(prop_name)
@@ -990,12 +1393,14 @@ def render_app_js(ir: AppIR) -> str:
                         else:
                             mark_emission(expr, "emitted", "exposed to dependent control formulas")
                     lines.append("  });")
-            for event in ("OnSelect", "OnChange"):
+            for event in (("OnSelect", "OnChange", "OnCheck", "OnUncheck") if ctrl.type == 'CheckBox' else ("OnSelectLogo",) if ctrl.type == 'Header' else ("OnSelect", "OnChange")):
+                if ctrl.type == "Gallery":
+                    continue  # Invoked with the selected row, never by DOM bubbling.
                 expr = ctrl.properties.get(event)
-                if expr and expr.js:
+                if expr and expr.raw:
                     lines.append(f"  // {ctrl.name}.{event}")
-                    lines.append(f"  bind({ctrl.name!r}, {event!r}, async function () {{")
-                    for stmt in expr.js.splitlines():
+                    lines.append(f"  bind({ctrl.name!r}, {event!r}, async function (val, selfRef, parentRef) {{")
+                    for stmt in _behavior_js(expr, f"{ctrl.name}.{event}").splitlines():
                         lines.append(f"    {stmt}")
                     lines.append(f"  }}, {parent_names.get(ctrl.name)!r});")
                     form_refs = re.findall(
@@ -1012,88 +1417,30 @@ def render_app_js(ir: AppIR) -> str:
                     else:
                         mark_emission(expr)
 
+            if ctrl.type == "Timer":
+                lines.append(f"  FXRuntime.registerTimer({ctrl.name!r}, {screen.name!r}, {{")
+                for prop_name in ("Duration", "Start", "AutoStart", "AutoPause", "Repeat", "Reset"):
+                    expr = ctrl.properties.get(prop_name)
+                    if expr and expr.js and "await " not in expr.js:
+                        lines.append(f"    {prop_name!r}: function () {{")
+                        lines.append(f"      var selfRef = val({ctrl.name!r}), parentRef = val({parent_names.get(ctrl.name)!r});")
+                        lines.append(f"      return {expr.js};")
+                        lines.append("    },")
+                        mark_emission(expr)
+                for event in ("OnTimerStart", "OnTimerEnd"):
+                    expr = ctrl.properties.get(event)
+                    if expr and expr.raw:
+                        lines.append(f"    {event!r}: async function () {{")
+                        lines.append(f"      var selfRef = val({ctrl.name!r}), parentRef = val({parent_names.get(ctrl.name)!r});")
+                        lines.append(f"      var resetControl = function (target) {{ return FXRuntime.resetControl(target === 'Self' ? {ctrl.name!r} : target); }};")
+                        for stmt in _behavior_js(expr, f"{ctrl.name}.{event}").splitlines():
+                            lines.append(f"      {stmt}")
+                        lines.append("    },")
+                        mark_emission(expr)
+                lines.append("  });")
+
             if ctrl.type == "Gallery":
-                items = ctrl.properties.get("Items")
-                if items and items.js:
-                    mark_emission(items)
-                    row_fns = []
-                    handlers = {}
-                    row_controls = [descendant for child in _gallery_row_controls(ctrl)
-                                    for descendant in child.walk()]
-                    for child in row_controls:
-                        texpr = child.properties.get("Text")
-                        row_properties: list[tuple[str, object]] = []
-                        if texpr and texpr.js and _static_raw(texpr) is None:
-                            row_properties.append(("text", texpr))
-                        row_reactive = [
-                            ("X", "left"), ("Y", "top"),
-                            ("Width", "width"), ("Height", "height"),
-                            ("Fill", "backgroundColor"), ("Color", "color"),
-                            ("FontColor", "color"), ("Size", "fontSize"),
-                            ("FontSize", "fontSize"), ("Visible", "display"),
-                        ]
-                        for prop_name, runtime_key in row_reactive:
-                            prop_expr = child.properties.get(prop_name)
-                            if not prop_expr or not prop_expr.js:
-                                continue
-                            if prop_name in {"Fill", "Color", "FontColor"} \
-                                    and _static_color(prop_expr) is not None:
-                                continue
-                            if prop_name in {"X", "Y", "Width", "Height", "Size", "FontSize"} \
-                                    and _static_px(prop_expr) is not None:
-                                continue
-                            if prop_expr.js.startswith("'"):
-                                continue
-                            row_properties.append((runtime_key, prop_expr))
-                        if row_properties:
-                            row_fns.append(
-                                f"        FXRuntime.rowControl(row, {child.name!r}, {ctrl.name!r}, {{"
-                            )
-                            for runtime_key, prop_expr in row_properties:
-                                row_fns.append(
-                                    f"          {runtime_key!r}: function () {{ return {prop_expr.js}; }},"
-                                )
-                                mark_emission(
-                                    prop_expr,
-                                    "approximated" if runtime_key == "display" else "emitted",
-                                    "gallery-row formula is evaluated in ThisItem/Self/Parent context",
-                                )
-                            row_fns.append("        });")
-                        onsel = child.properties.get("OnSelect")
-                        if onsel and onsel.js:
-                            handler_js = re.sub(
-                                r"\bselectControl\((['\"])Parent\1\);?",
-                                "",
-                                onsel.js,
-                            ).strip()
-                            if handler_js:
-                                handlers[child.name] = handler_js
-                                mark_emission(onsel)
-                            else:
-                                mark_emission(
-                                    onsel,
-                                    "approximated",
-                                    "Select(Parent) is satisfied by gallery row selection and event bubbling",
-                                )
-                    lines.append(f"  // {ctrl.name}.Items (gallery)")
-                    lines.append("  FXRuntime.gallery(")
-                    lines.append(f"    {ctrl.name!r},")
-                    lines.append(f"    function () {{ return {items.js}; }},")
-                    lines.append("    function (item, row) {")
-                    for rf in row_fns:
-                        lines.append(rf)
-                    lines.append("    },")
-                    if handlers:
-                        lines.append("    {")
-                        for cname, js in handlers.items():
-                            lines.append(f"      {cname}: async function (item) {{")
-                            for stmt in js.splitlines():
-                                lines.append(f"        {stmt}")
-                            lines.append("      },")
-                        lines.append("    }")
-                    else:
-                        lines.append("    null")
-                    lines.append("  );")
+                _emit_gallery(lines, ctrl, parent_names, referenced_props)
 
             # --- chart rendering ------------------------------------------
             if ctrl.type in CHART_TYPES:
@@ -1103,7 +1450,7 @@ def render_app_js(ir: AppIR) -> str:
                                   "chart data is rendered by the generated SVG chart runtime")
                     lines.append(f"  // {ctrl.name} (chart)")
                     lines.append("  FXRuntime.addEvaluator(async function () {")
-                    lines.append(f'    var el = document.querySelector(\'[data-control="{ctrl.name}"]\');')
+                    lines.append(f'    var el = FXRuntime.controlElement({ctrl.name!r});')
                     lines.append("    if (!el) return;")
                     lines.append("    var cfg = JSON.parse(el.getAttribute('data-chart') || '{}');")
                     lines.append(f"    var selfRef = val({ctrl.name!r}), parentRef = val({parent_names.get(ctrl.name)!r});")
@@ -1124,18 +1471,23 @@ def render_app_js(ir: AppIR) -> str:
                 items_expr = ctrl.properties.get("Items")
                 if items_expr and items_expr.js:
                     mark_emission(items_expr)
-                    display_expr = (ctrl.properties.get("DisplayFields")
+                    display_expr = ((ctrl.properties.get("Value") if ctrl.type == "Dropdown" else None)
+                                    or ctrl.properties.get("DisplayFields")
                                     or ctrl.properties.get("SearchFields"))
                     default_selected = ctrl.properties.get("DefaultSelectedItems")
-                    needs_async = "await " in items_expr.js
+                    reset_expr = ctrl.properties.get("Reset")
+                    needs_async = any(expr and expr.js and "await " in expr.js
+                                      for expr in (items_expr, display_expr, default_selected, reset_expr))
                     fn_head = "async function () {" if needs_async else "function () {"
                     lines.append(f"  // {ctrl.name}.Items (options)")
+                    # Selection itself is reactive even when the source has no
+                    # OnChange behavior. Keep it independent of option/default updates.
+                    lines.append(f"  FXRuntime.inputControl({ctrl.name!r}, {parent_names.get(ctrl.name)!r}, {{}});")
                     lines.append("  FXRuntime.addEvaluator(" + fn_head)
-                    lines.append(f'    var el = document.querySelector(\'[data-control="{ctrl.name}"]\');')
+                    lines.append(f'    var el = FXRuntime.controlElement({ctrl.name!r});')
                     lines.append("    if (!el || el.tagName !== 'SELECT') return;")
-                    lines.append("    var current = el.value;")
-                    lines.append(f"    var rows = {items_expr.js};" if needs_async
-                                 else f"    var rows = {items_expr.js};")
+                    lines.append(f"    var selfRef = val({ctrl.name!r}), parentRef = val({parent_names.get(ctrl.name)!r});")
+                    lines.append(f"    var rows = {items_expr.js};")
                     if display_expr and display_expr.js:
                         lines.append(f"    var displayFields = {display_expr.js};")
                         if display_expr is ctrl.properties.get("SearchFields"):
@@ -1148,27 +1500,39 @@ def render_app_js(ir: AppIR) -> str:
                                           "used to choose the displayed option field")
                     else:
                         lines.append("    var displayFields = [];")
-                    lines.append("    el.__fxRecords = rows || [];")
-                    lines.append("    var opts = (rows || []).map(function (r, index) {")
-                    lines.append("        var option = FXRuntime.optionRecord(r, displayFields);")
-                    lines.append("        return '<option data-fx-index=\"' + index + '\" value=\"' + esc(option.value) + '\">' + esc(option.label) + '</option>';")
-                    lines.append("    }).join('');")
-                    lines.append("    if (el.__fxOpts !== opts) { el.__fxOpts = opts; el.innerHTML = opts; if (current) el.value = current; }")
                     if default_selected and default_selected.js:
-                        lines.append("    if (!el.__fxDefaultSelectionApplied) {")
-                        lines.append("      el.__fxDefaultSelectionApplied = true;")
-                        lines.append(f"      FXRuntime.applyDefaultSelection(el, {default_selected.js});")
-                        lines.append("    }")
+                        lines.append(f"    var defaults = {default_selected.js};")
                         mark_emission(default_selected)
-                    lines.append("    if (!el.__fxDefaultApplied) { el.__fxDefaultApplied = true; var d = el.getAttribute('data-fx-default'); if (d !== null) el.value = d; }")
+                    if reset_expr and reset_expr.js:
+                        lines.append(f"    var reset = {reset_expr.js};")
+                        mark_emission(reset_expr)
+                    # Use the row-control contract for both scopes: retain typed
+                    # records for Reset, reevaluate changed defaults, and preserve
+                    # every selected record when option labels are refreshed.
+                    lines.append(f"    FXRuntime.rowControl(document, {ctrl.name!r}, {parent_names.get(ctrl.name)!r}, {{")
+                    for prop,key in [('SelectMultiple','multiple'),('AccessibleLabel','ariaLabel'),
+                                     ('Tooltip','title'),('DisplayMode','disabled')]:
+                        expr=ctrl.properties.get(prop)
+                        if expr and expr.js and 'await ' not in expr.js:
+                            lines.append(f"      {key}: function () {{ return {expr.js}; }},")
+                            mark_emission(expr)
+                    lines.append("      displayFields: function () { return displayFields; },")
+                    lines.append("      items: function () { return rows; },")
+                    if default_selected and default_selected.js:
+                        lines.append("      default: function () { return defaults; },")
+                    if reset_expr and reset_expr.js:
+                        lines.append("      reset: function () { return reset; },")
+                    lines.append("    });")
+                    if not (default_selected and default_selected.js):
+                        lines.append("    if (!el.__fxDefaultApplied) { el.__fxDefaultApplied = true; var d = el.getAttribute('data-fx-default'); if (d !== null) el.value = d; }")
                     lines.append("  });")
 
             text_expr = ctrl.properties.get("Text")
             if (text_expr and text_expr.js and not text_expr.js.startswith("'")
-                    and ctrl.type not in {"Gallery"}):
+                    and ctrl.type not in {"Gallery"} and not _button_visual_properties(ctrl)):
                 lines.append(f"  // {ctrl.name}.Text (reactive)")
                 lines.append("  FXRuntime.addEvaluator(function () {")
-                lines.append('    var el = document.querySelector(\'[data-control="' + ctrl.name + '"]\');')
+                lines.append(f"    var el = FXRuntime.controlElement({ctrl.name!r});")
                 lines.append("    if (el) {")
                 lines.append("      var previousSelf = selfRef, previousParent = parentRef;")
                 lines.append("      selfRef = val(" + repr(ctrl.name) + "); parentRef = val(" +
@@ -1214,8 +1578,14 @@ def render_app_js(ir: AppIR) -> str:
                 ("FontColor", "color", "lower"),
                 ("Size", "fontSize", "pt"), ("FontSize", "fontSize", "pt"),
                 ("Visible", "display", None),
+                ('LayoutMinWidth','minWidth','px'), ('LayoutMinHeight','minHeight','px'),
             ]
             for prop, css_prop, unit in reactive:
+                parent_node = control_nodes.get(parent_names.get(ctrl.name))
+                if prop in _container_controlled_dimensions(ctrl,parent_node):
+                    continue
+                if prop in {'X','Y'} and parent_node and _is_flex_container(parent_node):
+                    continue
                 expr = ctrl.properties.get(prop)
                 if not expr or not expr.js or expr.js.strip().isdigit():
                     continue
@@ -1236,12 +1606,34 @@ def render_app_js(ir: AppIR) -> str:
                     lines.append(f"    return {expr.js};")
                     lines.append(f"  }}, {unit!r}, {parent_names.get(ctrl.name)!r});")
                 mark_emission(expr)
-    # Bootstrap: reveal the start screen after APP_MAIN runs. APP_MAIN is
-    # invoked on DOMContentLoaded (gas-runtime), and APP_MAIN closes with this
-    # navigation so the first paint matches Power Apps' start screen.
+    # Cards use row/order coordinates instead of ordinary pixel coordinates.
+    # Register after ordinary bindings so layout can consume dynamic child
+    # heights; the runtime settles geometry without replacing edited nodes.
+    for screen in ir.screens:
+        for host in screen.walk_controls():
+            if host.type not in {"Form", "FluidGrid"} or host.name in gallery_children:
+                continue
+            cards = [child for child in host.children if child.type == "DataCard"]
+            if not cards:
+                continue
+            lines.append(f"  FXRuntime.registerCardLayout({host.name!r}, [")
+            for card in cards:
+                lines.append(f"    {{name: {card.name!r}, properties: {{")
+                for prop in ("X", "Y", "Width", "Height", "Visible", "WidthFit"):
+                    expr = card.properties.get(prop)
+                    if expr and expr.js and "await " not in expr.js:
+                        lines.append(f"      {prop!r}: function (val, selfRef, parentRef) {{ return {expr.js}; }},")
+                        mark_emission(expr, "emitted", "card layout uses source row/order coordinates and minimum dimensions")
+                lines.append("    }},")
+            columns = host.properties.get("NumberOfColumns")
+            column_js = columns.js if columns and columns.js and "await " not in columns.js else '1'
+            lines.append(f"  ], function (val, selfRef, parentRef) {{ return {column_js}; }}, {parent_names.get(host.name)!r});")
+            if columns and column_js == columns.js:
+                mark_emission(columns, "emitted", "sets default card width when no Width formula is exported")
+    # Reveal the authored startup destination, or screen order when unset.
+    # Keep retired OnStart.Navigate destinations and run registered OnVisible.
     if ir.start_screen:
-        lines.append("  // Start screen (first in the original app's screen order)")
-        lines.append(f"  go({ir.start_screen!r});")
+        lines.append(f"  FXRuntime.finishStartup({ir.start_screen!r});")
     lines.append("};")
     return "\n".join(lines)
 
@@ -1249,14 +1641,25 @@ def render_app_js(ir: AppIR) -> str:
 INDEX_CSS = """
     html, body { margin: 0; padding: 0; }
     body { font-family: system-ui, sans-serif; overflow: auto; }
-    [data-screen] { max-width: 100%; margin: 0 auto; position: relative; min-height: 90vh; }
+    #fx-canvas { margin: 0 auto; position: relative; }
+    [data-screen] { position: relative; box-sizing: border-box; }
     [data-control] { box-sizing: border-box; }
     [data-screen] > [data-control] { position: absolute; }
-    button { cursor: pointer; }
+    button { cursor: pointer; overflow: hidden; }
+    [data-fx-button-content] { display:inline-flex; align-items:center; gap:6px; vertical-align:middle; max-width:100%; }
+    [data-fx-button-content][data-fx-button-layout="iconafter"] { flex-direction:row-reverse; }
+    [data-fx-button-symbol] { display:inline-block; flex-shrink:0; line-height:1;
+      font-family:'Apple Symbols','Noto Sans Symbols 2','Segoe UI Symbol',sans-serif; }
+    [data-fx-button-symbol]::before { content:attr(data-fx-glyph); }
+    [data-fx-button-caption] { overflow:hidden; text-overflow:ellipsis; }
     input, select, textarea { box-sizing: border-box; }
     .fx-gallery { overflow: auto; }
-    .fx-component { position: absolute; overflow: hidden; }
+    .fx-component { position: relative; overflow: hidden; }
     .fx-component > [data-control] { position: absolute; box-sizing: border-box; }
+    .fx-manual-container, .fx-data-card { position: relative; }
+    .fx-manual-container > [data-control], .fx-data-card > [data-control] { position: absolute; }
+    .fx-card-layout { position: relative; overflow: auto; }
+    .fx-card-layout > .fx-data-card { position: absolute; }
     .fx-rows { display: block; }
     .fx-row { display: block; position: relative; border-bottom: 1px solid #eee; padding: 4px 0; }
     .fx-row > [data-control] { position: absolute; box-sizing: border-box; }
@@ -1286,13 +1689,17 @@ def render_index_html(ir: AppIR, screens_html: str) -> str:
 <html>
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{ir.name}</title>
-  <style>{INDEX_CSS}</style>
+  <style>{INDEX_CSS}{composites.CSS}</style>
   <base target="_top">
 </head>
 <body>
+<div id="fx-canvas">
 <?!= include('Screens.html'); ?>
+</div>
 <script type="application/json" id="fx-launch-parameters"><?!= launchParametersJSON ?></script>
+<script type="application/json" id="fx-storage-context"><?!= storageContextJSON ?></script>
 <script>
 <?!= include('gas-runtime.js.html'); ?>
 <?!= include('fx-stdlib.js.html'); ?>

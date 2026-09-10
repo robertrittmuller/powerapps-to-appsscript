@@ -9,16 +9,29 @@
   'use strict';
 
   var state = {};
+  var screenContexts = Object.create(null);
   var evaluators = [];   // { fn, apply } — re-run on state change
+  var cardLayouts = [], cardGeometry = {}, galleryLayouts = [], styleLayouts = [];
   var handlers = {};     // controlName -> { event: fn }
   var controlValues = {}; // control name -> evaluated properties used by dependents
+  var buttonIcons = Object.create(null);
+  var controlNodes = new WeakMap();
+  var controlProperties = Object.create(null), resolvingProperties = [];
+  var galleryTemplates = Object.create(null), resolvingTemplates = [];
   var forms = {};        // form name -> generated DataCard submit configuration
+  var timers = {};       // timer name -> resettable scheduling state
   var screenStack = [];
   var CURRENT_SCREEN = null;
+  var navigationRevision = 0;
   var launchParameters = {};
+  var storageContext = null;
+  var canvas = {layout: {}, app: {}, screens: {}, refs: {}, resolving: []};
+  var resizeInstalled = false;
   if (typeof document !== 'undefined') {
     var parameterElement = document.getElementById('fx-launch-parameters');
     if (parameterElement) launchParameters = JSON.parse(parameterElement.textContent || '{}');
+    var storageElement = document.getElementById('fx-storage-context');
+    if (storageElement) storageContext = JSON.parse(storageElement.textContent || '{}');
   }
 
   function param(name) {
@@ -27,9 +40,138 @@
       ? String(launchParameters[key]) : null;
   }
 
+  function cacheAccess() {
+    if (!storageContext || typeof storageContext.appId !== 'string' || !storageContext.appId)
+      throw new Error('App storage identity is unavailable; open the deployed app to use SaveData/LoadData');
+    var storage;
+    try { storage = global.localStorage; } catch (err) {
+      throw new Error('Browser storage is unavailable: ' + err.message);
+    }
+    if (!storage) throw new Error('Browser storage is unavailable');
+    return {storage: storage, prefix: 'pfx2gas:cache:v1:' +
+      encodeURIComponent(JSON.stringify([storageContext.appId, storageContext.user || ''])) + ':'};
+  }
+
+  function cacheName(name) {
+    if (typeof name !== 'string' || !name || /[*".?:\\<>|/]/.test(name))
+      throw new Error('SaveData/LoadData storage name is empty or contains a forbidden character');
+    return encodeURIComponent(name);
+  }
+
+  // Tagged values preserve nested records/tables, dates, and Blank without
+  // guessing whether ordinary strings happen to look like dates or type tags.
+  function packCache(value, ancestors) {
+    if (value == null) return ['blank'];
+    if (value instanceof Date) {
+      if (!isFinite(value.getTime())) throw new Error('Cannot save an invalid date');
+      return ['date', value.toISOString()];
+    }
+    if (typeof value === 'number' && !isFinite(value)) throw new Error('Cannot save a non-finite number');
+    if (['string', 'number', 'boolean'].indexOf(typeof value) >= 0) return [typeof value, value];
+    if (typeof value !== 'object') throw new Error('Cannot save this value type');
+    if (ancestors.indexOf(value) >= 0) throw new Error('Cannot save circular data');
+    var path = ancestors.concat([value]);
+    if (Array.isArray(value)) return ['table', value.map(function (item) { return packCache(item, path); })];
+    return ['record', Object.keys(value).map(function (key) { return [key, packCache(value[key], path)]; })];
+  }
+
+  function unpackCache(value) {
+    if (!Array.isArray(value)) throw new Error('Invalid cached value');
+    var type = value[0], data = value[1];
+    if (type === 'blank' && value.length === 1) return null;
+    if (value.length !== 2) throw new Error('Invalid cached value');
+    if (['string', 'number', 'boolean'].indexOf(type) >= 0 && typeof data === type) {
+      if (type === 'number' && !isFinite(data)) throw new Error('Invalid cached number');
+      return data;
+    }
+    if (type === 'date' && typeof data === 'string' && isFinite(new Date(data).getTime())) return new Date(data);
+    if (type === 'table' && Array.isArray(data)) return data.map(unpackCache);
+    if (type === 'record' && Array.isArray(data)) {
+      var record = {};
+      data.forEach(function (field) {
+        if (!Array.isArray(field) || field.length !== 2 || typeof field[0] !== 'string' ||
+            Object.prototype.hasOwnProperty.call(record, field[0])) throw new Error('Invalid cached field');
+        Object.defineProperty(record, field[0], {value: unpackCache(field[1]), enumerable: true, writable: true, configurable: true});
+      });
+      return record;
+    }
+    throw new Error('Invalid cached value type');
+  }
+
+  function saveData(collection, name) {
+    var cache = cacheAccess(), key = cache.prefix + cacheName(name);
+    if (!Array.isArray(collection)) throw new Error('SaveData requires a collection');
+    var text = JSON.stringify({version: 1, rows: packCache(collection, [])});
+    if (new TextEncoder().encode(text).length > 1048576)
+      throw new Error('SaveData exceeds the 1 MB browser cache limit');
+    cache.storage.setItem(key, text); // quota/access failures must reach IfError
+    return null;
+  }
+
+  function loadData(collectionName, name, ignoreMissing) {
+    var cache = cacheAccess(), key = cache.prefix + cacheName(name);
+    var text = cache.storage.getItem(key);
+    if (text === null) {
+      if (!ignoreMissing) throw new Error('No saved data named ' + name);
+      return null;
+    }
+    var saved;
+    try {
+      var envelope = JSON.parse(text);
+      if (!envelope || envelope.version !== 1) throw new Error('Unknown cache version');
+      saved = unpackCache(envelope.rows);
+      if (!Array.isArray(saved)) throw new Error('Cached data is not a collection');
+    } catch (err) { throw new Error('Saved data is corrupt or incompatible: ' + name + ' (' + err.message + ')'); }
+    var current = state[collectionName];
+    if (current != null && !Array.isArray(current)) throw new Error('LoadData requires a collection');
+    var update = {};
+    var restored = global.FX.collections.prepare(state, collectionName, saved);
+    Object.defineProperty(update, collectionName, {value: (current || []).concat(restored), enumerable: true});
+    setState(update); // append atomically only after all cached values validate
+    return null;
+  }
+
+  function clearData(name) {
+    var cache = cacheAccess();
+    if (arguments.length) cache.storage.removeItem(cache.prefix + cacheName(name));
+    else {
+      var keys = [];
+      for (var i = 0; i < cache.storage.length; i++) {
+        var key = cache.storage.key(i);
+        if (key && key.indexOf(cache.prefix) === 0) keys.push(key);
+      }
+      keys.forEach(function (key) { cache.storage.removeItem(key); });
+    }
+    return null;
+  }
+
+  // google.script.run accepts plain records/arrays, but rejects Date even
+  // inside a nested record. Keep the instant as ISO text without mutating
+  // client state; malformed values must reach the source's IfError.
+  function wireValue(value, ancestors) {
+    if (value == null) return null;
+    if (value instanceof Date) {
+      if (!isFinite(value.getTime())) throw new Error('Cannot send an invalid date');
+      return value.toISOString();
+    }
+    if (typeof value === 'string' || typeof value === 'boolean') return value;
+    if (typeof value === 'number' && isFinite(value)) return value;
+    if (typeof value !== 'object' || (!Array.isArray(value) && Object.prototype.toString.call(value) !== '[object Object]') || value.nodeType)
+      throw new Error('Unsupported Apps Script argument type');
+    if (ancestors.indexOf(value) >= 0) throw new Error('Cannot send circular data');
+    var path = ancestors.concat([value]);
+    if (Array.isArray(value)) return value.map(function (item) { return wireValue(item, path); });
+    var record = {};
+    Object.keys(value).forEach(function (key) {
+      Object.defineProperty(record, key, {value: wireValue(value[key], path), enumerable: true});
+    });
+    return record;
+  }
+
   function serverRun(fn) {
     var args = Array.prototype.slice.call(arguments, 1);
     return new Promise(function (resolve, reject) {
+      args = wireValue(args, []);
       var settled = false;
       var timer = setTimeout(function () {
         if (!settled) { settled = true; reject(new Error('server call timed out (30s web-app budget): ' + fn)); }
@@ -41,8 +183,115 @@
         .withFailureHandler(function (err) {
           if (!settled) { settled = true; clearTimeout(timer); reject(err); }
         });
-      runner[fn].apply(runner, args);
+      try { runner[fn].apply(runner, args); }
+      catch (err) { settled = true; clearTimeout(timer); reject(err); }
     });
+  }
+
+  var serviceAdapters = Object.create(null), connectorCache = new Map();
+  var startScreenReads = null, configuredStartScreen = null;
+  function configureServices(contracts) {
+    serviceAdapters = contracts || Object.create(null);
+    connectorCache.clear();
+  }
+  function connectorContract(service, operation, args) {
+    var adapter = Object.prototype.hasOwnProperty.call(serviceAdapters, service) && serviceAdapters[service];
+    var contract = adapter && Object.prototype.hasOwnProperty.call(adapter.operations, operation) && adapter.operations[operation];
+    if (!contract) throw new Error('Google adapter operation is not configured: ' + service + '.' + operation);
+    if (!Array.isArray(args) || contract.arity.indexOf(args.length) < 0) throw new Error('Wrong number of connector arguments: ' + operation);
+    return contract;
+  }
+  function refreshConnector(service) {
+    connectorCache.forEach(function (entry, key) { if (entry.service === service) connectorCache.delete(key); });
+    updateBindings();
+    return null;
+  }
+  async function connectorCall(service, operation, args) {
+    var contract = connectorContract(service, operation, args);
+    try { return await serverRun('connector', service, operation, args); }
+    finally {
+      // A failed transport/flush can follow a successful write. Invalidate,
+      // but never retry a mutation implicitly and risk duplicate task creation.
+      if (contract.write) refreshConnector(service);
+    }
+  }
+  function connectorRead(service, operation, args) {
+    if (connectorContract(service, operation, args).write) throw new Error('Connector writes require a behavior formula');
+    var wire = wireValue(args, []), key = JSON.stringify([service, operation, wire]);
+    var entry = connectorCache.get(key);
+    if (!entry) {
+      entry = {service:service, value:null, error:null, pending:true};
+      connectorCache.set(key, entry);
+      entry.promise = serverRun('connector', service, operation, wire).then(function (value) {
+        entry.pending = false;
+        if (connectorCache.get(key) !== entry) return; // Discard stale in-flight snapshots.
+        entry.value = value;
+        updateBindings();
+      }, function (error) {
+        entry.pending = false;
+        if (connectorCache.get(key) !== entry) return;
+        entry.error = error instanceof Error ? error : new Error(error && error.message || String(error));
+        // Re-evaluation throws into the source's IfError (when present).
+        // Unhandled failures reach the ordinary binding-error reporting path.
+        updateBindings();
+      });
+    }
+    if (startScreenReads && entry.pending) startScreenReads.add(entry.promise);
+    if (entry.error) throw entry.error;
+    return entry.value;
+  }
+
+  async function resolveStartScreen(evaluate, fallback, unavailableNames) {
+    // App.StartScreen is evaluated before OnStart. Wait for connector values
+    // referenced by that dataflow expression, including named-formula reads.
+    // https://learn.microsoft.com/power-platform/power-fx/reference/object-app
+    configuredStartScreen = fallback;
+    try {
+      for (var pass = 0; pass < 32; pass++) {
+        var pending = new Set(), saved = [], value, failure;
+        var previousReads = startScreenReads;
+        startScreenReads = pending;
+        try {
+          (unavailableNames || []).forEach(function (name) {
+            saved.push([name, Object.getOwnPropertyDescriptor(state, name)]);
+            Object.defineProperty(state, name, {configurable:true,
+              get:function () { throw new Error('App.StartScreen cannot read global variable or collection: ' + name); },
+              set:function () { throw new Error('App.StartScreen cannot change app state: ' + name); }});
+          });
+          value = evaluate();
+          if (value && typeof value.then === 'function') throw new Error('App.StartScreen must return a screen value');
+        } catch (error) { failure = error; }
+        finally {
+          startScreenReads = previousReads;
+          saved.reverse().forEach(function (pair) {
+            if (pair[1]) Object.defineProperty(state, pair[0], pair[1]);
+            else delete state[pair[0]];
+          });
+        }
+        if (pending.size) {
+          await Promise.all(Array.from(pending));
+          continue;
+        }
+        if (failure) throw failure;
+        if (value == null || value === '') return configuredStartScreen;
+        // A control inside a screen is not itself a valid StartScreen value.
+        var target = navigationTarget(typeof value === 'object' ? value.name : value);
+        if (!target) throw new Error('App.StartScreen returned an unknown screen: ' + String(value));
+        configuredStartScreen = target;
+        return target;
+      }
+      throw new Error('App.StartScreen connector dependencies did not settle after 32 passes');
+    } catch (error) {
+      console.error('App.StartScreen error', error);
+      toast('Start screen error: ' + (error && error.message || error), true);
+      return configuredStartScreen;
+    }
+  }
+
+  function finishStartup(fallback) {
+    // An explicit Navigate in the retired OnStart path must not be overwritten.
+    // Handlers are registered by now, so the selected screen gets OnVisible.
+    showScreen(CURRENT_SCREEN || configuredStartScreen || fallback);
   }
 
   function toast(msg, isError) {
@@ -60,14 +309,39 @@
   }
 
   function updateBindings() {
-    evaluators.forEach(function (e) {
-      try {
-        var result = e.apply();
-        if (result && typeof result.catch === 'function') {
-          result.catch(function (err) { console.error('binding error', err); });
-        }
-      } catch (err) { console.error('binding error', err); }
-    });
+    updateCanvas();
+    var changed, pass = 0;
+    do {
+      evaluators.forEach(function (e) {
+        try {
+          var result = e.apply();
+          if (result && typeof result.catch === 'function') {
+            result.catch(function (err) { console.error('binding error', err); });
+          }
+        } catch (err) { console.error('binding error', err); }
+      });
+      // Source geometry can reference a later sibling. A resize must settle
+      // that dependency chain before rows are laid out, without replaying
+      // input defaults, OnChange behaviors or asynchronous data evaluators.
+      var stylesChanged, stylePass = 0;
+      do {
+        stylesChanged = false;
+        styleLayouts.forEach(function (layout) {
+          try { stylesChanged = layout.apply() || stylesChanged; }
+          catch (error) { console.error('style layout error', error); }
+        });
+      } while (stylesChanged && ++stylePass < 32);
+      if (stylesChanged) console.error('style layout did not settle after 32 passes');
+      galleryLayouts.forEach(function (layout) {
+        try { layout(); } catch (error) { console.error('gallery layout error', error); }
+      });
+      changed = false;
+      cardLayouts.forEach(function (layout) {
+        try { changed = layout() || changed; }
+        catch (error) { console.error('card layout error', error); }
+      });
+    } while (changed && ++pass < 8);
+    if (changed) console.error('card layout did not settle after 8 passes');
   }
 
   function setState(patch) {
@@ -76,27 +350,106 @@
     return state;
   }
 
-  function go(name) {
+  function registerNamedFormulas(definitions) {
+    var stack = [], names = Object.keys(definitions), seen = Object.create(null);
+    Object.getOwnPropertyNames(state).forEach(function (name) { seen[name.toLowerCase()] = true; });
+    // Validate the entire registry before defining any immutable properties.
+    names.forEach(function (name) {
+      var key = name.toLowerCase();
+      if (seen[key] || Object.prototype.hasOwnProperty.call(state, name) || typeof definitions[name] !== 'function')
+        throw new Error('Invalid or conflicting named formula: ' + name);
+      seen[key] = true;
+    });
+    names.forEach(function (name) {
+      Object.defineProperty(state, name, {enumerable: false, configurable: false,
+        get: function () {
+          if (stack.includes(name)) throw new Error('Circular named formula: ' + stack.concat(name).join(' -> '));
+          stack.push(name);
+          try {
+            var value = definitions[name](val, val('App'), null);
+            if (value && typeof value.then === 'function') throw new Error('Asynchronous named formula is unsupported: ' + name);
+            return value;
+          } finally { stack.pop(); }
+        },
+        set: function () { throw new Error('Named formula is read-only: ' + name); },
+      });
+    });
+  }
+
+  function configureContexts(definitions) {
+    screenContexts = Object.create(null);
+    Object.keys(definitions || {}).forEach(function (screen) {
+      var context = screenContexts[screen] = Object.create(null);
+      definitions[screen].forEach(function (name) { context[String(name).toLowerCase()] = null; });
+    });
+  }
+
+  function variable(screen, key, fallback) {
+    var context = screenContexts[screen], name = String(key).toLowerCase();
+    return context && Object.prototype.hasOwnProperty.call(context, name) ? context[name]
+      : typeof fallback === 'function' ? fallback() : null;
+  }
+
+  function applyContext(screen, patch) {
+    if (!screen) throw new Error('UpdateContext requires a screen');
+    if (!patch || typeof patch !== 'object' || Array.isArray(patch) || patch instanceof Date)
+      throw new Error('Screen context must be a record');
+    var context = screenContexts[screen] || (screenContexts[screen] = Object.create(null));
+    Object.keys(patch).forEach(function (name) { context[name.toLowerCase()] = patch[name]; });
+  }
+
+  function updateContext(screen, patch) {
+    applyContext(screen || CURRENT_SCREEN, patch);
+    updateBindings();
+    return null;
+  }
+
+  function navigationTarget(target) {
+    if (target && typeof target === 'object') {
+      var el = target.el;
+      var screen = el && typeof el.closest === 'function' && el.closest('[data-screen]');
+      target = screen ? screen.getAttribute('data-screen') : target.name;
+    }
+    if (typeof target !== 'string' || !target) return null;
+    if (Object.keys(canvas.screens).length && !Object.prototype.hasOwnProperty.call(canvas.screens, target)) return null;
+    return target;
+  }
+
+  function go(name, contextPatch) {
+    name = navigationTarget(name);
+    if (!name) return false;
+    // Evaluate the source record at the call site, then update only the target
+    // screen before any target bindings or OnVisible handler can read it.
+    if (contextPatch !== undefined) applyContext(name, contextPatch);
     if (CURRENT_SCREEN) screenStack.push(CURRENT_SCREEN);
     showScreen(name);
+    return true;
   }
 
   function goBack() {
     var prev = screenStack.pop();
-    showScreen(prev || (document.querySelector('[data-screen]') || {}).getAttribute
-      ? (prev || (document.querySelector('[data-screen]') || { getAttribute: function () { return null; } }).getAttribute('data-screen'))
-      : null);
+    if (!prev) return false;
+    showScreen(prev);
+    return true;
   }
 
   function showScreen(name) {
     if (!name) return;
+    var previous = CURRENT_SCREEN, revision = ++navigationRevision;
     document.querySelectorAll('[data-screen]').forEach(function (el) {
       el.style.display = el.getAttribute('data-screen') === name ? '' : 'none';
     });
     CURRENT_SCREEN = name;
-    var fn = handlers['__screen__' + name];
-    if (fn) {
-      Promise.resolve().then(fn).then(updateBindings).catch(function (e) {
+    var hidden = previous && previous !== name && handlers['__hidden__' + previous];
+    var visible = handlers['__screen__' + name];
+    if (hidden || visible) {
+      Promise.resolve().then(function () {
+        if (hidden) return hidden(val, val(previous), val('App'));
+      }).then(function () {
+        // A later navigation owns the visible screen. Never run an obsolete
+        // OnVisible after an earlier screen's awaited exit work completes.
+        if (visible && revision === navigationRevision) return visible(val, val(name), val('App'));
+      }).then(updateBindings).catch(function (e) {
         console.error(e);
         toast('Error: ' + (e && e.message ? e.message : e), true);
       });
@@ -104,22 +457,60 @@
     updateBindings();
   }
 
+  function listen(el, event, callback) {
+    (el.__fxListeners || (el.__fxListeners = [])).push({event:event, callback:callback});
+    el.addEventListener(event, callback);
+  }
+
   function bind(name, event, fn, parentName) {
-    var el = document.querySelector('[data-control="' + name + '"]');
+    var el = controlElement(name);
     if (!el) { console.warn('control not found for binding:', name); return; }
-    el.addEventListener(event === 'OnSelect' ? 'click' : 'change', function () {
+    var target = event === 'OnSelectLogo' ? el.querySelector('[data-fx-part="logo-action"]') : el;
+    if (!target) return;
+    function run(checkedValue) {
+      if (target.disabled) return;
       var previousSelf = global.selfRef;
       var previousParent = global.parentRef;
-      global.selfRef = val(name);
-      global.parentRef = val(parentName);
-      Promise.resolve().then(fn).then(updateBindings).catch(function (e) {
+      var self = val(name), parent = val(parentName);
+      if (typeof checkedValue === 'boolean') self.value = self.checked = checkedValue;
+      global.selfRef = self;
+      global.parentRef = parent;
+      Promise.resolve().then(function () { return fn(val, self, parent); }).then(updateBindings).catch(function (e) {
         console.error(e);
         toast('Error: ' + (e && e.message ? e.message : e), true);
       }).then(function () {
         global.selfRef = previousSelf;
         global.parentRef = previousParent;
       });
-    });
+    }
+    if (event === 'OnCheck' || event === 'OnUncheck') {
+      watchChecked(el, function (value) { if (value === (event === 'OnCheck')) run(value); });
+    } else listen(target, event === 'OnSelect' || event === 'OnSelectLogo' ? 'click' : 'change', function () { run(); });
+  }
+
+  function notifyChecked(el, userChange) {
+    var value = !!el.checked;
+    if (value === el.__fxCheckedValue) return;
+    el.__fxCheckedValue = value;
+    (el.__fxCheckedHandlers || []).forEach(function (handler) { handler(value, userChange); });
+  }
+
+  function watchChecked(el, handler) {
+    if (el.type !== 'checkbox') throw new Error('OnCheck/OnUncheck require a checkbox or toggle');
+    if (!el.__fxCheckedHandlers) {
+      el.__fxCheckedHandlers = [];
+      el.__fxCheckedValue = !!el.checked;
+      listen(el, 'change', function () { if (!el.disabled) notifyChecked(el, true); });
+    }
+    el.__fxCheckedHandlers.push(handler);
+  }
+
+  function setChecked(el, value, initializing) {
+    el.checked = !!value;
+    // Mounting establishes an initial value; later Default/Reset/form changes
+    // use the same transition path as user changes, without a synthetic click.
+    if (initializing) el.__fxCheckedValue = !!value;
+    else notifyChecked(el, false);
   }
 
   function selectionRecord(row) {
@@ -163,11 +554,33 @@
     return selected;
   }
 
-  function val(name) {
-    if (name === 'App') {
-      return { active_screen: CURRENT_SCREEN };
+  function dateInputText(value) {
+    if (value === null || value === undefined || value === '') return '';
+    if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+      dateInputValue({value:value}); return value;
     }
-    var el = document.querySelector('[data-control="' + name + '"]')
+    var date = value instanceof Date ? value :
+      typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(value) ? new Date(value) : null;
+    if (!date || !Number.isFinite(date.getTime())) throw new Error('Date picker requires a valid date');
+    return String(date.getFullYear()).padStart(4, '0') + '-' + String(date.getMonth()+1).padStart(2, '0') + '-' + String(date.getDate()).padStart(2, '0');
+  }
+
+  function dateInputValue(el) {
+    if (!el.value) return null;
+    var parts = /^(\d{4})-(\d{2})-(\d{2})$/.exec(el.value);
+    if (!parts) throw new Error('Invalid date picker value');
+    var date = new Date(0); date.setFullYear(Number(parts[1]), Number(parts[2])-1, Number(parts[3]));
+    date.setHours(0,0,0,0);
+    if (dateInputText(date) !== el.value) throw new Error('Invalid date picker value');
+    return date;
+  }
+
+  function val(name, element) {
+    if (name === 'App') {
+      return canvasRef('App');
+    }
+    if (!element && Object.prototype.hasOwnProperty.call(canvas.screens, name)) return canvasRef(name);
+    var el = element || controlElement(name)
       || document.querySelector('[data-screen="' + name + '"]');
     if (!el) return Object.assign(
       { text: '', value: '', selected: null, checked: false,
@@ -178,31 +591,252 @@
     var selectedRows = isSelect ? selectedRecords(el) : [];
     var selectedInfo = isSelect && selectedRows[0]
       ? optionRecord(selectedRows[0]) : { value: '', label: '' };
-    var bounds = typeof el.getBoundingClientRect === 'function'
-      ? el.getBoundingClientRect() : null;
-    function numericStyle(name, fallback) {
+    var bounds, measured = false;
+    function numericStyle(name, dimension) {
       var parsed = parseFloat(el.style && el.style[name]);
       if (Number.isFinite(parsed)) return parsed;
+      // Generated controls usually have all four dimensions inline. Measuring
+      // every reference after style writes forces a layout for every formula,
+      // even when its measured rectangle would never be used.
+      if (!measured) {
+        bounds = typeof el.getBoundingClientRect === 'function' ? el.getBoundingClientRect() : null;
+        measured = true;
+      }
+      var fallback = bounds && bounds[dimension];
+      // A container-sized control has no inline extent. Its measured box is
+      // in browser pixels; Power Fx reads design pixels inside a scaled canvas.
+      if ((dimension === 'width' || dimension === 'height') && canvas.layout.scaleToFit === true) {
+        var app = canvasRef('App'), sx = (Number(global.innerWidth) || app.design_width) / app.design_width;
+        var sy = (Number(global.innerHeight) || app.design_height) / app.design_height;
+        if (canvas.layout.lockAspectRatio === true) sx = sy = Math.min(sx,sy);
+        fallback /= dimension === 'width' ? sx : sy;
+      }
       return Number.isFinite(fallback) ? fallback : 0;
     }
     var standard = {
-      text: 'value' in el ? el.value : (el.textContent || ''),
-      value: el.value !== undefined ? el.value : el.textContent,
+      text: ['INPUT', 'SELECT', 'TEXTAREA'].indexOf(el.tagName) >= 0 ? el.value : (el.textContent || ''),
+      value: el.type === 'date' && el.getAttribute('data-fx-date-value') === 'local' ? dateInputValue(el)
+        : el.type === 'checkbox' ? !!el.checked : el.type === 'range' ? Number(el.value)
+        : el.value !== undefined ? el.value : el.textContent,
       checked: !!el.checked,
       selected: selectedRows[0] || null,
       selected_items: selectedRows,
       selected_text: selectedRows[0] ? { value: selectedInfo.label } : null,
-      selected_date: el.value ? el.value : null,
-      width: numericStyle('width', bounds && bounds.width),
-      height: numericStyle('height', bounds && bounds.height),
-      x: numericStyle('left', bounds && bounds.left),
-      y: numericStyle('top', bounds && bounds.top),
+      selected_date: el.type === 'date' ? dateInputValue(el) : el.value ? el.value : null,
+      width: numericStyle('width', 'width'),
+      height: numericStyle('height', 'height'),
+      x: numericStyle('left', 'left'),
+      y: numericStyle('top', 'top'),
       fill: el.style && el.style.backgroundColor || '',
       color: el.style && el.style.color || '',
+      accessible_label: typeof el.getAttribute === 'function' ? el.getAttribute('aria-label') || '' : '',
+      tooltip: typeof el.getAttribute === 'function' ? el.getAttribute('title') || '' : '',
       visible: !el.style || el.style.display !== 'none',
       el: el,
     };
-    return Object.assign(standard, controlValues[name] || {});
+    var liveProperties = new Set(Object.keys(standard));
+    ['template_size','template_width','template_height','template_padding'].forEach(function (key) { liveProperties.add(key); });
+    Object.assign(standard, element ? (element.__fxValues || {}) : (controlValues[name] || {}),
+      el.__fxValues || {}, element ? {} : (cardGeometry[name] || {}));
+    var scoped = el.__fxProperties;
+    var definitions = scoped || (!element && controlProperties[name]);
+    if (scoped && ['INPUT','SELECT','TEXTAREA'].indexOf(el.tagName) < 0) {
+      // A label's Text is a formula, including when a later sibling has not
+      // painted yet. Editable input text must continue to come from the DOM.
+      liveProperties.delete('text');
+    }
+    if (definitions) Object.keys(definitions.fns).forEach(function (key) {
+      if (liveProperties.has(key)) return; // DOM input values and geometry retain their live contract.
+      var resolved = false, value;
+      Object.defineProperty(standard, key, {enumerable:true, configurable:true, get:function () {
+        if (resolved) return value;
+        var label = name + '.' + key;
+        var reference = scoped ? (scoped.tokens[key] || (scoped.tokens[key] = {})) : label;
+        if (resolvingProperties.includes(reference)) throw new Error('Circular control property: ' + label);
+        resolvingProperties.push(reference);
+        try {
+          value = scoped ? definitions.fns[key](scoped.read, standard, scoped.read(definitions.parent))
+            : inControlContext(name, definitions.parent, definitions.fns[key]);
+          resolved = true; return value;
+        }
+        finally { resolvingProperties.pop(); }
+      }});
+    });
+    if (el.__fxAllItems) {
+      Object.defineProperties(standard, {
+        all_items: {enumerable:true, get:el.__fxAllItems},
+        all_items_count: {enumerable:true, get:function () { return el.__fxAllItems().length; }},
+      });
+    }
+    // Resolve TemplateSize lazily, before Items mounts rows and independently
+    // of control registration order. Responsive formulas must also update the
+    // derived dimensions; a stale/absent HTML attribute is not their source.
+    var template = el.__fxGalleryTemplate || (!element && galleryTemplates[name]);
+    if (template || (typeof el.getAttribute === 'function' && el.getAttribute('data-template-size') !== null)) {
+      Object.defineProperty(standard, 'template_size', {enumerable: true, get: function () {
+        if (!template) return Number(el.getAttribute('data-template-size')) || 0;
+        var token = el.__fxGalleryTemplate ? el : name;
+        if (resolvingTemplates.indexOf(token) >= 0) throw new Error('Circular gallery TemplateSize: ' + name);
+        resolvingTemplates.push(token);
+        try {
+          var read = template.read || val;
+          var size = Number(template.fn(read, standard, read(template.parent)));
+          if (!Number.isFinite(size)) throw new Error('Non-finite gallery TemplateSize: ' + name);
+          return Math.max(1, size);
+        } finally { resolvingTemplates.pop(); }
+      }});
+      standard.template_padding = Number(el.getAttribute('data-template-padding')) || 0;
+      var horizontal = el.getAttribute('data-gallery-layout') === 'horizontal';
+      var wraps = Math.max(1, Number(el.getAttribute('data-wrap-count')) || 1);
+      Object.defineProperties(standard, {
+        template_width: {enumerable: true, get: function () { return horizontal ? standard.template_size
+          : el.getAttribute('data-wrap-count') !== null ? Math.max(0,(standard.width-standard.template_padding*(wraps+1))/wraps) : standard.width; }},
+        template_height: {enumerable: true, get: function () { return horizontal
+          ? Math.max(0,(standard.height-standard.template_padding*(wraps+1))/wraps) : standard.template_size; }},
+      });
+    }
+    var primary = typeof el.getAttribute === 'function' ? el.getAttribute('data-fx-primary-output') : null;
+    return primary ? FX.controlReference(standard, primary) : standard;
+  }
+
+  function registerGalleryTemplate(name, parentName, sizeFn) {
+    galleryTemplates[name] = {parent: parentName, fn: sizeFn};
+  }
+
+  function registerCardLayout(name, cards, columnsFn, parentName) {
+    var previous = '';
+    cardLayouts.push(function () {
+      var host = controlElement(name);
+      if (!host) return false;
+      var hostRef = val(name), width = Math.max(0, Number(hostRef.width) || 0);
+      var columns = Math.max(1, Number(columnsFn(val, hostRef, val(parentName))) || 1);
+      var entries = cards.map(function (card, index) {
+        var self = val(card.name), props = card.properties;
+        function get(key, fallback) { return props[key] ? props[key](val, self, hostRef) : fallback; }
+        function number(key, fallback) {
+          var value = Number(get(key, fallback));
+          if (!Number.isFinite(value)) throw new Error('Nonfinite card property: ' + card.name + '.' + key);
+          return value;
+        }
+        return {name:card.name, index:index, x:number('X', 0), y:number('Y', index),
+          width:Math.max(0, number('Width', width / columns)), height:Math.max(0, number('Height', 100)),
+          fit:!!get('WidthFit', false), visible:!!get('Visible', true), el:self.el};
+      }).sort(function (a,b) { return a.y - b.y || a.x - b.x || a.index - b.index; });
+      var row = [], used = 0, top = 0, logicalY, geometry = [];
+      function flush() {
+        if (!row.length) return;
+        var fits = row.filter(function (card) { return card.fit; }).length;
+        var extra = fits ? Math.max(0, width - used) / fits : 0;
+        var height = Math.max.apply(Math, row.map(function (card) { return card.height; }));
+        var left = 0;
+        row.forEach(function (card) {
+          var actualWidth = card.width + (card.fit ? extra : 0);
+          cardGeometry[card.name] = {x:card.x, y:card.y, width:actualWidth, height:height};
+          if (card.el) Object.assign(card.el.style, {left:left+'px', top:top+'px',
+            width:actualWidth+'px', height:height+'px', display:''});
+          geometry.push([card.name, left, top, actualWidth, height, true]);
+          left += actualWidth;
+        });
+        top += height;
+        row = []; used = 0;
+      }
+      entries.forEach(function (card) {
+        if (!card.visible) {
+          cardGeometry[card.name] = {x:card.x, y:card.y, width:card.width, height:card.height};
+          if (card.el) card.el.style.display = 'none';
+          geometry.push([card.name, 0, 0, card.width, card.height, false]);
+          return;
+        }
+        if (row.length && (card.y !== logicalY || used + card.width > width + 0.01)) flush();
+        logicalY = card.y; row.push(card); used += card.width;
+      });
+      flush();
+      var next = JSON.stringify(geometry), changed = previous !== next;
+      previous = next;
+      return changed;
+    });
+  }
+
+  // Source canvas properties are lazy so hidden screens and forward references
+  // have their logical dimensions even before CSS has been laid out. Getters
+  // also let Self.Width be read while evaluating that screen's Size formula.
+  function canvasRef(name) {
+    if (canvas.refs[name]) return canvas.refs[name];
+    var ref = {};
+    var defaults = name === 'App'
+      ? ['active_screen', 'width', 'height', 'design_width', 'design_height', 'min_screen_width', 'min_screen_height', 'size_breakpoints']
+      : ['name', 'width', 'height', 'size', 'orientation', 'fill', 'visible', 'el'];
+    var properties = name === 'App' ? canvas.app : canvas.screens[name] || {};
+    defaults.concat(Object.keys(properties)).forEach(function (key) {
+      if (Object.prototype.hasOwnProperty.call(ref, key)) return;
+      Object.defineProperty(ref, key, {enumerable: true, get: function () { return canvasProperty(name, key); }});
+    });
+    canvas.refs[name] = ref;
+    return ref;
+  }
+  function canvasProperty(name, key) {
+    var properties = name === 'App' ? canvas.app : canvas.screens[name] || {};
+    var token = name + '.' + key;
+    if (canvas.resolving.indexOf(token) >= 0) throw new Error('Circular canvas property: ' + token);
+    canvas.resolving.push(token);
+    try {
+      if (typeof properties[key] === 'function')
+        return properties[key](val, canvasRef(name), name === 'App' ? null : canvasRef('App'));
+      var layout = canvas.layout, app = canvasRef('App'), screen = name === 'App' ? null : canvasRef(name);
+      if (name === 'App') {
+        if (key === 'active_screen') return CURRENT_SCREEN;
+        if (key === 'design_width') return Number(layout.designWidth) || 1366;
+        if (key === 'design_height') return Number(layout.designHeight) || 768;
+        if (key === 'width') return layout.scaleToFit === true ? app.design_width : Number(global.innerWidth) || app.design_width;
+        if (key === 'height') return layout.scaleToFit === true ? app.design_height : Number(global.innerHeight) || app.design_height;
+        if (key === 'min_screen_width') return Number(layout.designWidth) || 0;
+        if (key === 'min_screen_height') return Number(layout.designHeight) || 0;
+        if (key === 'size_breakpoints') return [600, 900, 1200];
+      } else {
+        if (key === 'name') return name;
+        if (key === 'width') return Math.max(app.width, app.min_screen_width);
+        if (key === 'height') return Math.max(app.height, app.min_screen_height);
+        if (key === 'size') return 1 + app.size_breakpoints.filter(function (v) { return screen.width > Number(v && typeof v === 'object' ? v.value : v); }).length;
+        if (key === 'orientation') return screen.width > screen.height ? 'Horizontal' : 'Vertical';
+        if (key === 'fill') return 'transparent';
+        if (key === 'visible') return CURRENT_SCREEN === name;
+        if (key === 'el') return document.querySelector('[data-screen="' + name + '"]');
+      }
+      return null;
+    } finally { canvas.resolving.pop(); }
+  }
+  function updateCanvas() {
+    Object.keys(canvas.screens).forEach(function (name) {
+      try {
+        var screen = canvasRef(name), el = screen.el;
+        if (!el) return;
+        el.style.width = screen.width + 'px';
+        el.style.height = screen.height + 'px';
+        el.style.backgroundColor = screen.fill || '';
+        var layout = canvas.layout, app = canvasRef('App');
+        var sx = layout.scaleToFit === true ? (Number(global.innerWidth) || app.design_width) / app.design_width : 1;
+        var sy = layout.scaleToFit === true ? (Number(global.innerHeight) || app.design_height) / app.design_height : 1;
+        if (layout.lockAspectRatio === true) sx = sy = Math.min(sx, sy);
+        el.style.transformOrigin = 'top left';
+        el.style.transform = sx === 1 && sy === 1 ? '' : 'scale(' + sx + ',' + sy + ')';
+        if (name === CURRENT_SCREEN) {
+          var host = document.getElementById('fx-canvas');
+          if (host) {
+            host.style.width = screen.width * sx + 'px';
+            host.style.height = screen.height * sy + 'px';
+            host.style.overflow = layout.scaleToFit === true ? 'hidden' : 'visible';
+          }
+        }
+      } catch (error) { console.error('canvas layout error', name, error); }
+    });
+  }
+  function configureCanvas(layout, appProperties, screens) {
+    canvas = {layout: layout || {}, app: appProperties || {}, screens: screens || {}, refs: {}, resolving: []};
+    if (!resizeInstalled && typeof global.addEventListener === 'function') {
+      resizeInstalled = true;
+      global.addEventListener('resize', function () { updateBindings(); });
+    }
+    updateCanvas();
   }
 
   function optionRecord(row, displayFields) {
@@ -230,7 +864,7 @@
       }
       return null;
     }
-    var preferred = Array.isArray(displayFields) ? displayFields : [];
+    var preferred = Array.isArray(displayFields) ? displayFields : typeof displayFields === 'string' ? [displayFields] : [];
     var label = first(preferred.concat(['name', 'Name', 'label', 'Label', 'title', 'Title',
       'value', 'Value', 'category', 'Category', 'type', 'Type']));
     if (label === null) {
@@ -245,14 +879,21 @@
   function applyDefaultSelection(el, defaults) {
     var wanted = Array.isArray(defaults) ? defaults : [defaults];
     var rows = Array.isArray(el.__fxRecords) ? el.__fxRecords : [];
+    var matched = false;
     Array.prototype.forEach.call(el.options || [], function (option, index) {
-      option.selected = wanted.some(function (candidate) {
+      var selected = wanted.some(function (candidate) {
         return sameRecord(rows[index], candidate);
       });
+      option.selected = selected;
+      matched = matched || selected;
     });
+    // A native single select may reselect its first option as other options
+    // are deselected. Blank must explicitly leave it without a selection.
+    if (!matched) el.selectedIndex = -1;
   }
 
   function registerControlProps(name, parentName, propertyFns) {
+    controlProperties[name] = {parent:parentName, fns:propertyFns || {}};
     var evaluator = {
       apply: function () {
         var next = Object.assign({}, controlValues[name] || {});
@@ -274,10 +915,17 @@
     evaluator.apply();
   }
 
+  function registerRowProps(row, name, parentName, propertyFns) {
+    var el = findControl(row, name);
+    if (!el) return;
+    el.__fxProperties = {parent:parentName, fns:propertyFns || {}, tokens:{},
+      read:function (control) { return rowValue(row, control); }};
+  }
+
   function styleControl(name, cssProp, valueFn, unit, parentName) {
-    evaluators.push({
+    var evaluator = {
       apply: function () {
-        var el = document.querySelector('[data-control="' + name + '"]');
+        var el = controlElement(name);
         if (!el) return;
         var v;
         var previousSelf = global.selfRef;
@@ -287,19 +935,36 @@
         try { v = valueFn(); } catch (e) { return; }
         finally { global.selfRef = previousSelf; global.parentRef = previousParent; }
         if (v === null || v === undefined || (v === '' && cssProp !== 'display')) return;
-        if ((unit === 'px' || unit === 'pt') && /^\d+(\.\d+)?$/.test(String(v))) {
-          v = String(v) + unit;
+        if ((unit === 'px' || unit === 'pt') && /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i.test(String(v)) && Number.isFinite(Number(v))) {
+          v = String(Number(v)) + unit;
         }
         else if (unit === 'lower') v = String(v).toLowerCase();
+        var previous = el.style[cssProp];
         el.style[cssProp] = String(v);
+        var changed = el.style[cssProp] !== previous;
+        var key = {left:'x',top:'y',width:'width',height:'height',display:'visible'}[cssProp];
+        var cached = controlValues[name];
+        if (key && cached && Object.prototype.hasOwnProperty.call(cached,key)) {
+          // Referenced geometry also has a source-property cache. Keep that
+          // cache in step with the committed style so later siblings do not
+          // keep reading a previous pass's position or dimensions.
+          var actual = key === 'visible' ? el.style.display !== 'none' : parseFloat(el.style[cssProp]);
+          if (typeof actual === 'boolean' || Number.isFinite(actual)) {
+            changed = cached[key] !== actual || changed;
+            cached[key] = actual;
+          }
+        }
+        return changed;
       },
-    });
+    };
+    evaluators.push(evaluator);
+    styleLayouts.push(evaluator);
   }
 
   function attrControl(name, attr, valueFn, parentName) {
     var evaluator = {
       apply: function () {
-        var el = document.querySelector('[data-control="' + name + '"]');
+        var el = controlElement(name);
         if (!el) return;
         var previousSelf = global.selfRef;
         var previousParent = global.parentRef;
@@ -352,7 +1017,7 @@
   function htmlControl(name, valueFn, parentName) {
     var evaluator = {
       apply: function () {
-        var el = document.querySelector('[data-control="' + name + '"]');
+        var el = controlElement(name);
         if (!el) return;
         var previousSelf = global.selfRef;
         var previousParent = global.parentRef;
@@ -369,20 +1034,274 @@
     evaluator.apply();
   }
 
+  function rowElement(row, name) {
+    for (var scope = row; scope; scope = scope.__fxParentRow) {
+      var el = findControl(scope, name);
+      if (el) return el;
+    }
+    return null;
+  }
+
+  function rowValue(row, name) {
+    // Standalone input bindings use document as their scope. Passing an
+    // explicit element there would bypass global/component property getters.
+    return row === document ? val(name) : val(name, rowElement(row, name));
+  }
+
+  function compositeControl(row, name, parentName, propertyFns) {
+    var el = rowElement(row, name);
+    if (!el) return;
+    var kind = el.getAttribute('data-fx-composite'), read = function (key) { return rowValue(row,key); };
+    var props = {}, part = function (key) { return el.querySelector('[data-fx-part="' + key + '"]'); };
+    function text(key, value, visible) {
+      var node = part(key);
+      if (!node) return;
+      node.textContent = value == null ? '' : String(value);
+      node.hidden = visible === false || !node.textContent;
+    }
+    function image(key, value, alt) {
+      var node = part(key);
+      if (!node) return false;
+      var source = value == null ? '' : String(value).trim();
+      if (/^(?:javascript|vbscript|data\s*:\s*text\/html):?/i.test(source))
+        throw new Error('Unsupported image URL in ' + name + '.' + key);
+      node.setAttribute('alt', alt == null ? '' : String(alt));
+      if (node.__fxCompositeSource !== source) {
+        node.__fxCompositeSource = source;
+        node.removeAttribute('data-fx-image-error');
+        if (source) node.setAttribute('src',source);
+        else node.removeAttribute('src');
+      }
+      node.hidden = !source;
+      if (!node.__fxCompositeImage) {
+        node.__fxCompositeImage = true;
+        listen(node,'error',function () {
+          node.setAttribute('data-fx-image-error','true');
+          if (key === 'user-image') { node.hidden=true; part('initials').hidden=false; }
+        });
+      }
+      if (key === 'user-image' && node.hasAttribute('data-fx-image-error')) node.hidden=true;
+      return !!source && !node.hidden;
+    }
+    function positive(value, fallback) {
+      if (value == null || value === '' || Number(value) === 0) return fallback;
+      if (!Number.isFinite(Number(value)) || Number(value) < 0) throw new Error('Invalid composite dimension: ' + value);
+      return Number(value);
+    }
+    function contrast(fill) {
+      var color = typeof global.getComputedStyle === 'function' ? global.getComputedStyle(el).backgroundColor : String(fill || '');
+      var rgb = color.match(/^rgba?\(([^)]+)\)/i), hex = color.match(/^#([a-f0-9]{6})$/i);
+      var channels = rgb ? rgb[1].split(',').map(Number) : hex ? [0,2,4].map(function (i) {return parseInt(hex[1].slice(i,i+2),16);}) : [255,255,255];
+      var alpha = channels.length > 3 ? channels[3] : 1;
+      var linear = channels.slice(0,3).map(function (v) { v=(v*alpha+255*(1-alpha))/255; return v<=0.04045?v/12.92:Math.pow((v+0.055)/1.055,2.4); });
+      return .2126*linear[0]+.7152*linear[1]+.0722*linear[2]>.179 ? '#000000' : '#ffffff';
+    }
+    try {
+      Object.keys(propertyFns || {}).forEach(function (key) { props[key]=propertyFns[key](read,read(name),read(parentName)); });
+      var disabled = /^(disabled|view)$/i.test(String(props.DisplayMode));
+      if (kind === 'ModernCard') {
+        var direction = props.LayoutDirection == null ? 'Vertical' : props.LayoutDirection;
+        var placement = props.ImagePlacement == null ? 'BeforeHeader' : props.ImagePlacement;
+        var fit = props.ImagePosition == null ? 'Fill' : props.ImagePosition;
+        if (!['Vertical','Horizontal'].includes(direction) || !['BeforeHeader','AfterHeader'].includes(placement))
+          throw new Error('Unsupported card direction or image placement');
+        var fits = {Fill:'cover',Fit:'contain',Stretch:'fill'};
+        if (!fits[fit]) throw new Error('Unsupported card ImagePosition: ' + fit);
+        el.setAttribute('data-fx-direction',String(direction).toLowerCase());
+        el.style.backgroundColor = props.Fill || '#ffffff';
+        el.style.borderRadius = props.BorderRadius == null ? '12px' : positive(props.BorderRadius,0)+'px';
+        el.disabled = disabled;
+        el.setAttribute('aria-disabled',String(disabled));
+        if (props.TabIndex != null) el.tabIndex=Number(props.TabIndex);
+        if (props.AccessibleLabel) el.setAttribute('aria-label',String(props.AccessibleLabel));
+        else el.removeAttribute('aria-label');
+        if (props.Tooltip != null) el.setAttribute('title',String(props.Tooltip));
+        text('title',props.Title); text('subtitle',props.Subtitle); text('description',props.Description);
+        image('preview',props.Image,props.ImageAltText); image('header-image',props.HeaderImage,props.HeaderImageAltText);
+        part('preview').style.order=placement==='AfterHeader'?'2':'0';
+        part('preview').style.objectFit=fits[fit];
+        part('card-content').style.order='1';
+        part('card-header').hidden=!props.Title && !props.Subtitle && !props.HeaderImage;
+        var autoColor=contrast(props.Fill);
+        ['Title','Subtitle','Description'].forEach(function (key) {
+          var node=part(key.toLowerCase());
+          node.style.color=props[key+'Color'] || autoColor;
+          node.style.fontSize=positive(props[key+'Size'],key==='Title'?12:10.5)+'pt';
+        });
+      } else if (kind === 'Header') {
+        var user=fxUser(), userName=Object.prototype.hasOwnProperty.call(props,'UserName')?props.UserName:user.full_name;
+        var email=Object.prototype.hasOwnProperty.call(props,'UserEmail')?props.UserEmail:user.email;
+        var label=String(userName || email || 'User profile');
+        var style=String(props.Style || 'Primary').toLowerCase();
+        if (!['primary','neutral'].includes(style)) throw new Error('Unsupported Header Style: '+props.Style);
+        el.style.backgroundColor=props.Fill || (style==='neutral'?'#f5f5f5':'#0f6cbd');
+        el.style.color=props.FontColor || contrast(el.style.backgroundColor);
+        var title=Object.prototype.hasOwnProperty.call(props,'Title')?props.Title:CURRENT_SCREEN;
+        text('title',title,props.IsTitleVisible);
+        part('title').style.fontSize=positive(props.TitleFontSize,20)+'px';
+        var role=String(props.TitleRole || 'Heading1'), level=role.match(/^Heading([1-6])$/i);
+        if (level) {part('title').setAttribute('role','heading');part('title').setAttribute('aria-level',level[1]);}
+        else if (/^(default|paragraph|none)$/i.test(role)) {part('title').removeAttribute('role');part('title').removeAttribute('aria-level');}
+        else throw new Error('Unsupported Header TitleRole: '+role);
+        var logo=part('logo-action');
+        logo.hidden=props.IsLogoVisible===false || !image('logo',props.Logo,props.LogoTooltip || 'Logo');
+        logo.disabled=disabled || logo.getAttribute('data-fx-action')!=='true';
+        logo.setAttribute('title',String(props.LogoTooltip || ''));
+        logo.style.maxHeight=positive(props.LogoMaxHeight,70)+'px';
+        var hasPicture=image('user-image',Object.prototype.hasOwnProperty.call(props,'UserImage')?props.UserImage:user.image,props.UserImageAltText || label);
+        text('initials',label.split(/\s+/).slice(0,2).map(function (word) {return word[0] || '';}).join('').toUpperCase(),!hasPicture);
+        part('profile').hidden=props.IsProfilePictureVisible===false;
+        part('profile').setAttribute('aria-label',String(props.UserImageAltText || label));
+        part('profile').setAttribute('title',[userName,email].filter(Boolean).join('\n') || label);
+      }
+    } catch (error) { console.error('composite control error',name,error); }
+  }
+
+  function inputMode(el, mode) {
+    if (['SingleLine', 'MultiLine', 'Password'].indexOf(mode) < 0)
+      throw new Error('Unsupported TextMode: ' + mode);
+    var tag = mode === 'MultiLine' ? 'TEXTAREA' : 'INPUT';
+    var type = mode === 'Password' ? 'password' : 'text';
+    if (el.tagName === tag) {
+      if (tag === 'INPUT' && el.type !== type) el.type = type;
+      return el;
+    }
+    var focused = document.activeElement === el, start = el.selectionStart, end = el.selectionEnd;
+    var replacement = document.createElement(tag.toLowerCase());
+    Array.prototype.forEach.call(el.attributes, function (attribute) {
+      if (attribute.name !== 'type') replacement.setAttribute(attribute.name, attribute.value);
+    });
+    if (tag === 'INPUT') replacement.type = type;
+    replacement.value = el.value;
+    Object.keys(el).forEach(function (key) {
+      if (key.indexOf('__fx') === 0 && key !== '__fxListeners') replacement[key] = el[key];
+    });
+    (el.__fxListeners || []).forEach(function (listener) { listen(replacement, listener.event, listener.callback); });
+    el.replaceWith(replacement);
+    if (focused) {
+      replacement.focus({preventScroll:true});
+      if (start !== null && start !== undefined) replacement.setSelectionRange(start, end);
+    }
+    return replacement;
+  }
+
+  function configureButtonIcons(mapping) {
+    buttonIcons = Object.assign(Object.create(null), mapping || {});
+  }
+
+  function setControlText(el, value) {
+    var text = value == null ? '' : String(value);
+    if (el.__fxButtonContent) el.__fxButtonContent.caption.textContent = text;
+    else el.textContent = text;
+  }
+
+  function updateButtonPresentation(el) {
+    var settings = el.__fxButton, content = el.__fxButtonContent;
+    if (!content) {
+      var caption = document.createElement('span'), icon = document.createElement('span');
+      var host = document.createElement('span'), text = el.textContent || '';
+      caption.setAttribute('data-fx-button-caption','');
+      icon.setAttribute('data-fx-button-symbol','');
+      icon.setAttribute('aria-hidden','true');
+      host.setAttribute('data-fx-button-content','');
+      caption.textContent = text;
+      el.textContent = '';
+      host.appendChild(icon); host.appendChild(caption); el.appendChild(host);
+      content = el.__fxButtonContent = {host:host,icon:icon,caption:caption};
+    }
+    var raw = settings.buttonIcon == null ? '' : String(settings.buttonIcon).trim();
+    var key = raw.toLowerCase().replace(/[^a-z0-9]/g,'').replace(/^icon/,'');
+    var glyph = buttonIcons[key], layout = settings.buttonLayout;
+    var mode = layout == null || layout === '' ? 'iconbefore' : String(layout).toLowerCase().replace(/[^a-z]/g,'');
+    if (['iconbefore','iconafter','icononly','textonly'].indexOf(mode) < 0)
+      throw new Error('Unsupported button Layout: ' + layout);
+    content.host.setAttribute('data-fx-button-layout',mode);
+    content.icon.setAttribute('data-fx-glyph',glyph || (raw ? '?' : ''));
+    content.icon.style.display = !raw || mode === 'textonly' ? 'none' : '';
+    content.caption.style.display = mode === 'icononly' ? 'none' : '';
+    var rotation = settings.buttonRotation == null ? 0 : Number(settings.buttonRotation);
+    if (!Number.isFinite(rotation)) throw new Error('Button IconRotation must be finite');
+    content.icon.style.transform = 'rotate(' + rotation + 'deg)';
+    var label = String(settings.ariaLabel || settings.title || content.caption.textContent || '').trim();
+    if (!label && raw) {
+      label = raw.replace(/^Icon\./,'').replace(/([a-z])([A-Z])/g,'$1 $2').replace(/[_-]+/g,' ');
+      el.setAttribute('data-fx-inferred-label','icon name');
+    } else el.removeAttribute('data-fx-inferred-label');
+    if (label) el.setAttribute('aria-label',label);
+    else el.removeAttribute('aria-label');
+    if (raw && !glyph && mode !== 'textonly') {
+      el.setAttribute('data-unsupported-icon',raw);
+      throw new Error('Unsupported button Icon: ' + raw);
+    }
+    el.removeAttribute('data-unsupported-icon');
+  }
+
   function rowControl(row, name, parentName, propertyFns) {
     if (!row || typeof row.querySelector !== 'function') return;
-    var el = row.querySelector('[data-control="' + name + '"]');
+    var el = findControl(row, name);
     if (!el) return;
-    var previousSelf = global.selfRef;
-    var previousParent = global.parentRef;
-    global.selfRef = val(name);
-    global.parentRef = val(parentName);
+    var read = function (control) { return rowValue(row, control); };
     var px = { left: true, top: true, width: true, height: true };
     try {
       Object.keys(propertyFns || {}).forEach(function (key) {
-        var value = propertyFns[key]();
-        if (key === 'text') {
-          el.textContent = value == null ? '' : String(value);
+        if (key === 'templateSize') {
+          el.__fxGalleryTemplate = {fn:propertyFns[key], read:read, parent:parentName};
+          return;
+        }
+        var value = propertyFns[key](read, read(name), read(parentName));
+        if (key === 'mode') {
+          el = inputMode(el, value);
+        } else if (key === 'multiple') {
+          el.multiple = !!value;
+        } else if (key === 'text') {
+          setControlText(el,value);
+        } else if (key === 'buttonIcon' || key === 'buttonLayout' || key === 'buttonRotation') {
+          el.__fxButton = el.__fxButton || {};
+          el.__fxButton[key] = value;
+        } else if (key === 'default') {
+          if (el.tagName === 'SELECT') el.__fxDefaultSelection = value;
+          var signature = JSON.stringify(value == null ? '' : value);
+          if (el.__fxDefaultSignature !== signature) {
+            var initializing = el.__fxDefaultSignature === undefined;
+            el.__fxDefaultSignature = signature;
+            if (el.type === 'date') value = dateInputText(value);
+            el.setAttribute('data-fx-default', value == null ? '' : String(value));
+            if (el.type === 'checkbox') setChecked(el, value, initializing);
+            else if (el.tagName === 'SELECT') applyDefaultSelection(el, value);
+            else el.value = value == null ? '' : String(value);
+          }
+        } else if (key === 'items') {
+          var rows = Array.isArray(value) ? value : [];
+          var selected = selectedRecords(el);
+          el.__fxRecords = rows;
+          var options = rows.map(function (record, index) {
+            var option = optionRecord(record, el.__fxDisplayFields);
+            return '<option data-fx-index="' + index + '" value="' + global.esc(option.value)
+              + '">' + global.esc(option.label) + '</option>';
+          }).join('');
+          if (el.__fxOpts !== options) {
+            el.__fxOpts = options; el.innerHTML = options;
+            if (selected.length) applyDefaultSelection(el, selected);
+            else delete el.__fxDefaultSignature;
+          }
+        } else if (key === 'displayFields') {
+          el.__fxDisplayFields = value;
+        } else if (key === 'src') {
+          var source = value == null ? '' : String(value).trim();
+          if (/^(?:javascript|vbscript):/i.test(source)) source = '';
+          if (!source) el.removeAttribute('src');
+          else if (el.getAttribute('src') !== source) el.setAttribute('src', source);
+        } else if (key === 'disabled') {
+          el.disabled = /^(disabled|view)$/i.test(String(value));
+        } else if (key === 'acceptsFocus') {
+          el.tabIndex = value ? 0 : -1;
+        } else if (key === 'ariaLabel' || key === 'title') {
+          if (el.__fxButton) el.__fxButton[key] = value;
+          el.setAttribute(key === 'ariaLabel' ? 'aria-label' : 'title', value == null ? '' : String(value));
+        } else if (key === 'reset') {
+          var rising = value && !el.__fxReset;
+          el.__fxReset = !!value;
+          if (rising) resetControl(name, el);
         } else if (key === 'display') {
           el.style.display = value ? '' : 'none';
         } else if (key === 'fontSize') {
@@ -393,47 +1312,312 @@
           el.style[key] = value == null ? '' : String(value).toLowerCase();
         }
       });
+      if (el.__fxButton) updateButtonPresentation(el);
     } catch (err) { console.error('gallery row property error', name, err); }
-    finally { global.selfRef = previousSelf; global.parentRef = previousParent; }
   }
 
   /**
    * Gallery rendering: itemsFn returns the row array, rowFn fills a cloned
-   * row template, handlers maps child control name -> async fn(item).
-   * Re-renders on every state change (registered as an evaluator).
+   * row template, handlers maps control names to event descriptors. Reconcile
+   * stable record identities so state updates retain live inputs and focus.
    */
-  function gallery(name, itemsFn, rowFn, handlers) {
-    evaluators.push({
+  function galleryRecord(item) {
+    // Typed collections carry logical/display-name aliases as non-enumerable
+    // accessors. A row's UI properties must not discard those record fields.
+    var record = Object.defineProperties({}, Object.getOwnPropertyDescriptors(selectionRecord(item) || {}));
+    var source = item && typeof item === 'object' && relationshipRecords.get(item);
+    if (source) tagRelationshipRecord(source, record);
+    return record;
+  }
+
+  function createGallery(name, getHost, parentRow) {
+    var itemsFn, rowFn, handlers, controlFields, config = {};
+    var mounted = new Map();
+    var identities = new WeakMap(), nextIdentity = 0;
+    var resetRequested = false, defaultSignature;
+    function sizeFlexibleRow(host, row) {
+      if (host.getAttribute('data-gallery-flexible-height') !== 'true') return;
+      if (host.getAttribute('data-gallery-layout') === 'horizontal')
+        throw new Error('Flexible height gallery must be vertical: ' + name);
+      // VariableHeight's TemplateSize is the editor's template extent. The
+      // running row follows its visible direct children, in design pixels;
+      // offset geometry is unaffected by the canvas CSS scale transform.
+      var bottom = 1;
+      Array.from(row.children || []).forEach(function (child) {
+        if (!child.getAttribute || !child.getAttribute('data-control')) return;
+        var style = child.style || {};
+        if (style.display === 'none' || (global.getComputedStyle && global.getComputedStyle(child).display === 'none')) return;
+        var rendered = typeof child.getClientRects === 'function' && child.getClientRects().length > 0;
+        var top = rendered ? child.offsetTop : parseFloat(style.top) || 0;
+        var height = rendered ? child.offsetHeight : parseFloat(style.height) || 0;
+        bottom = Math.max(bottom, top + height);
+      });
+      var padding = parseFloat(host.getAttribute('data-template-padding')) || 0;
+      Object.assign(row.style, {height:bottom+'px', minHeight:'1px', boxSizing:'border-box',
+        padding:'0', borderBottom:'0', marginBottom:host.getAttribute('data-wrap-count')===null?Math.max(0,padding)+'px':'0'});
+    }
+    function layout() {
+      var host = getHost();
+      if (!rowFn || !host || (host.getAttribute('data-gallery-layout') !== 'horizontal'
+          && host.getAttribute('data-gallery-flexible-height') !== 'true'
+          && host.getAttribute('data-wrap-count') === null && !config.WrapCount)) return;
+      // Ordinary style bindings may size the gallery after its Items binding.
+      // Reapply row geometry against the final size without rerunning Items or
+      // remounting controls, so Parent.TemplateHeight is correct on first paint.
+      configureGrid(host,host.querySelector(':scope > .fx-rows'));
+      mounted.forEach(function (row) { rowFn(row.__fxScope,row); sizeFlexibleRow(host,row); });
+    }
+    function configureGrid(host,rowsEl) {
+      [['WrapCount','data-wrap-count',1],['TemplatePadding','data-template-padding',0]].forEach(function (pair) {
+        if (!config[pair[0]]) return;
+        var value=Number(config[pair[0]]());
+        // Width-dependent source formulas can yield zero before layout settles.
+        // Keep one renderable cell until the next geometry pass (ledgered).
+        if (pair[0]==='WrapCount' && value===0) value=1;
+        if (!Number.isFinite(value) || value<pair[2] || (pair[0]==='WrapCount' && !Number.isInteger(value)))
+          throw new Error('Invalid gallery '+pair[0]+': '+name);
+        host.setAttribute(pair[1],String(value));
+      });
+      if (!rowsEl || !rowsEl.style) return;
+      var wraps=Math.max(1,Number(host.getAttribute('data-wrap-count')) || 1);
+      var padding=Math.max(0,Number(host.getAttribute('data-template-padding')) || 0);
+      if (host.getAttribute('data-gallery-layout')==='horizontal') {
+        var size=(parentRow?val(name,host):val(name)).template_size;
+        if (!Number.isFinite(size) || size<1) throw new Error('Horizontal gallery requires a positive TemplateSize: '+name);
+        Object.assign(rowsEl.style,{display:'grid',gridAutoFlow:'column',gridTemplateRows:'repeat('+wraps+', minmax(0, 1fr))',
+          gridAutoColumns:size+'px',height:'100%',boxSizing:'border-box',gap:padding+'px',padding:padding+'px'});
+        return;
+      }
+      if (host.getAttribute('data-wrap-count')===null) return;
+      Object.assign(rowsEl.style,{display:'grid',gridTemplateColumns:'repeat('+wraps+', minmax(0, 1fr))',
+        gap:padding+'px',padding:padding+'px',boxSizing:'border-box'});
+    }
+    function identity(item) {
+      if (item && typeof item === 'object') {
+        for (var key of ['id', 'ID', 'key']) {
+          if (item[key] != null) return key + ':' + String(item[key]);
+        }
+        if (!identities.has(item)) identities.set(item, ++nextIdentity);
+        return 'object:' + identities.get(item);
+      }
+      return typeof item + ':' + String(item);
+    }
+    function valueKey(item) {
+      // Formula-created records can be equal values but new objects on each
+      // evaluation. Match only JSON-like Power Fx data, with typed dates and
+      // sorted record fields; never merge unsupported/cyclic values by accident.
+      var seen = new Set();
+      function encode(value) {
+        if (value === null) return ['blank'];
+        if (typeof value === 'number' && !Number.isFinite(value)) throw new Error('nonfinite value');
+        if (['string','boolean','number'].includes(typeof value)) return [typeof value,value];
+        if (value instanceof Date) {
+          if (!Number.isFinite(value.getTime())) throw new Error('invalid date');
+          return ['date',value.toISOString()];
+        }
+        if (!value || typeof value !== 'object' || seen.has(value)) throw new Error('unsupported value');
+        if (!Array.isArray(value) && Object.prototype.toString.call(value) !== '[object Object]') throw new Error('unsupported record');
+        seen.add(value);
+        var result = Array.isArray(value) ? ['table',value.map(encode)] :
+          ['record',Object.keys(value).sort().map(function (key) { return [key,encode(value[key])]; })];
+        seen.delete(value);
+        return result;
+      }
+      try { return JSON.stringify(encode(item)); } catch (_) { return null; }
+    }
+    function choose(row) {
+      var host = getHost();
+      host.__fxValues = Object.assign({}, host.__fxValues || {}, {
+        selected: row.__fxItem, selected_items: [row.__fxItem],
+      });
+    }
+    function invoke(row, control, event, checkedValue) {
+      var descriptor = (handlers || {})[control];
+      var fn = descriptor && (typeof descriptor === 'function' ? descriptor : descriptor[event]);
+      if (!fn) return Promise.resolve();
+      var queued = [];
+      return Promise.resolve().then(function () {
+        return fn(row.__fxScope, row, function (target) {
+          queued.push(target === 'Parent' ? descriptor.parent : target === 'Self' ? control : target);
+        }, checkedValue);
+      }).then(function () {
+        updateBindings();
+        return queued.reduce(function (previous, target) {
+          return previous.then(function () {
+            if (target === name || (handlers || {})[target]) {
+              choose(row);
+              return invoke(row, target, 'OnSelect');
+            }
+            for (var ancestor=row.__fxParentRow;ancestor;ancestor=ancestor.__fxParentRow) {
+              if (ancestor.__fxGalleryName===target) return ancestor.__fxGalleryController.select(ancestor);
+            }
+            var targetElement = rowElement(row,target);
+            if (targetElement) targetElement.click();
+            else global.selectControl(target);
+          });
+        }, Promise.resolve());
+      }).catch(function (err) {
+        console.error(err);
+        toast('Error: ' + (err && err.message ? err.message : err), true);
+      });
+    }
+    var controller = {
+      configure: function (items, render, events, fields, options) {
+        itemsFn=items; rowFn=render; handlers=events; controlFields=fields; config=options || {};
+      },
+      reset: function () {
+        resetRequested=true;
+        var host=getHost();
+        if (host) {host.scrollTop=0;host.scrollLeft=0;}
+      },
+      select: function (row) {choose(row);return invoke(row,name,'OnSelect').then(updateBindings);},
+      layout: layout,
       apply: function () {
-        var host = document.querySelector('[data-control="' + name + '"]');
+        var host = getHost();
         if (!host || typeof host.querySelector !== 'function') return;
-        var tpl = host.querySelector('template');
-        var rowsEl = host.querySelector('.fx-rows');
+        // A mounted row can contain another gallery. Its template must never
+        // replace this gallery's own template when additional rows are added.
+        var tpl = host.querySelector(':scope > template');
+        var rowsEl = host.querySelector(':scope > .fx-rows');
         if (!tpl || !rowsEl) return;
+        configureGrid(host,rowsEl);
         var items;
-        try { items = itemsFn() || []; } catch (e) { items = []; }
+        try { items = itemsFn() || []; } catch (e) { console.error('gallery Items error', name, e); items = []; }
         if (!Array.isArray(items)) items = [];
-        var current = controlValues[name] && controlValues[name].selected;
-        var selected = items.find(function (item) { return sameRecord(item, current); }) || null;
-        controlValues[name] = Object.assign({}, controlValues[name] || {}, {
-          all_items: items,
+        var current = host.__fxValues && host.__fxValues.selected;
+        var initial = config.Default ? config.Default() : null;
+        var signature = valueKey(initial);
+        var reset = resetRequested || defaultSignature !== signature;
+        defaultSignature=signature; resetRequested=false;
+        if (reset || current == null) current=initial;
+        var selected = items.find(function (item) { return sameRecord(item, current); }) || items[0] || null;
+        host.__fxValues = Object.assign({}, host.__fxValues || {}, {
           selected: selected,
           selected_items: selected ? [selected] : [],
         });
         var rowMarkup = String(tpl.innerHTML || '').trim();
-        rowsEl.innerHTML = items.map(function () { return rowMarkup; }).join('');
-        var renderedRows = Array.prototype.slice.call(rowsEl.children || []);
-        var templateSize = parseFloat(host.getAttribute('data-template-size'));
+        var focused = document.activeElement;
+        var restoreFocus = focused && typeof rowsEl.contains === 'function' && rowsEl.contains(focused);
+        var selectionStart = restoreFocus ? focused.selectionStart : null;
+        var selectionEnd = restoreFocus ? focused.selectionEnd : null;
+        var used = new Map(), next = new Map(), retainedRows = new Set();
+        var rowKeys = items.map(function (item) {
+          var base = identity(item), occurrence = used.get(base) || 0;
+          used.set(base, occurrence + 1);
+          return base + ':' + occurrence;
+        });
+        var requestedKeys = new Set(rowKeys), reusable = new Map();
+        if (rowKeys.some(function (key) { return key.startsWith('object:') && !mounted.has(key); })) {
+          mounted.forEach(function (row,key) {
+            // Reserve existing object identities before matching new equal
+            // records, so a clone cannot steal a later row's unsaved controls.
+            if (!key.startsWith('object:') || requestedKeys.has(key)) return;
+            var signature = valueKey(row.__fxItem);
+            if (signature === null) return;
+            if (!reusable.has(signature)) reusable.set(signature,[]);
+            reusable.get(signature).push(row);
+          });
+        }
+        var renderedRows = items.map(function (item, index) {
+          var key = rowKeys[index];
+          var row = mounted.get(key);
+          if (!row && key.startsWith('object:')) {
+            var candidates = reusable.get(valueKey(item));
+            if (candidates && candidates.length) row = candidates.shift();
+          }
+          if (!row) {
+            var holder = document.createElement('div');
+            holder.innerHTML = rowMarkup;
+            row = holder.firstElementChild;
+            if (!row) return null;
+            row.addEventListener('click', function (event) {
+              if (event) event.stopPropagation();
+              choose(row);
+              invoke(row, name, 'OnSelect').then(updateBindings);
+            });
+            Object.keys(handlers || {}).forEach(function (control) {
+              if (control === name) return;
+              var el = row.querySelector('[data-control="' + control + '"]');
+              if (!el) return;
+              ['OnSelect', 'OnChange', 'OnCheck', 'OnUncheck', 'OnSelectLogo'].forEach(function (event) {
+                var descriptor = handlers[control];
+                if (!(typeof descriptor === 'function' && event === 'OnSelect') && !descriptor[event]) return;
+                if (event === 'OnCheck' || event === 'OnUncheck') {
+                  watchChecked(el, function (value, userChange) {
+                    if (value !== (event === 'OnCheck')) return;
+                    if (userChange) choose(row);
+                    invoke(row, control, event, value);
+                  });
+                  return;
+                }
+                var target = event === 'OnSelectLogo' ? el.querySelector('[data-fx-part="logo-action"]') : el;
+                if (!target) return;
+                listen(target, event === 'OnSelect' || event === 'OnSelectLogo' ? 'click' : 'change', function (domEvent) {
+                  if (domEvent) domEvent.stopPropagation();
+                  if (target.disabled) return;
+                  choose(row);
+                  invoke(row, control, event);
+                });
+              });
+            });
+            row.querySelectorAll('input, textarea, select').forEach(function (el) {
+              // Native editing must not invoke the gallery's OnSelect through
+              // DOM bubbling. A source OnSelect/Select(Parent) remains explicit.
+              listen(el, 'click', function (event) { if (event) event.stopPropagation(); });
+              listen(el, 'input', updateBindings);
+            });
+          }
+          row.__fxItem = item;
+          row.__fxParentRow = parentRow;
+          row.__fxGalleryName = name;
+          row.__fxGalleryController = controller;
+          row.__fxScope = galleryRecord(item);
+          Object.defineProperty(row.__fxScope,'is_selected',{configurable:true,get:function () {
+            return sameRecord(row.__fxItem,host.__fxValues.selected);
+          }});
+          next.set(key, row);
+          retainedRows.add(row);
+          // Avoid moving an already correctly placed node: moving a focused
+          // input's ancestor blurs it in Chromium even if the node is reused.
+          if (rowsEl.children[index] !== row) rowsEl.insertBefore(row, rowsEl.children[index] || null);
+          return row;
+        });
+        mounted.forEach(function (row) { if (!retainedRows.has(row)) row.remove(); });
+        mounted = next;
+        // AllItems is the loaded records plus their own control references.
+        // Resolve a control when it is read so input edits and replacement
+        // nodes remain current, including after an awaited action. Never put
+        // DOM nodes into the record/JSON data transport.
+        host.__fxAllItems = function () {
+          return renderedRows.filter(Boolean).map(function (row) {
+            var item = row.__fxItem;
+            var record = galleryRecord(item);
+            Object.keys(controlFields || {}).forEach(function (control) {
+              if (!row.querySelector('[data-control="' + control + '"]')) return;
+              Object.defineProperty(record, controlFields[control], {enumerable:true, configurable:true, get:function () {
+                var value = Object.assign({}, rowValue(row, control));
+                delete value.el;
+                return value;
+              }});
+            });
+            return record;
+          });
+        };
+        var templateSize = (parentRow ? val(name,host) : val(name)).template_size;
         var templatePadding = parseFloat(host.getAttribute('data-template-padding'));
         var wrapCount = parseInt(host.getAttribute('data-wrap-count'), 10);
-        var galleryValue = val(name);
-        controlValues[name] = Object.assign({}, controlValues[name] || {}, {
-          template_size: Number.isFinite(templateSize) ? templateSize : 0,
-          template_height: Number.isFinite(templateSize) ? templateSize : 0,
-          template_width: galleryValue.width || 0,
-          template_padding: Number.isFinite(templatePadding) ? templatePadding : 0,
-        });
-        if (rowsEl.style && Number.isFinite(wrapCount) && wrapCount > 1) {
+        var horizontal = host.getAttribute('data-gallery-layout') === 'horizontal';
+        // Read template dimensions directly from current metadata/geometry in
+        // val(). Caching the whole gallery width as TemplateWidth creates a
+        // feedback loop for a horizontal gallery sized from its own template.
+        if (horizontal && rowsEl.style) {
+          if (!Number.isFinite(templateSize) || templateSize < 1) throw new Error('Horizontal gallery requires a positive TemplateSize: ' + name);
+          Object.assign(rowsEl.style,{display:'grid',gridAutoFlow:'column',
+            gridTemplateRows:'repeat(' + (Number.isFinite(wrapCount) && wrapCount>0 ? wrapCount : 1) + ', minmax(0, 1fr))',
+            gridAutoColumns:templateSize+'px',height:'100%',boxSizing:'border-box',
+            gap:(Number.isFinite(templatePadding) ? Math.max(0,templatePadding) : 0)+'px',
+            padding:(Number.isFinite(templatePadding) ? Math.max(0,templatePadding) : 0)+'px'});
+        } else if (rowsEl.style && Number.isFinite(wrapCount) && wrapCount > 1) {
           rowsEl.style.display = 'grid';
           rowsEl.style.gridTemplateColumns = 'repeat(' + wrapCount + ', minmax(0, 1fr))';
         }
@@ -441,41 +1625,53 @@
           var row = renderedRows[index];
           if (!row) return;
           row.style.position = 'relative';
-          if (Number.isFinite(templateSize) && templateSize > 0) {
+          if (horizontal) {
+            Object.assign(row.style,{width:templateSize+'px',minWidth:'0',minHeight:'0',padding:'0'});
+          } else if (Number.isFinite(templateSize) && templateSize > 0) {
             row.style.minHeight = templateSize + 'px';
+            row.style.boxSizing = 'border-box';
           }
-          if (Number.isFinite(templatePadding) && templatePadding >= 0) {
+          if (!horizontal && host.getAttribute('data-wrap-count')!==null) {
+            row.style.padding='0'; row.style.minWidth='0';
+          } else if (!horizontal && Number.isFinite(templatePadding) && templatePadding >= 0) {
             row.style.padding = templatePadding + 'px';
           }
-          row.addEventListener('click', function () {
-            controlValues[name] = Object.assign({}, controlValues[name] || {}, {
-              selected: item,
-              selected_items: [item],
-            });
-            updateBindings();
-          });
           if (rowFn) {
-            try { rowFn(item, row); } catch (e) { console.error('gallery row error', e); }
+            try { rowFn(row.__fxScope, row); } catch (e) { console.error('gallery row error', e); }
           }
-          Object.keys(handlers || {}).forEach(function (ctrl) {
-            var el = row.querySelector('[data-control="' + ctrl + '"]');
-            if (el) {
-              el.addEventListener('click', function () {
-                Promise.resolve().then(function () { return handlers[ctrl](item); })
-                  .catch(function (err) {
-                    console.error(err);
-                    toast('Error: ' + (err && err.message ? err.message : err), true);
-                  });
-              });
-            }
-          });
+          sizeFlexibleRow(host,row);
         });
+        if (restoreFocus && rowsEl.contains(focused) && document.activeElement !== focused) {
+          focused.focus({preventScroll: true});
+          if (typeof focused.setSelectionRange === 'function' && selectionStart !== null) {
+            focused.setSelectionRange(selectionStart, selectionEnd);
+          }
+        }
       },
-    });
+    };
+    return controller;
+  }
+
+  function gallery(name, itemsFn, rowFn, handlers, controlFields, config) {
+    var getHost=function () {return controlElement(name);};
+    var controller=createGallery(name,getHost,null);
+    controller.configure(itemsFn,rowFn,handlers,controlFields,config);
+    var host=getHost();
+    if (host) host.__fxGallery=controller;
+    evaluators.push(controller);
+    galleryLayouts.push(controller.layout);
+  }
+
+  function rowGallery(row, name, itemsFn, rowFn, handlers, controlFields, config) {
+    var host=row.querySelector('[data-control="'+name+'"]');
+    if (!host) return;
+    if (!host.__fxGallery) host.__fxGallery=createGallery(name,function () {return host;},row);
+    host.__fxGallery.configure(itemsFn,rowFn,handlers,controlFields,config);
+    host.__fxGallery.apply();
   }
 
   function renderChart(name, rows, cfg) {
-    var el = document.querySelector('[data-control="' + name + '"]');
+    var el = controlElement(name);
     if (!el || !global.FXCharts) return null;
     rows = Array.isArray(rows) ? rows : [];
     cfg = cfg || {};
@@ -489,7 +1685,25 @@
   }
 
   function controlElement(name) {
-    return document.querySelector('[data-control="' + name + '"]');
+    return findControl(document, name);
+  }
+
+  function findControl(root, name) {
+    var cache = controlNodes.get(root);
+    if (!cache) {cache = new Map(); controlNodes.set(root, cache);}
+    function owned(el) {
+      if (!el || !el.isConnected || typeof el.closest !== 'function') return false;
+      var row = el.closest('.fx-row');
+      return root === document ? !row : row === root;
+    }
+    var el = cache.get(name);
+    if (owned(el)) return el;
+    el = root.querySelector('[data-control="' + name + '"]');
+    // Never cache a descendant row as a document/parent control: sorting and
+    // remounting change which instance a global query would find first.
+    if (owned(el)) cache.set(name, el);
+    else cache.delete(name);
+    return el;
   }
 
   function formMode(value) {
@@ -514,7 +1728,8 @@
     if (!el) return;
     if (el.__fxFormDisabled === undefined) el.__fxFormDisabled = !!el.disabled;
     if (el.__fxFormReadOnly === undefined) el.__fxFormReadOnly = !!el.readOnly;
-    if (el.type === 'checkbox') el.checked = !!value;
+    if (el.type === 'checkbox') setChecked(el, value);
+    else if (el.type === 'date') el.value = dateInputText(value);
     else el.value = value === null || value === undefined ? '' : String(value);
     el.disabled = mode === 'view' ? true : el.__fxFormDisabled;
     el.readOnly = mode === 'view' ? true : el.__fxFormReadOnly;
@@ -661,14 +1876,127 @@
     }
   }
 
-  function resetControl(name) {
-    var el = document.querySelector('[data-control="' + name + '"]');
+  function registerTimer(name, screen, config) {
+    var elapsed = 0, epoch = null, pending = null, busy = false;
+    var completed = false, started = false, wasActive = false, auto = false;
+    var resetHigh = false, generation = 0, manual = null, previousStart = false, previousAuto = false;
+    function read(key, fallback) { return config[key] ? config[key]() : fallback; }
+    function publish() {
+      controlValues[name] = Object.assign({}, controlValues[name] || {}, {
+        value: elapsed, duration: duration(), running: epoch !== null,
+      });
+    }
+    function duration() {
+      var value = Number(read('Duration', 60000));
+      return Number.isFinite(value) ? Math.max(1, Math.min(86400000, value)) : 60000;
+    }
+    function pause() {
+      if (epoch !== null) elapsed = Math.min(duration(), elapsed + Date.now() - epoch);
+      epoch = null;
+      if (pending !== null) clearTimeout(pending);
+      pending = null;
+    }
+    function reset() {
+      pause(); elapsed = 0; completed = false; started = false; generation++;
+      publish();
+    }
+    function run(event) {
+      busy = true;
+      var version = generation, failed = false;
+      Promise.resolve().then(function () { if (config[event]) return config[event](); })
+        .catch(function (err) {
+          failed = true;
+          console.error('timer event error', name + '.' + event, err);
+          toast('Timer error: ' + (err && err.message ? err.message : err), true);
+          completed = true;
+        }).then(function () {
+          busy = false;
+          if (!failed && event === 'OnTimerEnd' && generation === version && read('Repeat', false)) reset();
+          updateBindings();
+        }).catch(function (err) { console.error('timer scheduling error', name, err); });
+    }
+    function apply() {
+      var active = CURRENT_SCREEN === screen;
+      var start = !!read('Start', false), autoStart = !!read('AutoStart', false);
+      if (completed && ((start && !previousStart) || (active && autoStart && !previousAuto))) reset();
+      if (start !== previousStart) manual = null;
+      previousStart = start;
+      previousAuto = autoStart;
+      if (active && !wasActive && autoStart) {
+        auto = true; manual = null;
+        if (completed) reset();
+      }
+      if (!autoStart) auto = false;
+      // AutoStart can itself be reactive (the Microsoft focus timers use it).
+      if (active && autoStart) auto = true;
+      wasActive = active;
+      var requestedReset = !!read('Reset', false);
+      if (requestedReset && !resetHigh) reset();
+      resetHigh = requestedReset;
+      var wantsRun = manual === null ? start || auto : manual;
+      if (requestedReset || busy || completed || !wantsRun || (read('AutoPause', true) && !active)) {
+        pause(); publish(); return;
+      }
+      if (!started) {
+        started = true;
+        run('OnTimerStart');
+        publish(); return;
+      }
+      if (epoch === null) epoch = Date.now();
+      if (pending === null) {
+        pending = setTimeout(function () {
+          pending = null;
+          var now = Date.now();
+          elapsed = Math.min(duration(), elapsed + now - epoch);
+          epoch = now;
+          if (elapsed >= duration()) {
+            pause(); completed = true; publish(); run('OnTimerEnd');
+          }
+          updateBindings();
+        }, Math.max(1, Math.min(50, duration() - elapsed)));
+      }
+      publish();
+    }
+    timers[name] = { reset: reset };
+    var el = controlElement(name);
+    if (el) el.addEventListener('click', function () {
+      var wasRunning = epoch !== null || busy;
+      if (completed) reset();
+      manual = !wasRunning;
+      updateBindings();
+    });
+    evaluators.push({apply: apply});
+    publish();
+  }
+
+  function resetControl(name, element) {
+    if (timers[name]) {
+      timers[name].reset(); updateBindings(); return 0;
+    }
+    var el = element || controlElement(name);
     if (!el) throw new Error('control not found for Reset: ' + name);
+    if (el.__fxGallery) {
+      el.__fxGallery.reset(); updateBindings(); return null;
+    }
     var value = el.getAttribute('data-fx-default');
-    if (el.type === 'checkbox') el.checked = value === 'true';
+    if (el.tagName === 'SELECT' && Object.prototype.hasOwnProperty.call(el, '__fxDefaultSelection'))
+      applyDefaultSelection(el, el.__fxDefaultSelection);
+    else if (el.type === 'checkbox') setChecked(el, value === 'true');
     else el.value = value === null ? '' : value;
     updateBindings();
     return value;
+  }
+
+  function inputControl(name, parentName, propertyFns) {
+    var evaluator = {apply: function () { rowControl(document, name, parentName, propertyFns); }};
+    var el = controlElement(name);
+    if (el && !el.__fxInputUpdates) {
+      el.__fxInputUpdates = true;
+      listen(el, 'input', updateBindings);
+      listen(el, 'change', updateBindings);
+    }
+    evaluators.push(evaluator);
+    evaluator.apply();
   }
 
   function setFormMode(name, mode) {
@@ -698,23 +2026,88 @@
 
   // User() equivalent. The server side injects the identity at deploy time:
   // Session.getActiveUser().getEmail() (empty for anonymous deployments).
-  var _cachedUser = null;
-  function fxUser() {
-    if (_cachedUser) return _cachedUser;
-    _cachedUser = { email: '', full_name: '', image: '' };
-    serverRun('whoami').then(function (info) {
+  var _cachedUser = { email: '', full_name: '', image: '' }, _userPromise = null;
+  function loadUser() {
+    if (_userPromise) return _userPromise;
+    _userPromise = serverRun('whoami').then(function (info) {
       _cachedUser = {
         email: info && info.email || '',
         full_name: info && info.fullName || '',
         image: info && info.pictureUrl || '',
       };
       updateBindings();
-    }).catch(function () { /* anonymous deployment: blanks stand */ });
+      return _cachedUser;
+    });
+    return _userPromise;
+  }
+  function fxUser() {
     return _cachedUser;
   }
 
+  var relationshipContracts = {}, relationshipCache = {}, relationshipReferences = new WeakMap();
+  var relationshipRecords = new WeakMap();
+  function configureRelationships(contracts) {
+    relationshipContracts = contracts || {};
+    relationshipCache = {};
+    relationshipReferences = new WeakMap();
+    relationshipRecords = new WeakMap();
+  }
+  function tagRelationshipRecord(ds, record) {
+    if (record && typeof record === 'object' && !Array.isArray(record)) relationshipRecords.set(record, ds);
+    return record;
+  }
+  function relationshipIdentity(ds, record) {
+    var contract = relationshipContracts[ds];
+    if (!contract || !record || typeof record !== 'object' || Array.isArray(record)) return null;
+    var present = contract.keys.filter(function (key) { return record[key] != null && record[key] !== ''; });
+    if (!present.length) return null;
+    var id = record[present[0]];
+    if (typeof id !== 'string' || present.some(function (key) { return record[key] !== id; }))
+      throw new Error('conflicting or invalid relationship primary key: ' + ds);
+    return id;
+  }
+  function relationshipField(record, key) {
+    if (!record || typeof record !== 'object' || Array.isArray(record)) return;
+    var known = relationshipRecords.get(record);
+    var sources = (known ? [known] : Object.keys(relationshipContracts)).filter(function (ds) {
+      return Object.prototype.hasOwnProperty.call(relationshipContracts[ds].navigation, key) &&
+        relationshipIdentity(ds, record) !== null;
+    });
+    if (!sources.length) return;
+    if (sources.length !== 1) throw new Error('ambiguous relationship record: ' + key);
+    var ds = sources[0], spec = relationshipContracts[ds].navigation[key];
+    if (spec.error) throw new Error(spec.error + ': ' + ds + '.' + key);
+    var id = relationshipIdentity(ds, record), snapshot = relationshipCache[ds];
+    if (!snapshot || !Array.isArray(snapshot.links) || !Array.isArray(snapshot.targets[spec.target]))
+      throw new Error('relationship data has not loaded: ' + ds + '.' + key);
+    if ((state[ds] || []).filter(function (row) { return relationshipIdentity(ds, row) === id; }).length !== 1)
+      throw new Error('relationship source record is missing or ambiguous: ' + ds);
+    var related = spec.kind === 'one-to-many' ? snapshot.targets[spec.target].filter(function (row, index) {
+      return snapshot.parents[key][index] === id;
+    }) : snapshot.links.filter(function (link) { return link[0] === spec.schema && link[spec.side] === id; })
+      .map(function (link) {
+        var matches = snapshot.targets[spec.target].filter(function (row) {
+          return relationshipIdentity(spec.target, row) === link[3-spec.side];
+        });
+        if (matches.length !== 1) throw new Error('related record is missing or ambiguous: ' + spec.target);
+        return matches[0];
+      });
+    relationshipReferences.set(related, {source:ds, key:key, id:id});
+    return {value:related};
+  }
   function refreshData(ds) {
-    return serverRun('api', ds, 'list', {}).then(function (data) {
+    var contract = relationshipContracts[ds];
+    var needsLinks = contract && Object.keys(contract.navigation).some(function (key) {
+      var spec = contract.navigation[key]; return !spec.error;
+    });
+    return Promise.all([serverRun('api', ds, 'list', {}),
+      needsLinks ? serverRun('api', ds, 'relationshipSnapshot', {}) : Promise.resolve({links:[],targets:{}})]).then(function (results) {
+      var data = results[0];
+      if (Array.isArray(data)) data.forEach(function (row) { tagRelationshipRecord(ds, row); });
+      Object.keys(results[1].targets).forEach(function (target) {
+        results[1].targets[target].forEach(function (row) { tagRelationshipRecord(target, row); });
+      });
+      relationshipCache[ds] = results[1];
       state[ds] = data || [];
       updateBindings();
       return state[ds];
@@ -722,9 +2115,22 @@
   }
 
   // server data API used by transpiled Patch/Remove/Collect calls
+  global.apiRelate = function (related, record, remove) {
+    var reference = related && relationshipReferences.get(related);
+    if (!reference) return Promise.reject(new Error('Relate/Unrelate requires a direct exported relationship table'));
+    var base = {}; base[relationshipContracts[reference.source].primaryKey] = reference.id;
+    return serverRun('api', reference.source, remove ? 'unrelate' : 'relate', {
+      relationship:reference.key, base:base, record:record,
+    }).then(function () { return refreshData(reference.source); }).then(function () { return null; });
+  };
   global.apiPatch = function (ds, base, record) {
     return serverRun('api', ds, 'patch', { base: base, record: record }).then(function (r) {
-      return refreshData(ds).then(function () { return r; });
+      return refreshData(ds).then(function () { return tagRelationshipRecord(ds, r); });
+    });
+  };
+  global.apiPatchRecord = function (ds, record) {
+    return serverRun('api', ds, 'patchRecord', {record: record}).then(function (saved) {
+      return refreshData(ds).then(function () { return tagRelationshipRecord(ds, saved); });
     });
   };
   global.apiRemove = function (ds, record) {
@@ -751,7 +2157,7 @@
   };
   global.apiCreate = function (ds, record) {
     return serverRun('api', ds, 'create', { record: record }).then(function (r) {
-      return refreshData(ds).then(function () { return r; });
+      return refreshData(ds).then(function () { return tagRelationshipRecord(ds, r); });
     });
   };
   global.apiClearCollect = function (ds, record) {
@@ -764,30 +2170,17 @@
   // calls read powerapps_collect(state, 'Name', record), then fires a
   // binding update.
   global.powerapps_collect = function (st, ds) {
-    var arr = st[ds] = st[ds] || [];
-    for (var i = 2; i < arguments.length; i++) {
-      var v = arguments[i];
-      if (v == null) continue;
-      if (Array.isArray(v)) { for (var j = 0; j < v.length; j++) arr.push(v[j]); }
-      else arr.push(v);
-    }
+    var arr = global.FX.collections.collect.apply(null, arguments);
     updateBindings();
     return arr;
   };
   global.powerapps_clearCollect = function (st, ds) {
-    st[ds] = [];
-    return global.powerapps_collect.apply(null, arguments);
+    var arr = global.FX.collections.clearCollect.apply(null, arguments);
+    updateBindings();
+    return arr;
   };
   global.powerapps_remove = function (st, ds, record) {
-    var arr = st[ds] = st[ds] || [];
-    var idx = -1;
-    for (var i = 0; i < arr.length; i++) { if (arr[i] === record) { idx = i; break; } }
-    if (idx < 0) {
-      for (var j = 0; j < arr.length; j++) {
-        if (JSON.stringify(arr[j]) === JSON.stringify(record)) { idx = j; break; }
-      }
-    }
-    if (idx >= 0) arr.splice(idx, 1);
+    var arr = global.FX.collections.dropRecord(st, ds, record);
     updateBindings();
     return arr;
   };
@@ -799,7 +2192,19 @@
   };
 
   global.FXRuntime = {
+    configureServices: configureServices,
+    connectorCall: connectorCall,
+    connectorRead: connectorRead,
+    resolveStartScreen: resolveStartScreen,
+    finishStartup: finishStartup,
+    refreshConnector: refreshConnector,
+    configureRelationships: configureRelationships,
+    relationshipField: relationshipField,
     param: param,
+    saveData: saveData,
+    loadData: loadData,
+    clearData: clearData,
+    inputControl: inputControl,
     language: function () { return global.navigator && global.navigator.language || 'en-US'; },
     state: state,
     serverRun: serverRun,
@@ -809,23 +2214,45 @@
     showScreen: showScreen,
     bind: bind,
     val: val,
+    configureCanvas: configureCanvas,
+    configureContexts: configureContexts,
+    registerNamedFormulas: registerNamedFormulas,
+    variable: variable,
+    updateContext: updateContext,
     registerForm: registerForm,
     submitForm: submitForm,
     refreshData: refreshData,
     updateBindings: updateBindings,
     setState: setState,
+    controlElement: controlElement,
+    registerRowProps: registerRowProps,
     registerControlProps: registerControlProps,
+    configureButtonIcons: configureButtonIcons,
+    registerGalleryTemplate: registerGalleryTemplate,
+    registerCardLayout: registerCardLayout,
     styleControl: styleControl,
     attrControl: attrControl,
     htmlControl: htmlControl,
     sanitizeHtml: sanitizeHtml,
     rowControl: rowControl,
+    compositeControl: compositeControl,
+    rowValue: rowValue,
+    resetRowControl: function (row, name) {
+      return resetControl(name, rowElement(row, name));
+    },
     optionRecord: optionRecord,
     applyDefaultSelection: applyDefaultSelection,
     gallery: gallery,
+    rowGallery: rowGallery,
     renderChart: renderChart,
     setFormMode: setFormMode,
     resetForm: resetForm,
+    resetControl: resetControl,
+    registerTimer: registerTimer,
+    focusControl: function (name) {
+      var el = controlElement(name);
+      if (el && !el.disabled && typeof el.focus === 'function') el.focus();
+    },
     exitApp: exitApp,
     fxUser: fxUser,
     addEvaluator: function (apply) {
@@ -838,6 +2265,7 @@
       } catch (err) { console.error('binding error', err); }
     },
     registerScreenHandler: function (name, fn) { handlers['__screen__' + name] = fn; },
+    registerScreenHiddenHandler: function (name, fn) { handlers['__hidden__' + name] = fn; },
   };
   global.go = go;
   global.goBack = goBack;
@@ -855,7 +2283,7 @@
     });
   };
   global.selectControl = function (name) {
-    var el = document.querySelector('[data-control="' + name + '"]');
+    var el = controlElement(name);
     if (el) el.click();
   };
   global.selfRef = null; // bound per-control during evaluator registration
@@ -867,15 +2295,16 @@
   if (typeof document !== 'undefined') {
     document.addEventListener('DOMContentLoaded', function () {
       // A synchronous crash in APP_MAIN must not leave a blank page: catch,
-      // surface, and still reveal the first screen (Power Apps start screen).
+      // surface, and still reveal the resolved destination or screen-order fallback.
       var startup = typeof global.APP_MAIN === 'function'
-        ? Promise.resolve().then(function () { return global.APP_MAIN(); })
+        ? Promise.resolve().then(loadUser).then(function () { return global.APP_MAIN(); })
         : Promise.resolve();
-      startup.catch(function (e) {
+      return startup.catch(function (e) {
         console.error(e);
         toast('Startup error: ' + (e && e.message ? e.message : e), true);
       }).then(function () {
         if (!CURRENT_SCREEN) {
+          if (configuredStartScreen) { showScreen(configuredStartScreen); return; }
           var first = document.querySelector('[data-screen]');
           if (first) showScreen(first.getAttribute('data-screen'));
         }

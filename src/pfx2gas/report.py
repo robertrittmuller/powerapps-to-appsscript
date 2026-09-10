@@ -68,10 +68,27 @@ def _data_table(ir: AppIR) -> str:
     for ds in ir.data_sources:
         if ds.origin == "collection":
             kind, storage = "collection", "client-side state array (not persisted)"
+        elif ds.origin == "option_set":
+            kind, storage = "enumeration", "exported choice codes in client state; no Sheet tab"
+        elif ds.origin in {"service", "view"}:
+            kind, storage = ds.origin, "source metadata retained; target adapter required"
         else:
             kind, storage = "table", f"Google Sheet tab `{ds.name}`"
+            if ds.primary_key:
+                storage += f"; source primary key `{ds.primary_key}`"
         fields = ", ".join(f"{f.name} ({f.type})" for f in ds.fields) or "_none inferred_"
         lines.append(f"| {ds.name} | {kind} | {ds.origin} | {fields} | {storage} |")
+    if any(ds.origin == "dataverse" for ds in ir.data_sources):
+        lines.append("\n`data-contract.json` retains exported Dataverse attributes, logical/display names, "
+                     "choices, keys, relationships and views. Exported one-to-many lookups and many-to-many links are supported; "
+                     "many-to-many links persist in `__pfx2gas_links`. Relate/Unrelate refreshes the first source and uses idempotent retries. "
+                     "Unmatched Unrelate is a no-op; alternate-key relationships and cascade deletes require adapters. "
+                     "Lookup fields are stored snapshots. User/team ownership defaults to the migrated Google caller; "
+                     "explicit owner assignment updates Owning User/Team. The data contract records this adapter and its limits. "
+                     "State/status defaults and dependent values use exported metadata, including source read-only flags. "
+                     "Missing initial states and custom state transitions require an adapter; existing rows are not backfilled. "
+                     "Business-unit ownership, audit and other column defaults, calculated fields, "
+                     "Dataverse permissions and implicit localized choice-to-text coercion still require adapters.")
     return "\n".join(lines)
 
 
@@ -98,6 +115,9 @@ def _followups(ir: AppIR) -> str:
             if ctrl.type == "CanvasComponent" or (
                 len(ctrl.type) >= 24 and all(ch in "0123456789abcdefABCDEF" for ch in ctrl.type)
             ):
+                if ctrl.component_error:
+                    items.append(f'- [ ] **unsupported component** `{screen.name}.{ctrl.name}` — {ctrl.component_error}')
+                    continue
                 if ctrl.type == "CanvasComponent" and ctrl.children:
                     emulated_components.append(f"{screen.name}.{ctrl.name}")
                 else:

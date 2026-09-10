@@ -37,6 +37,9 @@ RUN mkdir -p /home/pfx
 # is installed after its source is copied, or the wheel would be empty.
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-install-project
+COPY package.json package-lock.json ./
+RUN npm ci --ignore-scripts --no-audit --no-fund
+ENV NODE_PATH=/app/node_modules
 
 # Project code; static/ runtime libs are needed by synthesis
 COPY src ./src

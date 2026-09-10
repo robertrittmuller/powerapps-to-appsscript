@@ -22,3 +22,8 @@ def snake(name: str) -> str:
             out.append("_")
         prev_upper = ch.isupper()
     return "".join(out).strip("_") or "field"
+
+
+def component_symbol(owner: str, name: str) -> str:
+    """An instance-local variable/collection key, independent of letter case."""
+    return f'__pfx_component_{len(owner)}_{owner}_{name.casefold()}'

@@ -19,7 +19,7 @@ class Tok:
 
 IDENT_START = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_")
 IDENT_CHARS = IDENT_START | set("0123456789")
-KEYWORDS = {"true", "false", "in", "and", "or", "not", "As"}
+KEYWORDS = {"true", "false", "in", "exactin", "and", "or", "not", "as"}
 
 
 def reference_parts(name: str) -> list[str]:
@@ -87,6 +87,8 @@ def tokenize(src: str) -> list[Tok]:
                         k += 1
                     word += src[j:k]
                     j = k
+            if word.lower() in KEYWORDS:
+                word = word.lower()
             toks.append(Tok("keyword" if word in KEYWORDS else "ident", word, i))
             i = j
             continue
@@ -108,6 +110,12 @@ def tokenize(src: str) -> list[Tok]:
         if src.startswith("//", i):  # Power Fx line comment
             while i < n and src[i] != "\n":
                 i += 1
+            continue
+        if src.startswith("/*", i):
+            end = src.find("*/", i + 2)
+            if end < 0:
+                raise FxSyntaxError(f"unterminated block comment at {i}")
+            i = end + 2
             continue
         if c in "\"'":
             quote = c
@@ -147,7 +155,7 @@ def tokenize(src: str) -> list[Tok]:
             toks.append(Tok("punct", c, i))
             i += 1
             continue
-        if c in "()[],{}:;":
+        if c in "()[],{}:;@":
             toks.append(Tok("punct", c, i))
             i += 1
             continue
@@ -171,11 +179,13 @@ class Node:
 
 
 BINARY_PRECEDENCE = {
-    "in": 1, "or": 1, "||": 1,
+    # Power Fx Syntax/Precedence.cs: In < Compare < Concat < Add < Mul.
+    "in": 3, "exactin": 3, "or": 1, "||": 1,
     "and": 2, "&&": 2,
-    "=": 3, "<>": 3, "<": 3, ">": 3, "<=": 3, ">=": 3,
-    "+": 4, "-": 4, "&": 4,
-    "*": 5, "/": 5, "%": 5,
+    "=": 4, "<>": 4, "<": 4, ">": 4, "<=": 4, ">=": 4,
+    "&": 5,
+    "+": 6, "-": 6,
+    "*": 7, "/": 7, "%": 7,
 }
 RIGHT_ASSOC = {"^"}
 
@@ -210,16 +220,32 @@ class Parser:
         left = self.parse_unary()
         while True:
             t = self.peek()
+            if t.kind == "keyword" and t.value == "as" and min_prec == 0:
+                self.next()
+                alias = self.expect("ident")
+                if len(reference_parts(alias.value)) != 1 or left.kind == "alias":
+                    raise FxSyntaxError("As requires one record alias")
+                left = Node("alias", reference_parts(alias.value)[0], [left])
+                continue
             op = None
             if t.kind == "op" and t.value in BINARY_PRECEDENCE:
                 op = t.value
-            elif t.kind == "keyword" and t.value in {"in", "and", "or"}:
+            elif t.kind == "keyword" and t.value in {"in", "exactin", "and", "or"}:
                 op = t.value
             if op is None or BINARY_PRECEDENCE[op] < min_prec:
                 return left
             self.next()
             right = self.parse_expr(BINARY_PRECEDENCE[op] + 1)
             left = Node("binary", op, [left, right])
+
+    def parse_chain(self) -> Node:
+        expressions = [self.parse_expr(0)]
+        while self.peek().kind == "punct" and self.peek().value == ";":
+            self.next()
+            if self.peek().kind == "eof" or self.peek().value in {",", ")"}:
+                break
+            expressions.append(self.parse_expr(0))
+        return expressions[0] if len(expressions) == 1 else Node("chain", children=expressions)
 
     def parse_unary(self) -> Node:
         t = self.peek()
@@ -239,16 +265,24 @@ class Parser:
                 if name.kind not in {"ident", "keyword"}:
                     raise FxSyntaxError(f"expected identifier after '.', got {name.value!r}")
                 node = Node("member", name.value, [node])
+            elif t.kind == "punct" and t.value == "[":
+                self.next()
+                self.expect("punct", "@")
+                name = self.expect("ident")
+                if len(reference_parts(name.value)) != 1:
+                    raise FxSyntaxError("table disambiguation requires one field inside [@...]")
+                self.expect("punct", "]")
+                node = Node("disambiguate", reference_parts(name.value)[0], [node])
             elif t.kind == "punct" and t.value == "(":
                 if node.kind != "ident":
                     raise FxSyntaxError(f"cannot call non-identifier at {t.pos}")
                 self.next()
                 args: list[Node] = []
                 if not (self.peek().kind == "punct" and self.peek().value == ")"):
-                    args.append(self.parse_expr(0))
+                    args.append(self.parse_chain())
                     while self.peek().kind == "punct" and self.peek().value == ",":
                         self.next()
-                        args.append(self.parse_expr(0))
+                        args.append(self.parse_chain())
                 self.expect("punct", ")")
                 node = Node("call", node.value, args)
             else:
@@ -267,6 +301,10 @@ class Parser:
         if t.kind == "keyword" and t.value in {"true", "false"}:
             self.next()
             return Node("bool", t.value == "true")
+        if t.kind == "keyword" and t.value in {"and", "or", "not"} \
+                and self.toks[self.i + 1].value == "(":
+            self.next()
+            return Node("ident", t.value.title())
         if t.kind == "keyword" and t.value == "not":
             self.next()
             return Node("unary", "not", [self.parse_unary()])
@@ -275,10 +313,18 @@ class Parser:
             return Node("ident", t.value)
         if t.kind == "punct" and t.value == "(":
             self.next()
-            inner = self.parse_expr(0)
+            inner = self.parse_chain()
             self.expect("punct", ")")
             return inner
         if t.kind == "punct" and t.value == "[":
+            if self.toks[self.i + 1].value == "@":
+                self.next()
+                self.next()
+                name = self.expect("ident")
+                if len(reference_parts(name.value)) != 1:
+                    raise FxSyntaxError("global disambiguation requires one name inside [@...]")
+                self.expect("punct", "]")
+                return Node("global", name.value)
             return self.parse_table()
         if t.kind == "punct" and t.value == "{":
             return self.parse_record()

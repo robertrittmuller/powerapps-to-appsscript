@@ -5,18 +5,51 @@ const path = require('node:path');
 const vm = require('node:vm');
 const readline = require('node:readline');
 const clone = value => JSON.parse(JSON.stringify(value));
+let setupComplete = false, mutationRequest = false, lockHeld = false, flushed = false;
+let failNextLock = false, failNextFlush = false;
+const lockEvents = [];
+function checkReadLock() {
+  if (mutationRequest && !lockHeld) throw new Error('mutation read occurred outside the script lock');
+}
+function checkWriteLock() {
+  if (!setupComplete) return;
+  if (!lockHeld) throw new Error('mutation write occurred outside the script lock');
+  if (failNext) {failNext=false; throw new Error('Simulated Sheets write failure');}
+}
 
 class Sheet {
-  constructor(name) { this.name = name; this.rows = []; }
-  clear() { this.rows = []; }
+  constructor(name) { this.name = name; this.rows = []; this.maxRows = 1000; this.maxColumns = 26; }
+  clear() { checkWriteLock(); this.rows = []; }
+  getMaxRows() { return this.maxRows; }
+  getMaxColumns() { return this.maxColumns; }
+  insertRowsAfter(position, count) {
+    checkWriteLock();
+    if (!Number.isInteger(position) || position < 1 || position > this.maxRows || !Number.isInteger(count) || count < 1)
+      throw new Error('invalid row insertion');
+    if (position < this.rows.length) this.rows.splice(position, 0, ...Array.from({length:count},()=>[]));
+    this.maxRows += count;
+    return this;
+  }
+  insertColumnsAfter(position, count) {
+    checkWriteLock();
+    if (!Number.isInteger(position) || position < 1 || position > this.maxColumns || !Number.isInteger(count) || count < 1)
+      throw new Error('invalid column insertion');
+    this.rows.forEach(row => { if (position < row.length) row.splice(position,0,...Array(count).fill('')); });
+    this.maxColumns += count;
+    return this;
+  }
   getLastColumn() { return Math.max(0, ...this.rows.map(row => row.length)); }
   getDataRange() { return this.getRange(1, 1, Math.max(1, this.rows.length), Math.max(1, this.getLastColumn())); }
   getRange(row, col, height = 1, width = 1) {
+    if (![row,col,height,width].every(value=>Number.isInteger(value) && value>0)
+        || row+height-1>this.maxRows || col+width-1>this.maxColumns)
+      throw new Error('Range exceeds sheet grid');
     const sheet = this;
     return {
-      getValues() { return Array.from({length: height}, (_, y) =>
+      getValues() { checkReadLock(); return Array.from({length: height}, (_, y) =>
         Array.from({length: width}, (_, x) => sheet.rows[row + y - 1]?.[col + x - 1] ?? '')); },
       setValues(values) {
+        checkWriteLock();
         if (values.length !== height || values.some(value => value.length !== width)) {
           throw new Error('range dimensions do not match');
         }
@@ -28,8 +61,12 @@ class Sheet {
       setValue(value) { this.setValues([[value]]); },
     };
   }
-  appendRow(row) { this.getRange(this.rows.length + 1, 1, 1, row.length).setValues([row]); }
-  deleteRow(row) { this.rows.splice(row - 1, 1); }
+  appendRow(row) {
+    if (this.rows.length+1>this.maxRows) this.insertRowsAfter(this.maxRows,1);
+    if (row.length>this.maxColumns) this.insertColumnsAfter(this.maxColumns,row.length-this.maxColumns);
+    this.getRange(this.rows.length + 1, 1, 1, row.length).setValues([row]);
+  }
+  deleteRow(row) { checkWriteLock(); this.rows.splice(row - 1, 1); this.maxRows--; }
   setFrozenRows() {}
 }
 
@@ -43,6 +80,30 @@ const workbook = {
 };
 const properties = new Map();
 let sequence = 0, failNext = false;
+let storageAppId = 'test-script:' + process.argv[2], storageUser = 'business.tester@example.test', effectiveUser = null;
+let directoryResponses = [], directoryRequests = [];
+function directoryCall(method, args) {
+  directoryRequests.push({method,args:clone(args)});
+  const next=directoryResponses.shift();
+  if (!next) throw new Error('No configured Google People test response');
+  if (next.error) throw new Error(next.error);
+  if (next.method !== method) throw new Error('Unexpected Google People method: '+method);
+  if (next.args && JSON.stringify(next.args)!==JSON.stringify(args)) throw new Error('Unexpected Google People arguments');
+  return clone(next.result);
+}
+let chatResponses = [], chatRequests = [], chatMessages = [];
+const connectorRequests = [];
+function chatCall(method,args) {
+  if (lockHeld) throw new Error('Native Chat request occurred while holding the workbook lock');
+  chatRequests.push({method,args:clone(args)});
+  const next=chatResponses.shift();
+  if (!next) throw new Error('No configured Google Chat test response');
+  if (next.method!==method) throw new Error('Unexpected Google Chat method: '+method);
+  if (next.args && JSON.stringify(next.args)!==JSON.stringify(args)) throw new Error('Unexpected Google Chat arguments');
+  if (next.error) throw new Error(next.error);
+  if (method==='create') chatMessages.push({request:clone(args),response:clone(next.result)});
+  return clone(next.result);
+}
 const context = vm.createContext({
   HtmlService: {
     createHtmlOutputFromFile(name) {
@@ -52,6 +113,7 @@ const context = vm.createContext({
       const template = {
         evaluate() {
           context.launchParametersJSON = template.launchParametersJSON;
+          context.storageContextJSON = template.storageContextJSON;
           const content = fs.readFileSync(path.join(process.argv[2], name + '.html'), 'utf8')
             .replace(/<\?!=([\s\S]*?)\?>/g, (_match, expression) =>
               vm.runInContext(expression, context, {timeout: 10000}));
@@ -64,26 +126,98 @@ const context = vm.createContext({
   PropertiesService: { getScriptProperties: () => ({
     getProperty: key => properties.get(key), setProperty: (key, value) => properties.set(key, value),
   }) },
-  SpreadsheetApp: { create: () => workbook, openById: () => workbook },
-  Utilities: { getUuid: () => 'test-record-' + (++sequence) },
-  Session: { getActiveUser: () => ({ getEmail: () => 'business.tester@example.test' }) },
+  SpreadsheetApp: { create: () => workbook, openById: () => workbook,
+    flush() {
+      if (!lockHeld) throw new Error('flush occurred outside the script lock');
+      flushed=true; lockEvents.push('flush');
+      if (failNextFlush) {failNextFlush=false; throw new Error('Simulated Sheets flush failure');}
+    },
+  },
+  LockService: {getScriptLock:()=>({
+    waitLock(timeout) {
+      lockEvents.push('wait:' + timeout);
+      if (timeout !== 30000) throw new Error('unexpected script lock timeout');
+      if (failNextLock) {failNextLock=false; throw new Error('Simulated script lock timeout');}
+      if (lockHeld) throw new Error('script lock was not released');
+      lockHeld=true; flushed=false; lockEvents.push('acquired');
+    },
+    releaseLock() {
+      if (!lockHeld || !flushed) throw new Error('script lock release requires acquisition and flush');
+      lockHeld=false; lockEvents.push('released');
+    },
+  })},
+  Utilities: { getUuid: () => 'test-record-' + (++sequence),
+    newBlob: value => ({getBytes:()=>Array.from(Buffer.from(value,'utf8'))}) },
+  Session: { getActiveUser: () => ({ getEmail: () => storageUser }),
+    getEffectiveUser: () => ({getEmail: () => effectiveUser === null ? storageUser : effectiveUser}) },
+  People: {People:{
+    get:(...args)=>directoryCall('get',args),
+    searchDirectoryPeople:(...args)=>directoryCall('searchDirectoryPeople',args),
+    listDirectoryPeople:(...args)=>directoryCall('listDirectoryPeople',args),
+  }},
+  Chat:{Spaces:{list:(...args)=>chatCall('list',args),Messages:{create:(...args)=>chatCall('create',args)}}},
+  ScriptApp: { getScriptId: () => storageAppId },
 });
 for (const file of ['Code.gs', 'DataInit.gs']) {
   vm.runInContext(fs.readFileSync(path.join(process.argv[2], file), 'utf8'), context, {timeout: 10000});
 }
 vm.runInContext('setup()', context, {timeout: 10000});
+setupComplete = true;
 readline.createInterface({input: process.stdin}).on('line', line => {
+  let tracedConnector;
   try {
     const request = JSON.parse(line);
-    if (request.fn === '__failNextMutation') { failNext = true; process.stdout.write('{"result":true}\n'); return; }
-    if (!['api', 'apiChoices', 'whoami', 'doGet'].includes(request.fn)) throw new Error('unknown test endpoint');
-    if (failNext && request.fn === 'api' && request.args[1] !== 'list') {
-      failNext = false; throw new Error('Simulated Sheets write failure');
+    if (request.fn === '__connectorRequests') {
+      process.stdout.write(JSON.stringify({result:connectorRequests})+'\n'); return;
     }
+    if (request.fn === 'connector') { tracedConnector={args:clone(request.args)};connectorRequests.push(tracedConnector); }
+    if (request.fn === '__failNextMutation') { failNext = true; process.stdout.write('{"result":true}\n'); return; }
+    if (request.fn === '__failNextLock') { failNextLock = true; process.stdout.write('{"result":true}\n'); return; }
+    if (request.fn === '__failNextFlush') { failNextFlush = true; process.stdout.write('{"result":true}\n'); return; }
+    if (request.fn === '__lockState') { process.stdout.write(JSON.stringify({result:{held:lockHeld,events:lockEvents}})+'\n'); return; }
+    if (request.fn === '__duplicateSourceRow') {
+      // Model a manual spreadsheet edit outside the app's lock discipline.
+      const sheet = sheets.get(request.args[0]);
+      const row = sheet && sheet.rows[request.args[1]];
+      if (!row) throw new Error('unknown source row');
+      sheet.rows.push(clone(row)); process.stdout.write('{"result":true}\n'); return;
+    }
+    if (request.fn === '__setStorageIdentity') {
+      [storageAppId, storageUser] = request.args;
+      process.stdout.write('{"result":true}\n'); return;
+    }
+    if (request.fn === '__setEffectiveUser') {
+      effectiveUser=request.args[0]; process.stdout.write('{"result":true}\n'); return;
+    }
+    if (request.fn === '__peopleResponses') {
+      directoryResponses=clone(request.args[0]); directoryRequests=[];
+      process.stdout.write('{"result":true}\n'); return;
+    }
+    if (request.fn === '__peopleRequests') {
+      process.stdout.write(JSON.stringify({result:directoryRequests})+'\n'); return;
+    }
+    if (request.fn === '__chatResponses') {
+      chatResponses=clone(request.args[0]); chatRequests=[];
+      process.stdout.write('{"result":true}\n'); return;
+    }
+    if (request.fn === '__chatRequests' || request.fn === '__chatMessages') {
+      process.stdout.write(JSON.stringify({result:request.fn==='__chatRequests' ? chatRequests : chatMessages})+'\n'); return;
+    }
+    // Test-only administrative hooks; private Apps Script functions are never RPC endpoints.
+    const administrative = {__importPlanner:'importPlanner_', __plannerSnapshot:'plannerDocument_', __setup:'setup',
+      __importDirectory:'importDirectory_',__importChat:'importChat_'};
+    const admin = Object.prototype.hasOwnProperty.call(administrative, request.fn) && administrative[request.fn];
+    if (!admin && !['api', 'apiChoices', 'whoami', 'doGet', 'connector'].includes(request.fn)) throw new Error('unknown test endpoint');
+    mutationRequest = request.fn === '__importPlanner' || request.fn === '__importDirectory' || request.fn === '__importChat' || request.fn === 'connector' ||
+      (request.fn === 'api' && !['list', 'links', 'relationshipSnapshot'].includes(request.args[1]));
+    if (admin) request.fn = admin;
     context.requestJSON = JSON.stringify(request);
     const result = vm.runInContext(
       '(function(){var r=JSON.parse(requestJSON); return globalThis[r.fn].apply(null,r.args);})()',
       context, {timeout: 10000});
+    if (tracedConnector) tracedConnector.result=clone(result);
     process.stdout.write(JSON.stringify({result: request.fn === 'doGet' ? result.getContent() : result}) + '\n');
-  } catch (error) { process.stdout.write(JSON.stringify({error: error.message}) + '\n'); }
+  } catch (error) { if (tracedConnector) tracedConnector.error=error.message;
+    process.stdout.write(JSON.stringify({error: error.message}) + '\n'); }
+  finally {mutationRequest=false;}
 });

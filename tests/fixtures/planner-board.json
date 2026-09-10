@@ -1,0 +1,19 @@
+{
+  "users": [
+    {"id":"user-a","email":"business.tester@example.test"},
+    {"id":"user-b","email":"second@example.test"},
+    {"id":"user-c","email":"outside@example.test"}
+  ],
+  "plans": [
+    {"id":"plan-a","title":"Shared inspections","group_id":"group-a","members":["user-a","user-b"]},
+    {"id":"plan-secret","title":"Restricted","group_id":"group-a","members":["user-c"]}
+  ],
+  "buckets": [
+    {"id":"bucket-a","name":"Repairs","plan_id":"plan-a"},
+    {"id":"bucket-secret","name":"Hidden","plan_id":"plan-secret"}
+  ],
+  "tasks": [
+    {"id":"task-a","title":"Repair door","plan_id":"plan-a","bucket_id":"bucket-a","percent_complete":50,"assignees":["user-a","user-b"],"description":"Existing notes","due_date_time":"2026-09-10T16:30:00Z"},
+    {"id":"task-secret","title":"Private task","plan_id":"plan-secret","bucket_id":"bucket-secret","percent_complete":0,"assignees":["user-c"],"description":""}
+  ]
+}

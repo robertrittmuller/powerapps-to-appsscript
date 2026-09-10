@@ -1,4 +1,4 @@
-# pfx2gas — Gap Assessment & Roadmap (updated 2026-09-06)
+# pfx2gas — Gap Assessment & Roadmap (updated 2026-09-10)
 
 The product goal is to convert common business Power Apps canvas apps into
 Google-hosted apps that work correctly and preserve as much of the original UI
@@ -6,22 +6,209 @@ and interaction behavior as reasonably possible, with minimal manual repair.
 Success means people can complete the original business tasks using a familiar
 interface, with correct data and explicit evidence of fidelity.
 
-The latest pass fixes nested/quoted record reads, row-versus-global scope,
-two-argument asynchronous `IfError`, and web-app launch parameters. The new
-generated-client/server browser journey verifies source-shaped image/text
-formulas, failed-save recovery, and a successful standalone Patch that preserves
-the existing row and its untouched fields after reload. Earlier collection,
-chart and HelpDesk regressions remain passing. These changes are local and
-tested; the last recorded Google deployment is still HelpDesk @14.
+The September 9 pass adds stable editable gallery rows with per-row control
+references, focus/selection retention through sorting, persisted row saves,
+queued parent selection, and timer lifecycle/focus support. It also fixes block
+comments, word-form logical operators, nested behavior chains and sorting.
+Untranslatable behavior now fails visibly instead of disappearing. The LLM
+single-formula seam has structural parsing, helper-name and response-schema
+checks, while remaining explicitly partial until behavior is tested.
 
-All six Microsoft canvas exports generate valid code; **Employee Ideas and
-Inspection now have clean startup console checks, up from zero of six**.
-Neither has a verified usable workflow: the simulator still displays their
-loading screen, and timer-driven initialization is not wired. Formula coverage
-and an error-free loading screen are not business compatibility. Complete
-Google workflows and original-app visual equivalence remain unproven.
+The next slice adds nested `As` record aliases, gallery aliases across async
+saves, table/global disambiguation, single-column projections and membership,
+plus GroupBy/Ungroup. Generated Chromium tests exercise reactive grouped totals,
+targeted row removal, and persisted edits through aliased gallery records.
+Multi-condition If now retains all branches and its fallback; Switch evaluates
+its subject once. Both preserve selected async action order.
+
+The local-draft slice implements SaveData/LoadData/ClearData with typed browser
+storage, append-on-load semantics, scoped clearing and explicit quota/corruption
+failures. Chromium exposed a separate missing dynamic-input-default binding;
+standalone input defaults now populate after reload and preserve unsaved edits
+through unrelated updates. Native input/button DisplayMode formulas reevaluate
+while typing. Form/DataCard record application continues to own form field
+defaults. Storage is browser-local, plaintext, and limited to 1 MB
+per encoded entry; it does not make the remote Apps Script app available offline.
+
+The Dataverse slice decodes native TableDefinition metadata and distinguishes
+tables, collections, option sets, views and services. Generated storage keeps
+source primary keys and logical/display field aliases; choices retain labels
+and typed codes. Row writes validate all changed cells before mutation, including
+invalid choices and conflicting aliases. Lookup snapshots and multi-select
+values persist in structured cells; source dates cross google.script.run as ISO
+text. A seventh Chromium fixture executes save/failure/create/delete/reload.
+Every real-app soak now executes generated setup and table/choice reads against
+the Sheets test double, in addition to syntax and client startup checks.
+
+The time/validation slice adds TimeValue, localized date/time Text formats,
+constant canvas regex matching, correct Find arguments and deferred
+IsBlankOrError. Two complete Microsoft source formulas are retained with hashes
+and their MIT license; executed formula tests and an eighth generated Chromium
+fixture cover timestamps, localization and every URL-validation outcome.
+
+The canvas slice preserves source design/scaling settings and App/screen
+dimension formulas, including hidden-screen references, startup reads, minimum
+sizes, custom breakpoints and fill. Viewport resize reevaluates bindings without
+replacing edited inputs. Checkbox/toggle Value is boolean, correcting unintended
+mobile routing and contrast themes in the real exports. Manual layout takes
+precedence over dormant LayoutDirection settings; nested container and DataCard
+children use local coordinates. Two additional Chromium fixtures cover manual
+and automatic layouts, narrow/minimum widths, scaled interactions and retained
+draft text/caret. AutoHeight dependency ordering and device orientation locking
+still need implementation or verification.
+Screen OnHidden is now wired and awaited before destination OnVisible. This
+restores Employee Ideas' source initialization of mobile width, padding and
+other values when leaving loading; its mobile first-action probe now passes.
+
+Navigation now preserves literal context records and separates screen-local
+variables from globals. A generated edit/save/reload journey proves the selected
+second record is retained, an awaited handler updates its defining screen after
+navigation, and hidden-screen references, Blank shadowing, zero/false and
+case-insensitive names behave correctly. Milestones' first-run dialog now
+appears because its source Navigate context survives. Arbitrary context-record
+expressions remain unsupported; dynamic destination declarations are deferred
+until first navigation and warned. Transition animations remain missing.
+
+One live OpenRouter request verified the configured connection but failed
+behavioral equivalence: its accepted timezone formula reversed the offset sign
+at 0.98 model confidence, failing three of four timezone journeys. Offline
+regressions retain that failure. The v3 static gate also rejects behavior
+helpers and known mutating methods in value formulas; it is not an equivalence
+proof or a JavaScript sandbox. Fallback receives screen/local metadata and now
+includes App and screen properties, with unverified equivalence ledgered.
+
+Saved-view filters now come from companion solution FetchXML, with source hashes
+in each assessment. Supported nested filters and explicit ordering execute
+against migrated tables; unsupported or missing queries fail even on empty
+tables. Current-user views require exactly one migrated systemuser record
+matching the actual Google session email. Startup awaits User() before running
+source initialization. Template-stored legacy gallery actions now survive row
+flattening. A native Chromium fixture verifies filtering/search, saved changes,
+reload and selection through the original template action.
+Relative day filters now support exported UserLocal columns for last-seven-days,
+positive last-x-days, today, yesterday and tomorrow. They use the browser clock
+and timezone; this migration assumption and recent-range boundary equivalence
+remain ledgered. DateOnly/TimeZoneIndependent, missing subtype metadata and other
+relative operators fail explicitly. Boundary tests include both DST changes;
+the generated browser fixture checks save/reload and membership at the next
+midnight. `TimeUnit` constants now retain the intended DateAdd unit instead of
+silently reading an unset variable and defaulting to days.
+
+Native FluidGrid and Form cards now interpret X/Y as order/row coordinates,
+wrap minimum widths, expand WidthFit cards and use row heights. A generated
+fixture verifies resize/hidden-card reflow, scrolling and retained input
+nodes/text/focus/caret. Gallery template dimensions exist before first-row
+binding. Exported Hidden/Scroll text overflow is preserved. Explicit table
+lineage carries logical/display aliases into local collections, including
+cache restoration; UpdateIf preserves inner-row scope and applies only the
+first matching change. Conflicting aliases fail before mutation. Deferred
+IsError restores the original source warning/recovery path around a failed post.
+Top-level gallery TemplateSize formulas now resolve lazily before dependent
+layout reads and update with state or viewport changes. A generated Chromium
+fixture covers empty/populated cards, vertical and horizontal resizing, row
+selection and retained edits. The unchanged Milestones settings card now measures
+316 pixels; its 33 non-finite layout errors are gone, leaving the two explicit
+user/directory migration failures. Dynamic orientation/padding/WrapCount and
+nested gallery layouts remain open.
+External UpdateIf, asynchronous predicates/change records, complete error-value
+propagation and nested-gallery card layouts remain unsupported or unverified.
+
+Lookup snapshots now use exported target-table metadata to expose logical,
+canonical and display aliases recursively. Key-only references retain identity
+without inventing names; ambiguous polymorphic references and conflicting or
+invalid nested values fail before writes. Snapshots do not resolve current
+related-table values or enforce relationships. Employee Ideas' question filter
+now finds the correct campaign questions. Gallery updates use their own direct
+template even when mounted rows contain nested templates. Conditional TextMode
+retains single-line/multiline/password behavior and edits, focus, caret and
+listeners across mode changes. Browser checks save and reload multiline answers.
+
+Concurrent now starts deferred branches and waits for all results, preserving
+each branch's action chain. Other branches finish even after one fails, and the
+first error in source argument order propagates; success returns true. Executed
+formula tests control response order, while Chromium verifies independent saves,
+failure recovery and persistence after reload. Source error-management settings,
+branch dependency validation and external side-effect ordering remain ledgered
+review items. The LLM v6 gate rejects Concurrent, keyed-write and relationship-write helper references
+in value proposals.
+
+Two-argument Patch now updates by an explicit exported source primary key and
+creates only when no stored row has that key. Validation or service failures never
+fall through to creation; missing metadata/keys and ambiguous duplicate keys
+fail explicitly. The generated native UI verifies save failure/retry, correct-row
+updates, creation, repeated-key updates and reload. Keyless, inferred/composite
+keys and table arguments remain unsupported. All generated API mutations now
+hold a script lock across their reads and writes, flush before releasing, and
+release after failures. The server test double enforces those invariants and
+exercises lock timeouts, write failures and uncertain flush failures. This is
+per-request serialization; client calculations and whole workflows are not
+atomic, and live Google contention still needs verification.
+
+Exported one-to-many and many-to-many relationships now use their actual
+navigation aliases and source keys. A separate Sheets join table persists many-to-many membership;
+Relate/Unrelate refreshes the first source's links and related-record snapshots,
+while reverse reads wait for their own Refresh. Native Node startup and Chromium
+journeys cover bidirectional membership, multiple parents/members, write-failure
+recovery, repeat operations and page reload. Refreshing one source also sees
+new related names without replacing the other source's cache. Conflicting schema
+endpoints, ambiguous records, missing metadata/keys and orphaning deletes fail.
+One-to-many reads use exported lookup keys, restore real campaign idea counts,
+and support reassignment/unlinking with read-only/system-required field guards.
+Retries are explicitly idempotent and unmatched Unrelate is a no-op. Alternate keys, cascades,
+permissions, initial membership migration and live Google concurrency remain
+open. Missing or unsupported navigation contracts raise an error rather than
+silently returning an empty table. Opposing relationship writes in different
+Concurrent branches receive a per-formula source-ordering warning.
+
+The browser gate now drains dispatched server calls and includes console errors
+observed during capture. A voting run exposed the old gate returning pass with
+a nonempty error list. Deliberate pending-callback and late-capture errors now
+fail their regression probes, alongside the existing screenshot-failure gate.
+
+Eleven pinned source exports are available here: five public regression apps
+and six Microsoft business apps. **All eleven generate valid code; five pass
+the short startup check. None has complete usability acceptance evidence.**
+Inspection's recent-date views now pass startup; its primary action reaches
+Items Screen. Its Planner calls now use an explicit Google Sheets task-board
+adapter; all five first-action checks pass with an authored imported board and
+zero runtime errors. Missing migration still fails. Editable Grid's unexported
+Student Tracker choice source is now correctly rejected by the startup simulator,
+which previously returned an empty success for unknown RPCs. Expanding the modern
+navigation component also exposes its Google directory migration requirement,
+which was hidden while its child controls were missing. Missing
+identity mappings, layout errors and connector dependencies leave four Microsoft
+apps failing short startup, and all three default first-action probes still fail.
+With one explicitly authored
+user, four campaigns and three questions, Employee Ideas now passes 29 checks covering active
+filtering/order/search, selected detail, mobile field geometry/labels,
+required-title validation, single/multiline responses, submission, persistence,
+reload, reopening and actual per-campaign idea counts. One unrelated campaign question is correctly excluded.
+The source's failed Teams-post warning executes without aborting the save.
+With an explicitly active migrated settings record and reviewed Chat space
+mappings, a separate 31-check scenario executes the unchanged source notification
+through native Google Chat API fixtures and reloads without reposting. No live
+message is sent; native Google authorization and formatting remain unverified.
+Its title remains deliberately truncated under source Wrap=false/Overflow.Hidden.
+The optional voting probe now persists a count of one and executes relationship
+operations, but fails its membership assertion: the exported Concurrent's
+unconditional Unrelate leaves no voting-user link in this run. This is a source
+race risk requiring original-app review; the converter does not rewrite it.
+Ratings, attachments, manager workflows and
+complete usability remain unassessed.
+Milestones' previously nonfinite settings-card dimensions are repaired. Its
+recorded populated settings/work-item probe passes 116 checks. Thirty-one
+generated-fixture Chromium journeys pass. Fixtures are regression
+evidence, not additional real acceptance apps. The last recorded Google
+deployment remains HelpDesk @14.
 
 ## Acceptance goal: faithful business-app conversion
+
+The updated user definition of done is ten apps with preserved **critical app
+functionality**, a functional UI, and passing code/usability tests. The selected
+apps and required workflows are listed in [benchmark/ACCEPTANCE.md](benchmark/ACCEPTANCE.md).
+The additional exact visual/source parity requirements below describe the
+separate High fidelity grade, rather than prerequisites for the user's Usable
+acceptance target. Critical workflow failures and unusable UI remain blockers.
 
 **Functional fidelity:** preserve source business rules, calculations,
 validation, navigation, search/filter/sort, record selection, form modes,
@@ -68,19 +255,270 @@ a blocker until its target behavior is implemented and verified. Retain games
 and component demos for regression coverage, while business-app failures drive
 the implementation order.
 
+Teams Fluent date pickers now render native date inputs with local-midnight
+Value/SelectedDate, independent row defaults and edits, Reset, OnChange,
+disabled/focus states and dynamic accessible labels. Generated startup and
+Chromium tests persist edited dates across DST. Date/day operators preserve
+civil days and DateAdd clones its input. Strict arithmetic exposed omitted Self
+sizing dependencies, legacy screen-size cases and Split/Result glyph-width
+calculations; these now execute without the Milestones layout errors. Semantic
+properties resolve once per control snapshot, with cycle checks. The original
+project journey now passes 39 checks and saves distinct names, dates and edited
+colors; complete project/work-item functionality remains unassessed. Typed Time arithmetic, ISO operand typing, tenant timezone settings,
+calendar appearance and full date semantics remain open. Split's legacy Result
+alias survives AddColumns but not all table-copy/serialization paths; the
+per-formula ledger records that limitation and native-calendar differences.
+
+Nested galleries now render as independent instances owned by their outer row.
+Default/Selected, ThisItem.IsSelected, parent control reads/actions, template sizes
+and loaded control values retain their scope. Node and Chromium verify selection,
+empty/repopulated items, edits through parent sorting and resize, non-recursive
+Reset, keyboard interaction and correct-record bulk persistence. The simulator
+now parses balanced nested templates instead of flattening their children. A real
+Milestones click exposed transparent button text intercepting a neighboring
+control outside its rectangle; generated buttons now clip content, and the exact
+long-label pattern is a browser regression. Row/AllItems copies preserve hidden
+logical-name aliases, preventing a caught Employee Ideas reopening regression.
+All 39 populated project-creation
+checks pass with Google API fixtures. Eager loading, cross-level record aliases,
+other nested controls and complete visual/workflow parity remain review items.
+
+The populated Milestones work-item lifecycle now passes 77 checks: creation with
+a migrated Google assignee and milestone, reload/reopening, edited text/date with
+the same record and linked identities, and confirmed deletion without removing
+its project or milestones. Row-dependent Font/Size/Padding and sibling properties
+resolve within their own row, including references to later siblings. Standalone
+and row selectors retain record/table/Blank defaults through Reset and changing
+edit context; native checkbox clicks no longer trigger gallery navigation through
+DOM bubbling. Runtime guards cover scoped cycles, replaced/reordered DOM nodes
+and deferred layout measurement. These are workflow checks against generated
+Code.gs and native API fixtures, not complete usability acceptance.
+
+The deeper Milestones `--settings` probe now preserves the exported control
+primary output and Power Fx V1 compatibility flag for blank checks. Empty row
+names disable Save; arithmetic binds before concatenation in status captions.
+Exact template versions supply the output contract, and ordinary records are
+never coerced as controls. Other implicit control coercions and missing or
+ambiguous template metadata remain unverified.
+
+Dataverse State/Status fields now retain exported state defaults, reason-to-state
+relationships, invariant names and write flags. Creation initializes the standard
+Active/Inactive model; other models require exported initial-state metadata.
+State changes use the matching default reason and reject incompatible pairs
+before writing. Missing metadata and custom transition rules fail explicitly;
+existing rows are not backfilled. Generated-server regressions and a Chromium
+activation/deactivation/reload journey cover the adapter and contract validation.
+The deeper Milestones `--settings` probe now passes 116 checks with zero runtime
+errors: five settings survive active-view reload, and work-item create/edit/delete
+retains the selected status/category/priority links. The source Save omits status
+Sequence; reloading follows the exported Active view's name ordering. Arbitrary
+completion-status positioning and tenant-side sequence population remain open.
+
+Checkbox/toggle OnCheck and OnUncheck are now classified and emitted as behavior.
+User changes and later Default/Reset/form value changes invoke the matching
+handler once, with row scope and captured Self values through awaits. Generated
+Node and Chromium tests cover keyboard/mouse input, reset/default transitions,
+persisted row changes, reload and explicit untranslatable-action failures.
+Milestones now selects/deselects its loaded row and updates the source's assertive
+live announcement text. Mounting establishes an initial value without replaying
+these handlers; source initialization timing, cross-event ordering and actual
+screen-reader speech still need native-platform comparison.
+
+App.Formulas now produces individual immutable named values and fidelity rows.
+Forward references, case-insensitive reads, lazy evaluation, input/table updates
+and formula-backed navigation have generated Node and Chromium evidence. Invalid
+declarations, mutation and circular reads have failure gates; declaration/purity
+errors cannot be replaced by LLM fallback. Recalculation occurs on demand without
+Power Fx's dependency cache. Volatile values, asynchronous named values, user-defined
+functions/types and complete control-initialization scheduling remain gaps.
+Modern ComponentDefinitions now expand per instance, including nested components.
+Input overrides retain host scope; definition-authored formulas resolve their
+own controls without rewriting Power Fx strings. Private Set variables and
+collections remain separate per instance; explicit AccessAppScope shares app
+globals. Node and Chromium journeys cover inputs/outputs, saved local records,
+Reset/Select, nested instances and reload. Invalid, missing, circular or colliding
+definitions render an error and fail startup. Private component formulas are
+excluded from LLM fallback. Custom actions/events/functions and OnReset remain
+unsupported; full source layout and initialization semantics remain unverified.
+
+Modern exports also import References/DataSources.json. Service declarations,
+static data and Dataverse contracts survive parsing; absent option categories
+exported as null no longer abort conversion, while malformed non-null metadata
+still fails. MyProfileV2 maps the accessing Google identity to its native People
+profile, preserving supported select fields and requiring explicit migration.
+The pinned expandable-nav browser probe now passes its complete declared
+navigation critical workflow and UI: 75 checks cover all ten screens and returns,
+keyboard expansion/collapse, visible glyphs and accessible names, compact menu
+rows, profile state, reload and browser exit feedback at three window sizes.
+The 37-pixel collapsed container and 280-pixel empty menu rows are repaired.
+Source canvas minimum dimensions remain; smaller windows scroll rather than
+inventing a mobile reflow. The Google People response is an explicit fixture,
+and User().Image uses the documented no-photo CSS avatar. Exit asks the user to
+close the window; it does not sign out of Google. Live Google authorization,
+exact source visuals and the other nine apps' complete critical/UI workflows
+remain open. The identity-free soak simulator still fails the unmigrated profile
+dependency; this configured generated-server browser evidence is separate.
+
+Native Controls/Components Rules and DynamicProperties now supplement omitted
+YAML layout formulas, with per-property provenance. YAML overrides win;
+conflicting defaults fail and mismatched control versions are skipped. Static
+fill/stretch settings determine rendered dimensions, and dependent controls
+read the actual container-sized component rather than its stale declared size.
+Scaled-canvas measurements are converted back to design pixels. Two generated
+Chromium fixtures verify fixed/filled sizing, explicit alignment, component
+dimensions, readable actions, navigation, resize and reload. Dynamic direction,
+alignment/fill, absent factory defaults and broader gallery layout remain gaps.
+
+Button/ModernButton Icon and Layout now render a deterministic portable glyph
+before/after the source caption, alone, or hidden in TextOnly mode. Rotation and
+accessible labels update in standalone and gallery scope; source Text, button
+identity, keyboard activation and focus survive updates. Unknown visible icons
+fail explicitly, and missing labels fall back to a marked source icon name.
+Exact Fluent glyphs, IconStyle and Appearance remain fidelity gaps.
+
+VariableHeight galleries now size rows from visible direct child bounds,
+including nested galleries, while fixed galleries keep TemplateSize. Browser
+fixtures cover expanding/collapsing individual rows, hidden tall content, static
+padding, ordinary fixed rows, retained inputs/focus on resize and canvas scaling.
+The sizing follows Microsoft's [flexible gallery model](https://learn.microsoft.com/en-us/power-apps/maker/canvas-apps/gallery-dynamic-sizing),
+where changing the editor template extent does not change runtime row height.
+Full AutoHeight dependency scheduling and wrapped flexible layouts remain open.
+
+The lost reference data and collapsed text widths are repaired. DataInit preserves
+all exported seed records, with sheet-capacity checks before writes. Milestones
+retains its 129 icons, 573 localization rows and 194 character widths. Segoe UI's
+source fallback stack and the four supported font-weight values match reference
+lookups; its milestone chip measures the source formula's 115 pixels, and headings
+are readable in the reviewed screenshot. Other font values, font availability,
+source-imposed column clipping and original UI comparison remain open.
+Audit timestamps and other source defaults, complete checkbox initialization semantics,
+broader work-item variants and original UI comparisons
+remain open.
+
 ## Current evidence and its limits
+
+The Header/Card slice gives `ModernCard` its own source control type and semantic
+renderer. Both native and modern exports render structured text and images in
+standalone controls and gallery rows, with source orientation/placement, colors,
+point-sized card text, native keyboard actions and disabled/view states. Header
+logo actions are scoped to the logo; a source without a logo action renders an
+image without inventing a button. The exported Google caller expressions supply
+name/email and a photo or ledgered initials fallback. Matching native control
+properties supplement omissions while authored YAML wins. No factory sample
+content or actions are injected. Themes/profile menus, sample artwork and exact
+Fluent typography/clipping remain explicit approximations.
+
+The wrapped-card browser probe caught a broader layout bug: `Parent.TemplateWidth`
+used the whole vertical gallery width, causing adjacent cards to overlap. Explicit
+wrapped grids now divide the available cross-axis space by `WrapCount`, account
+for outer/inter-item padding and reevaluate count/padding on state and viewport
+changes. Width-dependent formulas that briefly yield zero columns render one cell
+until geometry settles; this minimum is ledgered and tested across resizes.
+Layout updates preserve row/control identity. Flexible rows avoid adding
+the grid gap twice; unannotated vertical galleries retain their legacy layout.
+The startup simulator hydrates the actual generated composite subtree and fires
+input events on text edits, so missing content and stale enabled states cannot
+silently pass those runtime checks.
+
+The startup slice now honors `App.StartScreen` instead of always opening the
+first exported screen. Its value is resolved before `OnStart`, after the existing
+user/table initialization, with pending connector reads settled before choosing
+the destination. Source `IfError` can recover from connector errors. Blank/error
+results use screen order, errors remain observable, and global variables and
+collections are unavailable even when accessed through a named formula. A source
+`OnStart.Navigate` is preserved. Value/purity checks, generated-app execution,
+runtime signature gates and browser journeys cover this behavior. Source
+nonblocking startup scheduling is not reproduced; the ledger marks this as an
+approximation, and failures in the earlier user/table initialization remain
+startup errors. The soak requires an independent source/catalog destination,
+never one copied from the observed output.
+
+Modern Card explicitly starts on `HomeScreen`, although `Screen1` comes first in
+its archive. Its document gallery refers to an absent `MyFiles` source and file
+fields that the export's own `AppCheckerResult.sarif` lists as invalid names.
+The user has no complete export available at present. Keep that source failure
+separate from the converter's Header/Card rendering; neither an
+empty gallery nor a successful startup establishes its critical workflow.
+`scripts/assess_modern_card_workflow.py` retains the source hash, formulas,
+data-source inventory, source checker results, browser content failures and reload
+evidence. No document schema, records or navigation to the other screen are
+invented. The complete ten-app acceptance count remains one.
+
+The SVG slice makes standalone inputs reactive even when they have no authored
+Default/OnChange formula. Modern timer behavior/captions and image fit/fill rules
+are recovered from the corresponding native control at the same version;
+authored YAML remains authoritative. Static timer captions render as well as
+dynamic ones. This restores the real SVG app's timer caption and prevents fitted,
+transparent images from stretching over a placeholder background.
+
+A bounded, deterministic SVG repair XML-escapes direct control Text references
+concatenated with static SVG text/tspan fragments inside EncodeUrl. Its ledger
+explicitly records that input markup now renders literally. The matcher requires a valid SVG scaffold and
+known control references; URLs, attributes, CDATA, unknown expressions, DTDs and
+dynamic SVG builders keep their original behavior. Unit, generated-runtime and
+Chromium regressions cover punctuation, literal entities, Unicode, native
+property precedence/version matching, slider/text/checkbox/date changes, timer
+captions and reload. The real-app assessment also observes painted pixels and
+source CSS animation results, rather than relying only on decoded SVG strings.
+Screen-reader usability for three unnamed source inputs and the exported
+unreachable screens remain unassessed; this slice does not increase the complete
+ten-app acceptance count.
+
+The selection-default slice restores only the exported template's boolean
+`SelectMultiple`, matched by name and version, for both native and modern apps.
+Explicit rules and dynamic properties win, including blank formulas; provenance
+is retained under `nativeSelectionDefaults`. Authoring sample records and actions
+are excluded. Selector multiplicity, accessible labels and enabled states update
+reactively, and a selection refreshes dependent formulas without requiring an
+authored OnChange. Native select appearance, searchable ComboBox popups and the
+source's last-selected-record ordering remain separate gaps.
+
+The Milestones resize probe also exposed stale sibling geometry and lost negative
+CSS coordinates. Style-only passes now settle dependent geometry and its cached
+source properties before rows are laid out; these passes do not replay input
+defaults, app actions or asynchronous data evaluators. A 32-pass limit surfaces
+non-settling styles as a runtime error. A reversed-dependency Chromium fixture
+checks five viewport transitions, negative centering, retained drafts and
+unobstructed select-all/deselect-all controls.
+
+The unchanged Milestones `--filters` journey now passes 260 checks with zero
+runtime errors. It includes the settings/project/work-item lifecycle, a second
+persisted item with different milestone/status links, matching and empty search,
+OR within multiple milestones, AND across status/category/priority/assignee
+criteria, clearing every selector, reopening a filtered item, and deleting only
+the selected item. Actual keyboard selection/apply and dialog containment pass
+at 1440×900, 1000×700 and 520×700, followed by an unobstructed desktop select-all
+and deselect-all sequence. The generated Code.gs uses a Sheets test double and
+explicit Google People response fixtures. This expands workflow/UI evidence;
+complete Milestones usability and live Google access remain unassessed.
 
 | Evidence | Latest result | What remains unproven |
 |---|---|---|
-| Unit/runtime tests | 147 Python, 63 JS; emitter/runtime consistency passes | Complete deployed workflows and broader control semantics |
-| Local real-app soak | 10/10 Bootable; 23,746 formulas | All 10 are still unassessed for Usable and High fidelity |
-| Formula translation | 23,724 / 23,746 (99.9%) | Translation does not establish runtime behavior |
-| Runtime wiring | 15,318 emitted (64.5%), 329 approximated, 8,099 ignored/unsupported | Impact varies by property and critical workflow |
+| Unit/runtime tests | 614 Python pass, 3 skip; 119 JS pass; bare globals, FX, FXRuntime and FX.collections emitter/runtime consistency passes | Complete deployed workflows and broader control semantics |
+| Current real-app soak | 5/5 valid code and generated-server initialization; 3/5 Bootable; 3,334 formulas | Editable Grid requests unexported Student Tracker choices; expanded navigation requires directory migration. Usability unassessed; five historical local exports are absent |
+| Current regression translation/wiring | 3,329 translated; 2,417 emitted, 278 approximated, 639 ignored/unsupported | The census includes recovered native Header/Card properties and reactive gallery spacing. Composite rendering is explicitly approximate. Translation does not establish runtime behavior |
+| Historical ten-app corpus | Previously 10/10 Bootable; 23,746 formulas | Not reproduced in this workspace; those results did not establish usability |
 | HelpDesk generated-app journeys | HOME → NEW → HOME; dashboard row text, logo URI, pie and legend output pass | All-screen interactions, image decoding/layout in CI, persistence |
 | HelpDesk @14 live browser | Ticket cards, decoded 64×64 logos, pie/bar/legend SVGs, readable fonts/labels, HOME → NEW → HOME | Same-state original comparison, user name/avatar, complete workflow coverage |
 | Chromium: business form | Actual generated client + Code.gs: edit/create, required validation, write failure, delete and page reload pass against a persistent Sheets test double | Real Google authorization/Sheets writes and another user/session |
-| Chromium regression suite | 4/4 journeys pass: business form, charts, HelpDesk, and record scopes/launch parameters; all run generated client and server code | Real Google services, all screens/states/viewports and original visual comparisons |
-| Microsoft business baseline | 6/6 convert and validate; 2/6 clean startup console checks; zero reference errors across all six; 105,336 formulas across 75 screens | All six business workflows remain unverified, including those with error-free loading screens |
+| Chromium regression suite | 43/43 fixtures pass, including modern/legacy Header/Card text and images, keyboard actions, disabled states, persisted row updates and wrapped-cell geometry with zero-column recovery; parameter/user/data-driven StartScreen, Google directory startup reads and source error recovery; bare reactive inputs, native timer captions, SVG literal text and native image fit/fill; native/modern selection defaults, keyboard multi-selection, row-specific resets, dynamic enabled states and labels; reversed geometry dependencies and negative positions across resizes; button icons/layout/accessibility and flexible/scaled gallery sizing; native layout and container dimensions; components and named formulas; checkbox transitions and persisted row updates; Dataverse defaults and reload; nested galleries; Fluent dates; native Google Chat/directory, imported Planner tasks, relationships and saved views. Three intentional failure gates preserve failed verdicts | Real Google services, remaining real-app critical workflows and broader UI usability; HelpDesk is absent here. Original visual comparisons belong to the separate High fidelity grade |
+| Modern Card startup/content | Seven startup/header/reload checks pass on the authored HomeScreen with zero runtime errors: Documents title, decoded source logo, Google-caller initials fallback and header containment at 1440×900. The exported-document-contract check fails | Source MyFiles/file fields are missing. Complete document workflow/UI usability remains unassessed; no records or route to the standalone card are invented. Native Fluent presentation and smaller-window layouts remain unverified |
+| SVG reachable workflow/UI | 41 checks cover five decoded/fitted images, text punctuation/Unicode, slider color boundaries, all ratings, actual painted pixels/animations, timer completion/pause/resume, reload and keyboard/geometry at 1440×900 and 1024×768 | Complete usability remains unassessed: three source inputs lack accessible names; Screen2–Screen5, including custom Environment and offline-host actions, are unreachable from the original UI. Mobile layouts, broader dynamic SVG builders and original visual comparisons remain separate gaps |
+| Expandable Navigation critical workflow/UI | 75/75 checks pass with generated code/server validation and zero runtime errors. Every source destination and Home return, keyboard expansion/collapse, menu geometry, glyphs/names, mapped profile/no-photo fallback, reload and Exit feedback are tested at 1440×900, 1000×700 and 520×700 | Source canvas minimum size causes scrolling in smaller windows. Native Google access and original visual comparison remain unverified; this does not repair the other nine acceptance apps or promote the identity-free soak result |
+| Planner to Google adapter | Eight operations use generated Code.gs and a reserved Sheets task-board store. Chromium lists plans/buckets/tasks, creates and assigns, writes descriptions, selects/updates, reloads and recovers from failed writes. Labels and geometry pass. Missing migration, unknown/unmapped identity, denied membership, invalid dates and oversized records fail explicitly | Native Tasks UI, Planner roles/audit metadata, ordering hints, categories, notifications, aliases/additional operations and complete real-app workflows. Workbook editors bypass API membership checks; live identity and storage access require deployment verification |
+| Office365Users/Microsoft365Users to Google | SearchUser, MyProfileV2, UserProfileV2 and UserPhotoV2 use native Google People with explicit source-ID/account mappings and manifest scopes. Chromium searches, selects profiles/photos, persists assignment and recovers from failures. The real navigation source displays its mapped current-user mail field | Native responses/images are authored fixtures. Live access/photo visibility, unsupported fields, exact search semantics and complete workflows remain unverified. Owner-delegated access is denied |
+| MicrosoftTeams to Google Chat | Four exported operations preserve source team/channel IDs through explicit named-space mappings. Native joined-space checks, deterministic supported HTML-to-Markdown posts, byte limits and API failures execute in generated-server tests. Chromium selectors, labels, posting/reload and error recovery pass. The unchanged Employee Ideas notification scenario passes 31 checks | Explicit native API fixtures, no live messages. Google Cloud/OAuth setup, native rendering, richer HTML, attachments, Teams roles/settings, connector aliases and complete workflows remain open; the hierarchy exists in the converted UI rather than native Chat |
+| Dropdown displayed column | Source Dropdown.Value now selects readable labels in standalone and gallery-row controls while preserving selected source records. A pinpoint runtime check and the Chat Chromium fixture cover both generation paths | Modern ItemDisplayText and full native picker/search behavior remain separate gaps |
+| Formula-created gallery records | Equal unkeyed records from literal/computed tables reuse their controls across reevaluation. Existing object identities are reserved before matching fresh records by typed values; native IDs remain preferred. Chromium retains the selected channel and exact DOM node through edits and posting; runtime tests cover duplicate equal records, ordering and date/text distinctions | Identical unkeyed clones use prior occurrence order; unsupported/cyclic data cannot be matched by value. Broader computed-table and nested-gallery semantics remain unverified |
+| Gallery template dimensions | Static orientation and reactive TemplateSize determine template dimensions before row mounting. Chromium verifies the original loading formula stays 224 × 88, wrapping/selection, responsive 72/84-pixel vertical rows and 48/64-pixel horizontal rows, empty-card heights and retained input nodes/text. The unchanged Milestones settings card is 316 pixels without layout errors | Dynamic orientation/padding/WrapCount, nested galleries, exact native cross-axis sizing and original visual comparison remain gaps |
+| Dataverse ownership | Exported Owner fields default to a migrated Google caller on create; explicit user/team assignments update derived ownership columns while ordinary edits retain ownership. Generated-server tests cover source keys/aliases, two users, team assignment, ambiguous/missing identities and failure without partial writes. Validation checks source/ledger ownership contracts | Ownership is record data; source row security, privileges, cascading assignment, business units, audit defaults and live Google execution remain open |
+| Dataverse state/status | Exported initial states, per-state default reasons and valid pairs execute in generated Code.gs. Custom numeric reasons, zero defaults, read-only flags, keyed upserts, invalid pairs and missing metadata have regression gates; Chromium activation/deactivation/reload passes | Custom transition rules, audit/other column defaults, existing-row backfill and live Dataverse/Google comparison remain open |
+| Gallery AllItems controls | Loaded records include their own current control values. Generated Node and Chromium tests cover distinct bulk edits, sorting, aliases, nested record scopes, awaited writes and reload. Data records remain unchanged and control values omit DOM nodes from JSON | Gallery loading remains eager; nested galleries and full control-object semantics need further work |
+| Milestones populated workflow | Expanded filter probe passes 260 checks with zero runtime errors: onboarding/project/settings creation and reload; two persisted work items with Google assignee and distinct milestone/status links; edit/reopen, search, combined multi-select filters, resets and announcements; keyboard filter actions at three viewports and targeted deletion preserving the other item | Arbitrary completion-status positioning, tenant sequence population, broader task variants, complete app usability, source column clipping, native searchable selectors and original UI comparison remain open |
+| Exported seed data and sheet capacity | All exported rows are retained. Generated-server tests initialize 1,005 rows and 29 fields in static and external tables, append another record, initialize 30 choice columns and retain data on repeated setup. The Sheets double rejects ranges outside its current grid. The rebuilt CLI preserves every source seed count across Milestones' 18 tables | Exported snapshots do not replace tenant data migration. Existing workbooks are not backfilled, and large-workbook quotas/live Google capacity behavior need deployment evidence |
+| Microsoft generated-server initialization | Six exports: setup and reads across 124 tables and 302 choice fields pass in the Sheets test double | Tenant data migration, real Google writes, source defaults, calculations, relationships and permissions |
+| Microsoft business baseline | 6/6 convert and validate; 2/6 pass short startup (Employee Ideas, Inspection) | Migrated identities and Teams/Planner dependencies still fail prerequisites |
+| Microsoft first actions | All three default probes fail. A separate Inspection probe with an authored imported Google task board passes all five checks and has zero runtime errors; it cannot overwrite the default missing-migration failure. Populated Employee Ideas passes 29 checks through mobile submission and reload. Optional voting persists its count but source Concurrent removes the voter link | Complete inspection/task creation, voting ordering, ratings, attachments, real Google persistence, identities and UI parity; partial success never promotes an app to Usable |
 | CI configuration | Existing tests plus required-app/journey gates and new Chromium artifact job | Browser job configured and locally tested, not yet verified in remote CI; local HelpDesk remains optional |
 
 Evidence: `.artifacts/benchmark/benchmark-scorecard.json`,
@@ -165,14 +603,14 @@ with `./pfx2gas browser scripts/assess_microsoft_samples.py`.
 
 | Next priority | Observed blocker and outcome required |
 |---|---|
-| 1. Correct record and formula scopes (R4/R5) | First slice implemented: nested/quoted blank-safe fields, nested `With`, row/global fallback, distinct `ThisItem`/`ThisRecord`, LookUp projection and AddColumns field pairs. Remaining: `As` aliases/disambiguation, single-column table projection/membership, broader conditional/variadic semantics and source workflow coverage. |
-| 2. Preserve initialization and data contracts (R5) — next | `Param` and browser `Language()` implemented. Next wire Timer lifecycle and expose blocking initialization failures; preserve Dataverse solution schemas/choices/lookups and define explicit Google connector adapters. Do not fake connector success or navigate past unexecuted initialization. |
-| 3. Make record editing reliable (R4/R5) | Stabilize gallery DOM and row-scoped inputs/OnChange, selection, reactive defaults and DisplayMode. Demonstrate editing the correct row with no lost focus/edits, then save/reload against the generated server and real Google Sheets. |
+| 1. Correct record and formula scopes (R4/R5) | Implemented: blank-safe fields, nested `With`, row/global fallback, `ThisItem`/`ThisRecord`, LookUp/AddColumns, `As` aliases in functions/galleries, table/global disambiguation, column projection, membership, grouping and multi-branch If/Switch. Remaining: variadic/error-handling and async semantics, source workflow coverage and complete table value semantics. |
+| 2. Preserve initialization and data contracts (R5) — next | `Param`, browser `Language()`, Timer lifecycle and explicit initialization failures are implemented. Native Dataverse schemas, aliases, source keys, choices and common relationships now feed generated storage. Next implement remaining relationship semantics, defaults/calculations, typed date/choice behavior and explicit Google connector adapters. Do not fake connector success or navigate past unexecuted initialization. |
+| 3. Make record editing reliable (R4/R5) | Stable gallery rows, scoped handlers, defaults/DisplayMode, focus retention and correct-row save/reload pass in generated fixtures. Extend to source business apps, nested layouts and real Google Sheets. |
 | 4. Close visible UI differences (R2/R3/R4) | Use those same workflows for text/media/disabled/validation states, chart series/axes and responsive layout. Extend Chromium to source-sized and narrow viewports and compare matching original screenshots. |
 
 Milestones supplies the first project/task lifecycle target; Employee Ideas and
 Inspection verify that fixes generalize. The Microsoft baseline still exits 1
-with four startup failures; the other two are Usable/High fidelity unassessed,
+with three startup failures; first-action failures keep the other three below Usable/High fidelity,
 not passing business apps. None of R1–R5 is fully complete under its original
 acceptance criteria.
 
@@ -198,25 +636,47 @@ acceptance criteria.
   [Param](https://learn.microsoft.com/en-us/power-platform/power-fx/reference/function-param),
   [Apps Script request events](https://developers.google.com/apps-script/guides/web).
 
-The source ledger contains **28 OnTimerEnd handlers, none wired** (3 translated
-but ignored, 25 unsupported). Completing timers requires translating their
-actual initialization/focus formulas as well as scheduling them. Immediate
-startup errors are only the first reachable failures, not the full dependency
-list:
+Timer lifecycle events now have deterministic runtime wiring. Their source
+initialization also needs complete data, connector and remaining formula
+support. Block comments, nested action chains and capitalized logical operators
+previously prevented entire startup formulas from being emitted; those cases
+now translate. Immediate errors are only the first reachable failures, not the
+full dependency list:
 
-| Microsoft export | Current startup blocker | Additional source dependencies to preserve |
+| Microsoft export | Latest observed blocker | Additional source dependencies to preserve |
 |---|---|---|
-| Employee Ideas | No console errors; still on Loading Screen | Unsupported loading timer; Teams channel posting and Dataverse campaign/idea data |
-| Employee Ideas Manager | `MicrosoftTeams.GetAllTeams` | Loading/focus timers; team/channel lookup and posting |
-| Inspection | No console errors; still on Loading Screen | Ignored loading/reset timers; Planner plans/tasks/buckets and task creation; Office365 user/profile/photo; Teams posting |
-| Inspection Manager | Teams lookup, `Planner.ListMyPlansV2`, `IsMatch` | Loading/focus timers; plan/bucket/task/group-plan lookups and settings validation |
-| Milestones | `TimeValue` | Loading/focus timers; Office365 user/profile/photo and relational project/task data |
-| Review Inspections | `Planner.ListMyPlansV2` | Loading/focus timers and inspection data |
+| Employee Ideas | Default first action stops on an unmigrated current user. Populated data passes 29 checks; native Chat fixture variant passes 31. Voting membership still fails on the source's opposing relationship writes | Ratings, attachments, complete manager workflows, live target services and original visual comparison |
+| Employee Ideas Manager | GetAllTeams requires explicit Chat migration and native authorization | Complete team/channel setup, campaign editing and notifications with migrated data |
+| Inspection | Leaves Landing for Welcome/Items; all five first-action checks pass with an explicitly imported Sheets task board. Unmigrated Planner fails | Local drafts, shared tasks and native Google directory assignment pass in fixtures; full real inspection/task submission, migrated identities and Teams-to-Chat posting remain |
+| Inspection Manager | Current-user identity and required Chat/Planner migrations | Plan/bucket/task/group-plan setup and complete inspection management; URL validation formula has executed evidence |
+| Milestones | Default initialization needs user/directory migration. With migrated users, 77 checks pass through project/work-item lifecycle, assignment/relationships, complete reference data and label dimensions | Status/category/priority setup, broader task variants, complete workflows and source UI comparison |
+| Review Inspections | Current-user identity; Planner migration is also required | Complete review workflow, inspection data, task associations and live authorization |
 
-Next acceptance evidence must demonstrate leaving the loading state through
-the source-defined flow, with real mapped data, then completing a business
-journey. Follow that immediately with editable-gallery focus/selection tests
-and original-versus-converted UI comparisons in the same data state.
+Typed toggle values, source canvas dimensions, OnHidden initialization and
+editable-gallery focus/selection now have regression evidence. Extend the
+implemented Google connector subsets through complete data-backed journeys,
+resolve remaining source geometry dependencies, and compare original/converted
+UI in the same data state. Missing migrations and failed workflows must retain
+failed verdicts; do not bypass initialization or substitute empty success.
+
+The decoder now retains `NativeCDSDataSourceInfo.TableDefinition` attributes,
+keys, choices, relationships, views and logical/display-name mappings in
+`data-contract.json`. OptionSetInfo constants initialize typed client values;
+services remain explicit adapter dependencies. Saved views now accept companion
+solution FetchXML for a bounded deterministic subset. Other relative dates, joins,
+aggregates, paging/limits and localized choice-label ordering fail explicitly;
+numeric choice ordering requires exported `useraworderby="true"`. Tenant text
+collation and implicit primary-key ordering are ledgered approximations.
+Missing metadata cannot use LLM fallback. Lookup records are
+stored snapshots, not live relationships. Source defaults/calculated fields,
+permissions, implicit localized choice-to-text conversion and complete typed
+date comparisons remain unimplemented or unverified. These are converter gaps,
+not missing export evidence. Source inspection artifacts are under `.artifacts/`.
+Inspection also uses legacy bare `Minutes` in DateDiff. Contextual bare-unit
+resolution and DateDiff's whole-unit boundaries need follow-up; the current
+duration helper still returns fractions for subday units and has incomplete
+millisecond/quarter semantics. The new explicit TimeUnit enum mapping does not
+establish complete date-arithmetic parity.
 
 ### R1 — P0: make regression evidence enforceable and reproducible
 
@@ -327,20 +787,20 @@ Primary files: `src/pfx2gas/legacy.py`, `src/pfx2gas/synth/client.py`,
 
 ### R4 — P0: gallery input, row context and responsive behavior
 
-The current gallery path rebuilds all row DOM on each binding update, uses
-global `val(name)` lookup for row control references, and emits child OnSelect
-handlers but not row OnChange/input bindings. Row properties cover text and a
-limited style set; images, selectors, input defaults and disabled states need
-equivalent row support. These are confirmed implementation limits; wrong-row
-reads, focus loss and lost edits are risks to reproduce with multi-row tests.
+**Implemented, partial:** rows with stable IDs retain DOM identity, edits,
+focus and selection through unrelated updates and sorting. Row references and
+OnChange/OnSelect handlers use lexical row context across awaited saves.
+Defaults, selectors, images, disabled states and Reset are wired per row.
+Select(Parent) invokes the source handler once after the child action. Generated
+runtime and Chromium fixtures verify editing only the second persisted record,
+reset, sort, selection and reload. ID-less replacement records, nested galleries,
+full reactive row styling and broad responsive layout remain unverified.
 
-Implement stable row identity and row-scoped control lookup, child input/change
-events, selected-record behavior, and bindings for row media/defaults/disabled
-states. Test async child actions and `Select(Parent)` with a real parent
-handler for correct ordering and exactly-once execution. Revisit horizontal
+Extend this evidence to real business apps and concurrent row actions. Revisit horizontal
 galleries, WrapCount/template width and padding with browser geometry evidence.
-Add viewport resize invalidation and test AutoHeight/dependent positions in
-nested containers; current runtime has no resize listener. Preserve the source
+Viewport resize invalidation, manual nested-container positioning and native
+form/card grids now have browser gates. Extend these to AutoHeight,
+forward-dependent positions, nested galleries and more real workflows. Preserve the source
 layout mode: a fixed canvas may scale or scroll, while a responsive source must
 reflow according to its formulas.
 
@@ -448,9 +908,9 @@ Unassessed remains an explicit outcome.
   them. Report connector-specific losses.
 - Add filtering/pagination, concurrency/version checks, batching and retry UX;
   whole-tab reads and collections are not delegation or persistence guarantees.
-- Run LLM equivalence review and gap triage at corpus scale. Strengthen opt-in
-  single-formula fallback with symbol allowlists, typed context, isolated
-  execution tests, caching and provenance.
+- Run LLM equivalence review and gap triage at corpus scale. Extend the new
+  single-expression/handler boundary, helper checks and logged provenance with
+  full symbol/type analysis, isolated behavioral tests and caching.
 - Extend active/large media, themes, transitions and less common controls by
   measured need. Power Automate migration requires a separately designed target
   and remains an explicit unsupported dependency.
@@ -459,9 +919,10 @@ Unassessed remains an explicit outcome.
 
 ## Architecture decision: expand LLM use, but not whole-app code generation
 
-The LLM should do more work, but it should not become the generator. Formula
-translation is already 23,724 / 23,746 (99.9%); the larger gap is that only
-15,300 formulas (64.4%) are wired into a runtime behavior or visual property.
+The LLM should do more work, but it should not become the generator. In the
+historical ten-app assessment, formula translation reached 23,724 / 23,746
+(99.9%), while only 15,300 formulas (64.4%) were wired into runtime behavior or
+visual properties.
 Asking a model to translate the remaining 22 formulas cannot solve missing
 forms, controls, connector semantics, media, responsive layout, or component
 behavior. Whole-app model-generated JavaScript would also make conversions
@@ -471,7 +932,7 @@ Use a deterministic-core / LLM-assurance design:
 
 | LLM role | May affect generated app? | Required gate |
 |---|---:|---|
-| Translate one otherwise unsupported formula | Yes, opt-in and ledgered `partial` | syntax check today; add symbol allowlist, context/type checks, isolated runtime test, and generated-app boot |
+| Translate one otherwise unsupported formula | Yes, opt-in and ledgered `partial` | Node syntax + AST boundary/helper checks and strict response schema; full symbol/type checks, isolated runtime tests and generated-app boot remain needed |
 | Review original Power Fx vs emitted JavaScript | No; report only | structured verdict with evidence and a concrete test suggestion |
 | Classify unsupported controls/properties and cluster corpus gaps | No; engineering artifact only | aggregate against the machine-readable fidelity ledger |
 | Compare original and converted screenshots/interactions | No; QA report only | deterministic screenshots, DOM/style facts, and reproducible steps accompany every finding |

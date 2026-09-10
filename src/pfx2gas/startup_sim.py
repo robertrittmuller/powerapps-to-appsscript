@@ -19,15 +19,53 @@ const consoleErrors = [];
 function makeEl(tag, attrs) {
   return {
     tag, tagName: String(tag).toUpperCase(), attrs, style: {}, children: [], listeners: {},
-    textContent: '', innerHTML: '', value: '', selectedOptions: [],
+    get textContent() { return (this.__text || '') + this.children.map(child => child.textContent || '').join(''); },
+    set textContent(value) {
+      this.__text = value == null ? '' : String(value);
+      this.children.forEach(child => {child.parentNode = null;}); this.children = [];
+    },
+    innerHTML: '', value: '', selectedOptions: [],
+    get attributes() { return Object.keys(attrs).map(name=>({name,value:attrs[name]})); },
     getAttribute(k) { return attrs[k] !== undefined ? attrs[k] : null; },
+    hasAttribute(k) { return attrs[k] !== undefined; },
     setAttribute(k, v) { attrs[k] = String(v); },
     removeAttribute(k) { delete attrs[k]; },
     addEventListener(ev, fn) { (this.listeners[ev] = this.listeners[ev] || []).push(fn); },
     click() { (this.listeners.click || []).forEach(fn => fn()); },
+    input() { (this.listeners.input || []).forEach(fn => fn()); },
     change() { (this.listeners.change || []).forEach(fn => fn()); },
-    appendChild(c) { this.children.push(c); },
-    querySelector() { return null; },
+    appendChild(c) { this.insertBefore(c, null); },
+    insertBefore(c, before) {
+      if (c.parentNode) c.remove();
+      const index = before ? this.children.indexOf(before) : this.children.length;
+      this.children.splice(index, 0, c); c.parentNode = this;
+    },
+    remove() {
+      if (this.parentNode) {
+        const children = this.parentNode.children;
+        children.splice(children.indexOf(this), 1); this.parentNode = null;
+      }
+    },
+    replaceWith(replacement) {
+      if (this.parentNode) {
+        this.parentNode.insertBefore(replacement, this); this.remove();
+      }
+      Object.keys(elements).forEach(key=>{if (elements[key] === this) elements[key] = replacement;});
+      if (this.__rowControls) {
+        replacement.__rowControls = this.__rowControls;
+        this.__rowControls[attrs['data-control']] = replacement;
+      }
+    },
+    querySelector(selector) {
+      const part = selector.match(/^\[data-fx-part="([^"]+)"\]$/);
+      if (!part) return null;
+      for (const child of this.children) {
+        if (child.getAttribute('data-fx-part') === part[1]) return child;
+        const nested = child.querySelector(selector);
+        if (nested) return nested;
+      }
+      return null;
+    },
     querySelectorAll(sel) {
       if (sel === '[data-screen]') return Object.values(elements).filter(e => e.attrs['data-screen']);
       if (sel.startsWith('[data-control=')) {
@@ -54,17 +92,45 @@ global.document = {
     if (sel === '[data-screen]') return Object.values(elements).filter(e => e.attrs['data-screen']);
     return [];
   },
-  createElement: (t) => makeEl(t, {}),
+  createElement(t) {
+    const el = makeEl(t, {});
+    Object.defineProperty(el, 'innerHTML', {
+      get() { return this.__html || ''; },
+      set(value) {
+        this.__html = String(value || '');
+        this.firstElementChild = this.__html.includes('class="fx-row"') ? makeRow(this.__html) : null;
+      },
+    });
+    return el;
+  },
   body: makeEl('body', {}),
-  getElementById: () => null,
+  getElementById: id => id === 'fx-storage-context'
+    ? {textContent: JSON.stringify({appId: 'simulated-script', user: 'simulated-user'})} : null,
 };
 global.window = global;
+// Functional browser-storage test double; a new simulator process starts with
+// a clean profile. Cross-page reload persistence is covered by Chromium.
+const savedCache = new Map();
+global.localStorage = {
+  get length() {return savedCache.size;}, key: i => [...savedCache.keys()][i] ?? null,
+  getItem: key => savedCache.has(key) ? savedCache.get(key) : null,
+  setItem: (key, value) => savedCache.set(key, String(value)),
+  removeItem: key => savedCache.delete(key),
+};
 global.console.error = (...a) => { consoleErrors.push(a.map(String).join(' ').slice(0, 240)); };
 global.console.warn = () => {};
 // Stable randomness makes startup evidence repeatable. Apps still exercise the
 // same Rand/RandBetween code path, but select the first eligible sample row.
 Math.random = () => 0;
 const serverData = __SERVER_DATA__;
+// Reuse the generated field/identity validators for the keyed Patch shim.
+// Sheets locking and writes are exercised by the separate generated-server gate.
+const serverModel = require('node:vm').createContext({Date,console});
+require('node:vm').runInContext(__SERVER_CODE__, serverModel);
+// A freshly initialized workbook has no migrated join rows. Mutation and
+// persistent relationship snapshots are tested against generated Code.gs.
+serverModel.listRelationshipLinks_ = () => [];
+serverModel.listRows = ds => serverData[ds] || [];
 let handlers = {};
 const runner = new Proxy({}, {
   get(_t, prop) {
@@ -72,16 +138,45 @@ const runner = new Proxy({}, {
     if (prop === 'withFailureHandler') return (cb) => { handlers.err = cb; return runner; };
     return (...args) => {
       const ok = handlers.ok;
+      const fail = handlers.err;
       handlers = {};
       setTimeout(() => {
+        try {
         if (String(prop) === 'whoami') {
           if (ok) ok({ email: '', fullName: '', pictureUrl: '' });
+          return;
+        }
+        if (String(prop) === 'connector') {
+          throw new Error('Connector migration is not configured in the startup simulator; use generated-server browser evidence');
+        }
+        if (String(prop) === 'apiChoices') {
+          if (ok) ok(JSON.parse(JSON.stringify(serverModel.apiChoices(args[0], args[1]))));
           return;
         }
         if (String(prop) === 'api') {
           const ds = args[0], op = args[1], payload = args[2] || {};
           const rows = serverData[ds] || (serverData[ds] = []);
           if (op === 'list') { if (ok) ok(JSON.parse(JSON.stringify(rows))); return; }
+          if (op === 'links') { if (ok) ok([]); return; }
+          if (op === 'relationshipSnapshot') { if (ok) ok(JSON.parse(JSON.stringify(serverModel.relationshipSnapshot_(ds)))); return; }
+          if (op === 'patchRecord') {
+            serverModel.assertDataSource(ds);
+            serverModel.assertRecord(payload.record, 'patch record');
+            const contract = serverModel.DATA_CONTRACTS[ds];
+            if (!contract.sourcePrimaryKey) throw new Error('two-argument Patch requires exported source primary-key metadata: ' + ds);
+            const record = serverModel.normalizeRecord(ds,payload.record);
+            const identity = serverModel.recordIdentity(ds,record);
+            if (identity === null) throw new Error('two-argument Patch requires an explicit source primary key: ' + ds);
+            const matches = rows.filter(row=>String(serverModel.recordIdentity(ds,row)) === String(identity));
+            if (matches.length > 1) throw new Error('ambiguous source primary key in ' + ds);
+            const headers = Object.keys(contract.fields);
+            const values = Object.assign({},matches[0] || {},record);
+            const saved = serverModel.recordFromCells(ds,headers,
+              headers.map(key=>serverModel.encodeCell(ds,key,values[key])));
+            if (matches.length) rows[rows.indexOf(matches[0])] = saved;
+            else rows.push(saved);
+            if (ok) ok(JSON.parse(JSON.stringify(saved))); return;
+          }
           if (op === 'create') {
             const saved = Object.assign({}, payload.record || {});
             if (rows.some(row => Object.prototype.hasOwnProperty.call(row, 'id'))
@@ -110,8 +205,10 @@ const runner = new Proxy({}, {
             }
             if (ok) ok({ok: true}); return;
           }
+          throw new Error('unknown simulated api operation: ' + op);
         }
-        if (ok) ok([]);
+        throw new Error('unknown simulated server endpoint: ' + String(prop));
+        } catch (error) { if (fail) fail(error); else console.error('simulated server error',error); }
       }, 0);
     };
   },
@@ -125,12 +222,17 @@ function decodeAttr(value) {
 }
 function parseAttrs(source) {
   const attrs = {};
-  const attrRe = /([:\w-]+)="([^"]*)"/g;
+  const attrRe = /([:\w-]+)(?:="([^"]*)")?/g;
   let match;
-  while ((match = attrRe.exec(source)) !== null) attrs[match[1]] = decodeAttr(match[2]);
+  while ((match = attrRe.exec(source)) !== null) attrs[match[1]] = decodeAttr(match[2] || '');
   return attrs;
 }
 function hydrateInlineStyle(el) {
+  el.type = el.attrs.type || '';
+  if (el.tagName === 'INPUT') {
+    el.value = el.attrs.value === undefined ? (el.type === 'checkbox' ? 'on' : '') : el.attrs.value;
+    el.checked = Object.prototype.hasOwnProperty.call(el.attrs, 'checked');
+  }
   String(el.attrs.style || '').split(';').forEach(function (declaration) {
     const split = declaration.indexOf(':');
     if (split < 0) return;
@@ -152,7 +254,79 @@ while ((cm = ctrlRe.exec(screensSrc)) !== null) {
   if (!seen.has(cm[3])) {
     seen.add(cm[3]);
     elements['ctrl:' + cm[3]] = hydrateInlineStyle(makeEl(cm[1], parseAttrs(cm[2])));
+    if (elements['ctrl:' + cm[3]].attrs['data-fx-composite'])
+      hydrateComposite(elements['ctrl:' + cm[3]],screensSrc,ctrlRe.lastIndex);
   }
+}
+
+function hydrateComposite(host, source, offset) {
+  // Hydrate the actual generated semantic subtree; missing slots remain errors.
+  const tags=/<\/?([a-z]+)([^>]*)>/g, stack=[host];
+  tags.lastIndex=offset;
+  let token;
+  while ((token=tags.exec(source)) && stack.length) {
+    if (token[0].startsWith('</')) {stack.pop();continue;}
+    const child=makeEl(token[1],parseAttrs(token[2]));
+    stack[stack.length-1].appendChild(child);
+    if (!['img','input','br','hr','meta','link'].includes(token[1])) stack.push(child);
+  }
+  if (stack.length) throw new Error('Unclosed generated composite control');
+}
+
+function galleryTemplate(source, offset) {
+  const start=source.indexOf('<template>',offset);
+  if (start < 0) return null;
+  const tags=/<\/?template>/g;
+  tags.lastIndex=start;
+  let depth=0,tag;
+  while ((tag=tags.exec(source))) {
+    depth+=tag[0]==='<template>'?1:-1;
+    if (depth===0) return {innerHTML:source.slice(start+10,tag.index).trim(),end:tags.lastIndex};
+  }
+  throw new Error('Unclosed generated gallery template');
+}
+function hydrateGallery(host, template) {
+  const rowsEl=makeEl('div',{class:'fx-rows'});
+  host.__fxRows=rowsEl;
+  host.querySelector=selector=>selector===':scope > template'?template
+    :selector===':scope > .fx-rows'?rowsEl:null;
+  return rowsEl;
+}
+
+function makeRow(markup) {
+  const row = makeEl('div', { class: 'fx-row' });
+  row.__controls = {};
+  const matcher = /<([a-z]+)([^>]*data-control="([^"]+)"[^>]*)>/g;
+  let match;
+  while ((match = matcher.exec(markup)) !== null) {
+    const child = hydrateInlineStyle(makeEl(match[1], parseAttrs(match[2])));
+    child.type = child.attrs.type || '';
+    row.__controls[match[3]] = child;
+    child.__rowControls = row.__controls;
+    if (child.attrs['data-fx-composite']) hydrateComposite(child,markup,matcher.lastIndex);
+    if ((child.attrs.class || '').split(' ').includes('fx-gallery')) {
+      const template=galleryTemplate(markup,matcher.lastIndex);
+      if (template) {hydrateGallery(child,template);matcher.lastIndex=template.end;}
+    }
+  }
+  row.querySelector = function (selector) {
+    const match = selector.match(/^\[data-control="([^"]+)"\]/);
+    if (!match) return null;
+    if (this.__controls[match[1]]) return this.__controls[match[1]];
+    for (const host of Object.values(this.__controls)) {
+      for (const childRow of host.__fxRows?.children || []) {
+        const found=childRow.querySelector(selector);
+        if (found) return found;
+      }
+    }
+    return null;
+  };
+  row.querySelectorAll = function (selector) {
+    if (selector === 'input, textarea, select') return Object.values(this.__controls)
+      .filter(el => ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName));
+    return [];
+  };
+  return row;
 }
 
 // Give gallery controls enough DOM behavior to execute their generated row
@@ -165,41 +339,9 @@ while ((gm = galleryRe.exec(screensSrc)) !== null) {
   const name = gm[1];
   const host = elements['ctrl:' + name];
   if (!host || galleryRows[name]) continue;
-  const templateStart = screensSrc.indexOf('<template>', galleryRe.lastIndex);
-  const templateEnd = screensSrc.indexOf('</template>', templateStart);
-  if (templateStart < 0 || templateEnd < 0) continue;
-  const rowMarkup = screensSrc.slice(templateStart + '<template>'.length, templateEnd).trim();
-  const template = { innerHTML: rowMarkup };
-  const rowsEl = makeEl('div', { class: 'fx-rows' });
-  Object.defineProperty(rowsEl, 'innerHTML', {
-    get() { return this.__html || ''; },
-    set(value) {
-      this.__html = String(value || '');
-      this.children = [];
-      if (!rowMarkup) return;
-      let cursor = 0;
-      while ((cursor = this.__html.indexOf(rowMarkup, cursor)) >= 0) {
-        const row = makeEl('div', { class: 'fx-row' });
-        row.__controls = {};
-        const rowControlRe = /<([a-z]+)([^>]*data-control="([^"]+)"[^>]*)>/g;
-        let rowMatch;
-        while ((rowMatch = rowControlRe.exec(rowMarkup)) !== null) {
-          row.__controls[rowMatch[3]] = hydrateInlineStyle(
-            makeEl(rowMatch[1], parseAttrs(rowMatch[2]))
-          );
-        }
-        row.querySelector = function (selector) {
-          if (!selector.startsWith('[data-control=')) return null;
-          const hit = selector.match(/"([^"]+)"/);
-          return hit ? this.__controls[hit[1]] || null : null;
-        };
-        this.children.push(row);
-        cursor += rowMarkup.length;
-      }
-    },
-  });
-  host.querySelector = (selector) => selector === 'template' ? template
-    : selector === '.fx-rows' ? rowsEl : null;
+  const template=galleryTemplate(screensSrc,galleryRe.lastIndex);
+  if (!template) continue;
+  const rowsEl=hydrateGallery(host,template);
   host.attrs = Object.assign(host.attrs, parseAttrs(gm[2]));
   host.__fxRows = rowsEl;
   galleryRows[name] = rowsEl;
@@ -225,20 +367,29 @@ async function runJourneys(journeys) {
     const errorsBefore = consoleErrors.length;
     try {
       for (const step of journey.steps || []) {
-        if (step.action === 'click' || step.action === 'change') {
-          const el = elements['ctrl:' + step.control];
+        const target = step.gallery
+          ? ((galleryRows[step.gallery] || {}).children || [])[Number(step.row || 0)]?.querySelector('[data-control="'+step.control+'"]')
+          : elements['ctrl:' + step.control];
+        if (step.action === 'wait') {
+          const milliseconds = Number(step.milliseconds);
+          if (!Number.isFinite(milliseconds) || milliseconds < 0 || milliseconds > 10000)
+            throw new Error('journey wait must be between 0 and 10000 ms');
+          await pause(milliseconds);
+        } else if (step.action === 'click' || step.action === 'change') {
+          const el = target;
           if (!el) throw new Error('control not found: ' + step.control);
           el[step.action]();
           await pause(50);
         } else if (step.action === 'setValue') {
-          const el = elements['ctrl:' + step.control];
+          const el = target;
           if (!el) throw new Error('control not found: ' + step.control);
           if (typeof step.value === 'boolean') el.checked = step.value;
           else el.value = step.value == null ? '' : String(step.value);
+          if (typeof step.value !== 'boolean') el.input();
           el.change();
           await pause(10);
         } else if (step.action === 'expectValue') {
-          const el = elements['ctrl:' + step.control];
+          const el = target;
           const actual = el ? (typeof step.equals === 'boolean' ? !!el.checked : String(el.value)) : null;
           const expected = typeof step.equals === 'boolean' ? step.equals : String(step.equals);
           if (actual !== expected) {
@@ -251,7 +402,7 @@ async function runJourneys(journeys) {
             throw new Error('expected screen ' + step.screen + ', got ' + JSON.stringify(actual));
           }
         } else if (step.action === 'expectText') {
-          const el = elements['ctrl:' + step.control];
+          const el = target;
           const actual = el ? String(el.textContent) : null;
           if (actual !== String(step.equals)) {
             throw new Error('expected ' + step.control + ' text ' + JSON.stringify(step.equals)
@@ -371,19 +522,32 @@ def _seeded_server_data(out: Path) -> dict[str, list[dict]]:
     if not match:
         return {}
     specs = json.loads(match.group(1))
+    match = re.search(r"\bvar DATA_CONTRACTS = (.*?);\n", (out / "Code.gs").read_text())
+    contracts = json.loads(match.group(1)) if match else {}
     seeded: dict[str, list[dict]] = {}
     for spec in specs:
         headers = [field[0] for field in spec.get("fields", [])]
-        seeded[spec["name"]] = [
-            {
-                header: row[index] if index < len(row) else ""
-                for index, header in enumerate(headers)
-            }
-            for row in spec.get("rows", [])
-        ]
+        schema = contracts.get(spec["name"], {})
+        fields = schema.get("fields", {})
+        seeded[spec["name"]] = []
+        for row in spec.get("rows", []):
+            blank = None if schema.get("dataverse") else ""
+            values = {}
+            for index, header in enumerate(headers):
+                aliases = fields.get(header, {}).get("aliases", [])
+                if isinstance(row, dict):
+                    value = next((row[key] for key in [header, *aliases] if key in row), blank)
+                else:
+                    value = row[index] if index < len(row) else blank
+                values[header] = value
+            seeded[spec["name"]].append(values)
         for index, row in enumerate(seeded[spec["name"]], start=1):
-            if "id" in row and row["id"] in {"", None}:
-                row["id"] = f"sim-seeded-{index}"
+            primary = schema.get("primaryKey", "id")
+            if primary in row and row[primary] in {"", None}:
+                row[primary] = f"sim-seeded-{index}"
+            for header in headers:
+                for alias in fields.get(header, {}).get("aliases", []):
+                    row[alias] = row[header]
     return seeded
 
 
@@ -408,6 +572,7 @@ def simulate_project(
            .replace("__RT__", json.dumps(_script_body(out / "gas-runtime.js.html")))
            .replace("__APP__", json.dumps(_script_body(out / "App.js.html")))
            .replace("__SERVER_DATA__", json.dumps(_seeded_server_data(out)))
+           .replace("__SERVER_CODE__", json.dumps((out / 'Code.gs').read_text()))
            .replace("__JOURNEYS__", json.dumps(journeys or [])))
     sim_path = Path(tempfile.mkdtemp()) / "startup-sim.js"
     sim_path.write_text(sim)

@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import re
 import zipfile
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 # Legacy Template.Name -> canonical control type used by the pa.yaml pipeline.
@@ -57,6 +58,7 @@ TEMPLATE_ALIASES = {
     "slidercontrol": "Slider",
     "badge": "Label",
     "header": "Header",
+    "moderncard": "ModernCard",
     "chartcontrol": "Chart",
     "piechart": "PieChart",
     "barchart": "BarChart",
@@ -66,6 +68,7 @@ TEMPLATE_ALIASES = {
     "infobutton": "InfoButton",
     "typeddatacard": "DataCard",
     "datacard": "DataCard",
+    "fluidgrid": "FluidGrid",
     "datatable": "DataTable",
     "datatablecolumn": "DataCard",
     "dropdowndatafield": "DataCard",
@@ -100,7 +103,7 @@ def _normalize_template_for(node: dict) -> str:
         props = _rules_to_properties(node.get("Rules") or [])
         if _TEXT_INPUT_PROPS & props.keys():
             mode = props.get("Mode", "")
-            return "TextArea" if "MultiLine" in mode else "TextInput"
+            return "TextArea" if mode.removeprefix('=').strip() == "TextMode.MultiLine" else "TextInput"
     return base
 
 
@@ -184,11 +187,38 @@ def _component_definitions(zf: zipfile.ZipFile, names: list[str]) -> dict[str, d
     return definitions
 
 
+def _primary_outputs(zf: zipfile.ZipFile, names: list[str]) -> dict[tuple[str, str], str]:
+    """Read each exact exported template version's primary output contract."""
+    outputs = {}
+    for name in names:
+        if name.lower().replace("\\", "/") != "references/templates.json":
+            continue
+        doc = json.loads(zf.read(name))
+        for template in doc.get("UsedTemplates", []):
+            raw = template.get("Template", "")
+            if not raw or "<!DOCTYPE" in raw.upper() or "<!ENTITY" in raw.upper():
+                continue
+            try:
+                root = ET.fromstring(raw)
+            except ET.ParseError:
+                continue
+            props = {node.get("name") for node in root.iter()
+                     if any(key.lower() == "isprimaryoutputproperty" and value.lower() == "true"
+                            for key, value in node.attrib.items())}
+            props.discard(None)
+            # Conflicting template declarations require review; never guess
+            # which of several outputs is the source control's default.
+            if len(props) == 1:
+                outputs[(template.get("Name", ""), template.get("Version", ""))] = props.pop()
+    return outputs
+
+
 def _control_to_yaml(
     node: dict,
     component_defs: dict[str, dict] | None = None,
     names: dict[str, str] | None = None,
     parent_name: str | None = None,
+    primary_outputs: dict[tuple[str, str], str] | None = None,
 ) -> dict:
     """Legacy control node -> pa.yaml-style control mapping."""
     template = node.get("Template") if isinstance(node.get("Template"), dict) else {}
@@ -220,7 +250,7 @@ def _control_to_yaml(
         if children:
             out["Children"] = [
                 {name_map.get(str(c.get("Name") or f"Control{i}"), str(c.get("Name") or f"Control{i}")):
-                 _control_to_yaml(c, component_defs, name_map, instance_name)}
+                 _control_to_yaml(c, component_defs, name_map, instance_name, primary_outputs)}
                 for i, c in enumerate(children)
             ]
         return out
@@ -236,6 +266,9 @@ def _control_to_yaml(
         "Control": _normalize_template_for(node),
         "Properties": _rules_to_properties(node.get("Rules"), formula_names),
     }
+    primary = (primary_outputs or {}).get((template_name, template.get("Version", "")))
+    if primary:
+        out["PrimaryOutput"] = primary
     variant = node.get("VariantName")
     if variant:
         out["Variant"] = variant
@@ -243,7 +276,7 @@ def _control_to_yaml(
     if children:
         out["Children"] = [{(names or {}).get(str(c.get("Name", f"Control{i}")),
                                              str(c.get("Name", f"Control{i}"))):
-                            _control_to_yaml(c, component_defs, names, rendered_name)}
+                            _control_to_yaml(c, component_defs, names, rendered_name, primary_outputs)}
                            for i, c in enumerate(children)]
     return out
 
@@ -256,6 +289,11 @@ def _data_sources_from(zf: zipfile.ZipFile, names: list[str]) -> list[dict]:
             break
     if raw is None:
         return []
+    return decode_reference_sources(raw)
+
+
+def decode_reference_sources(raw: str | bytes) -> list[dict]:
+    """The exported References/DataSources contract is shared by both layouts."""
     try:
         data = json.loads(raw)
     except json.JSONDecodeError:
@@ -283,10 +321,9 @@ def _data_sources_from(zf: zipfile.ZipFile, names: list[str]) -> list[dict]:
             continue
         # A Power Apps collection is client-side state, not an external table.
         is_collection = ds.get("Type") == "CollectionDataSourceInfo"
-        entry: dict = {"Name": ds["Name"],
-                       "Type": ds.get("Type", "LegacyDataSource"),
-                       "DataSourceInfo": ds.get("DataSourceInfo", ""),
-                       "IsCollection": is_collection}
+        # Keep the exported contract for parse(), including nested Dataverse
+        # definitions and option-set mappings. Only sample rows are normalized.
+        entry: dict = dict(ds, IsCollection=is_collection)
         if not is_collection:
             entry["Fields"] = parse_schema(ds.get("Schema"))
             sample = ds.get("Data")
@@ -326,6 +363,13 @@ def convert_legacy_msapp(msapp_path: str | Path) -> dict:
         screens: dict[str, dict] = {}
         screen_index: list[tuple[int, str]] = []
         component_defs = _component_definitions(zf, names)
+        primary_outputs = _primary_outputs(zf, names)
+        from .template_defaults import selection_defaults, restore_native_selection
+        selection=selection_defaults({name:zf.read(name).decode('utf-8-sig') for name in names
+                                      if name.lower().replace('\\','/')=='references/templates.json'})
+        recovered_selection=[]
+        for definition in component_defs.values():
+            restore_native_selection(definition['root'],selection,recovered_selection,'component',definition['name'])
         for n in control_files:
             try:
                 doc = json.loads(zf.read(n))
@@ -336,12 +380,13 @@ def convert_legacy_msapp(msapp_path: str | Path) -> dict:
                 continue
             template = str(top.get("Template", {}).get("Name", "")).lower()
             name = str(top.get("Name", "Screen"))
+            restore_native_selection(top,selection,recovered_selection,'screen',name)
             if template in {"appinfo", "app"}:
                 props = _rules_to_properties(top.get("Rules"))
                 if props:
                     app_yaml = {"App": {"Control": "AppHost", "Properties": props}}
             elif template == "screen":
-                screens[name] = {"Screens": {name: _control_to_yaml(top, component_defs)}}
+                screens[name] = {"Screens": {name: _control_to_yaml(top, component_defs, primary_outputs=primary_outputs)}}
                 idx = top.get("Index")
                 order = int(idx) if isinstance(idx, (int, float)) else len(screen_index)
                 screen_index.append((order, name))
@@ -359,4 +404,5 @@ def convert_legacy_msapp(msapp_path: str | Path) -> dict:
         "data_sources": data_sources,
         "screen_order": screen_order,
         "warnings": ["legacy binary-JSON .msapp converted via legacy adapter"],
+        "source_metadata": {"nativeSelectionDefaults":recovered_selection} if recovered_selection else {},
     }

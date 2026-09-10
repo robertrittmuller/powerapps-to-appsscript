@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import json
 import hashlib
+import re
+from datetime import datetime
 from pathlib import Path
 import subprocess
 import sys
@@ -114,6 +116,10 @@ def check_scopes(page, backend):
     expect(control(page, "ScopeTotal")).to_have_text("12")
     expect(control(page, "ScopeGallery").locator('.fx-row')).to_have_count(2)
     expect(control(page, "ScopeGallery").locator('[data-control="ScopeRow"]')).to_have_text(["7", "10"])
+    expect(control(page, "GroupedScopeTotal")).to_have_text("low:2,high:13")
+    control(page, "RemoveScopeRows").click()
+    expect(control(page, "ScopeGallery").locator('[data-control="ScopeRow"]')).to_have_text(["10"])
+    expect(control(page, "GroupedScopeTotal")).to_have_text("low:2,high:8")
     page.wait_for_function("document.querySelector('[data-control=ScopeImage]').naturalWidth === 32")
     assert "fill='blue'" in control(page, "ScopeImage").get_attribute("src")
     control(page, "ClearScopeImage").click()
@@ -140,10 +146,304 @@ def check_scopes(page, backend):
     page.goto("https://converted.test/?recordId=42")
     expect(control(page, "LaunchValue")).to_have_text("42")
     assert page.evaluate("FXRuntime.param('recordId') === '42' && FXRuntime.param('missing') === null")
+    control(page,'ConcurrentSave').click()
+    expect(control(page,'ConcurrentStatus')).to_have_text('complete')
+    rows = backend({'fn':'api','args':['Contacts','list',{}]})['result']
+    assert [(row['first_name'],row['last_name']) for row in rows] == [('Concurrent','Finished')], rows
+    control(page,'ConcurrentFailure').click()
+    expect(control(page,'ConcurrentStatus')).to_have_text('recovered')
+    assert page.evaluate('state.afterConcurrent === true && state.leftDone === false')
+    rows = backend({'fn':'api','args':['Contacts','list',{}]})['result']
+    assert [(row['first_name'],row['last_name']) for row in rows] == [('Concurrent','Survivor')], rows
+    page.screenshot(path=str(OUT / 'record-scopes/concurrent-recovery.png'))
+    page.reload()
+    assert backend({'fn':'api','args':['Contacts','list',{}]})['result'] == rows
 
 
-def run_case(browser, name, source, journey):
-    project = synthesize(analyze(parse(unpack(source))), OUT / name / "project")
+def check_gallery(page, backend):
+    # Standalone selectors share the record-valued default/reset contract with
+    # gallery children. Loading another record must not retain the first default.
+    single=control(page,'PeopleChoice')
+    multiple=control(page,'PeopleChoices')
+    expect(single.locator('option:checked')).to_have_text(['Ada'])
+    expect(multiple.locator('option:checked')).to_have_text(['Ada'])
+    single.select_option(index=1)
+    multiple.select_option(['one','two'])
+    control(page,'UnrelatedUpdate').click()
+    expect(single.locator('option:checked')).to_have_text(['Grace'])
+    expect(multiple.locator('option:checked')).to_have_text(['Ada','Grace'])
+    control(page,'ResetPeople').click()
+    expect(single.locator('option:checked')).to_have_text(['Ada'])
+    expect(multiple.locator('option:checked')).to_have_text(['Ada'])
+    assert page.evaluate('state.peopleChanges')==2, 'Reset does not invoke OnChange'
+    control(page,'LastPeople').click()
+    expect(single.locator('option:checked')).to_have_text(['Grace'])
+    expect(multiple.locator('option:checked')).to_have_text(['Ada','Grace'])
+    single.select_option(index=0)
+    multiple.select_option(['one'])
+    control(page,'ResetPeople').click()
+    expect(single.locator('option:checked')).to_have_text(['Grace'])
+    expect(multiple.locator('option:checked')).to_have_text(['Ada','Grace'])
+    control(page,'BlankPeople').click()
+    expect(single.locator('option:checked')).to_have_count(0)
+    expect(multiple.locator('option:checked')).to_have_count(0)
+    control(page,'LastPeople').click()
+    expect(single.locator('option:checked')).to_have_text(['Grace'])
+    expect(multiple.locator('option:checked')).to_have_text(['Ada','Grace'])
+    assert page.evaluate('state.peopleChanges')==4
+    rows = control(page, "ContactRows").locator('.fx-row')
+    expect(rows).to_have_count(2)
+    toggle=rows.nth(1).locator('[data-control="RowToggle"]')
+    toggle.check()
+    expect(toggle).to_be_checked()
+    assert page.evaluate('state.parentCalls')==0, 'Editing a checkbox must not invoke Gallery.OnSelect'
+    toggle.uncheck()
+    expect(toggle).not_to_be_checked()
+    assert page.evaluate('state.parentCalls')==0
+    first = rows.nth(0).locator('[data-control="RowFirst"]')
+    second = rows.nth(1).locator('[data-control="RowFirst"]')
+    last = rows.nth(1).locator('[data-control="RowLast"]')
+    expect(first).to_have_value("Ada")
+    expect(second).to_have_value("Grace")
+    expect(last).to_have_value("Hopper")
+    expect(rows.nth(1).locator('[data-control="RowPreview"]')).to_have_text("Grace Hopper")
+    page.wait_for_function("Array.from(document.querySelectorAll('[data-control=RowImage]')).every(el => el.naturalWidth === 32)")
+    # Keep a live reference to the input; replacing or moving it during typing
+    # used to erase the edit and focus on every binding update.
+    last.focus()
+    last.press("End")
+    last.press_sequentially(" edited")
+    last.evaluate("el => { window.__editedInput = el; el.setSelectionRange(2, 5); }")
+    page.evaluate("FXRuntime.setState({counter: 10})")
+    assert last.evaluate("el => el === window.__editedInput && document.activeElement === el && el.selectionStart === 2 && el.selectionEnd === 5")
+    expect(last).to_have_value("Hopper edited")
+    expect(rows.nth(1).locator('[data-control="RowPreview"]')).to_have_text("Grace Hopper edited")
+    page.evaluate("FXRuntime.setState({reverseRows: true})")
+    expect(rows.nth(0).locator('[data-control="RowFirst"]')).to_have_value("Grace")
+    assert page.evaluate("document.activeElement === window.__editedInput && window.__editedInput.selectionStart === 2 && window.__editedInput.selectionEnd === 5")
+    page.evaluate("FXRuntime.setState({reverseRows: false})")
+    expect(last).to_have_value("Hopper edited")
+    rows.nth(1).locator('[data-control="RowReset"]').click()
+    expect(last).to_have_value("Hopper")
+    second.fill("Amazing Grace")
+    second.press("Tab")
+    page.wait_for_function("state.savedRow === 'Amazing Grace'")
+    expect(first).to_have_value("Ada")
+    last.fill("Admiral")
+    rows.nth(1).locator('[data-control="RowSave"]').click()
+    page.wait_for_function("state.parentCalls === 1 && state.parentSawFinished === true")
+    assert page.evaluate("state.selectedName") == "Amazing Grace"
+    saved = backend({"fn": "api", "args": ["Contacts", "list", {}]})["result"]
+    assert [(r["first_name"], r["last_name"]) for r in saved] == [("Ada", "Lovelace"), ("Amazing Grace", "Admiral")], saved
+    # A row's selector retains records and reacts through its own OnChange.
+    rows.nth(1).locator('[data-control="RowChoice"]').select_option(index=0)
+    page.wait_for_function("state.chosenName === 'Ada'")
+    rows.nth(1).locator('[data-control="RowReset"]').click()
+    expect(rows.nth(1).locator('[data-control="RowChoice"] option:checked')).to_have_text(['Amazing Grace'])
+    expect(rows.nth(0).locator('[data-control="RowChoice"] option:checked')).to_have_text(['Ada'])
+    assert page.evaluate('state.chosenName')=='Ada', 'Reset does not invoke OnChange'
+    control(page, "LockRows").click()
+    expect(last).to_be_disabled()
+    control(page, "LockRows").click()
+    expect(last).to_be_enabled()
+    page.screenshot(path=str(OUT / "editable-gallery/two-row-edit.png"))
+    page.reload()
+    expect(first).to_have_value("Ada")
+    expect(second).to_have_value("Amazing Grace")
+    expect(last).to_have_value("Admiral")
+
+    # AllItems must carry each loaded row's live controls through sorting,
+    # aliases, nested LookUp scopes and sequential awaits in a bulk save.
+    rows.nth(0).locator('[data-control="RowLast"]').fill('First bulk edit')
+    last.fill('Second bulk edit')
+    expect(control(page,'BulkPreview')).to_have_text('First bulk edit | Second bulk edit')
+    control(page,'SortRows').click()
+    expect(control(page,'BulkPreview')).to_have_text('Second bulk edit | First bulk edit')
+    control(page,'BulkSave').click()
+    page.wait_for_function('state.bulkSaved === true')
+    saved=backend({'fn':'api','args':['Contacts','list',{}]})['result']
+    assert [(r['id'],r['last_name']) for r in saved]==[('one','First bulk edit'),('two','Second bulk edit')],saved
+    page.screenshot(path=str(OUT/'editable-gallery/bulk-saved.png'))
+    page.reload()
+    expect(control(page,'BulkPreview')).to_have_text('First bulk edit | Second bulk edit')
+    expect(rows.nth(0).locator('[data-control="RowLast"]')).to_have_value('First bulk edit')
+    expect(rows.nth(1).locator('[data-control="RowLast"]')).to_have_value('Second bulk edit')
+
+
+def check_fluent_dates(page, backend):
+    base=control(page,'CalendarBase');dates=control(page,'DueDate')
+    expect(base).to_have_value('2026-03-01')
+    expect(base).to_have_attribute('type','date')
+    expect(base).to_have_attribute('aria-label','Base date')
+    assert control(page,'SizingHeader').evaluate('el=>parseFloat(el.style.width)')==188
+    expect(control(page,'ScreenSizeName')).to_have_text('medium')
+    base.fill('2026-03-04');base.press('Tab')
+    expect(control(page,'BasePreview')).to_have_text('2026-03-04')
+    assert page.evaluate('state.changedDate.toISOString()')=='2026-03-04T05:00:00.000Z'
+    control(page,'ChangeCounter').click()
+    expect(base).to_have_value('2026-03-04')
+    control(page,'ResetBase').click();expect(base).to_have_value('2026-03-01')
+    control(page,'NextBase').click();expect(base).to_have_value('2026-03-02')
+    assert control(page,'SizingHeader').evaluate('el=>parseFloat(el.style.width)')==203
+    control(page,'FocusDates').click()
+    assert base.evaluate('el=>el.tabIndex')==-1
+    assert dates.nth(1).evaluate('el=>el.tabIndex')==-1
+    control(page,'FocusDates').click()
+    assert base.evaluate('el=>el.tabIndex')==0
+    expect(dates).to_have_count(3)
+    for index,value in enumerate(['2026-03-01','2026-03-08','2026-03-15']):
+        expect(dates.nth(index)).to_have_value(value)
+        expect(dates.nth(index)).to_have_attribute('aria-label','Target date '+str(index+1))
+    dates.nth(1).fill('2026-03-10');dates.nth(1).press('Tab')
+    assert page.evaluate('state.changedRowDate.toISOString()')=='2026-03-10T04:00:00.000Z'
+    dates.nth(2).fill('');dates.nth(2).press('Tab')
+    assert page.evaluate('state.changedRowDate === null')
+    control(page,'ResetDue').nth(2).click();expect(dates.nth(2)).to_have_value('2026-03-15')
+    dates.nth(2).fill('2026-03-20')
+    dates.nth(1).evaluate('el=>window.__dateNode=el')
+    control(page,'ChangeCounter').click()
+    assert dates.nth(1).evaluate('el=>el===window.__dateNode')
+    expect(dates.nth(1)).to_have_value('2026-03-10')
+    control(page,'LockDates').click();expect(dates.nth(1)).to_be_disabled()
+    control(page,'LockDates').click();expect(dates.nth(1)).to_be_enabled()
+    control(page,'SaveDates').click();page.wait_for_function('state.datesSaved === true')
+    saved=backend({'fn':'api','args':['Schedule','list',{}]})['result']
+    assert [row['due'] for row in saved]==['2026-03-01T05:00:00.000Z','2026-03-10T04:00:00.000Z','2026-03-20T04:00:00.000Z'],saved
+    page.screenshot(path=str(OUT/'fluent-dates/saved.png'))
+    page.reload()
+    for index,value in enumerate(['2026-03-01','2026-03-10','2026-03-20']):
+        expect(dates.nth(index)).to_have_value(value)
+
+
+def check_control_coercion(page, backend, v1=False):
+    expect(control(page,'InputBlank')).to_have_text('present' if v1 else 'blank')
+    expect(control(page,'RecordBlank')).to_have_text('record')
+    expect(control(page,'StatusCaption')).to_have_text('Optional status 1')
+    rows=control(page,'Rows').locator('[data-control="RowName"]')
+    expect(rows).to_have_count(2)
+    save=control(page,'Save')
+    if v1:
+        expect(save).to_be_enabled()
+    else:
+        expect(save).to_be_disabled()
+    rows.nth(1).fill('Beta')
+    expect(save).to_be_enabled()
+    save.click()
+    expect(control(page,'Saved')).to_have_text('Alpha | Beta')
+    rows.nth(0).fill('')
+    if v1:
+        expect(save).to_be_enabled()
+    else:
+        expect(save).to_be_disabled()
+    control(page,'Input').fill('Entered')
+    expect(control(page,'InputBlank')).to_have_text('present')
+    control(page,'Input').fill('')
+    expect(control(page,'InputBlank')).to_have_text('present' if v1 else 'blank')
+
+
+def check_nested_gallery(page, backend):
+    source_font="'Segoe UI', 'Open Sans', sans-serif"
+    rows=control(page,'OuterRows').locator(':scope > .fx-rows > .fx-row')
+    def child(index,name): return rows.nth(index).locator('[data-control="'+name+'"]')
+    expect(rows).to_have_count(2)
+    for index,color in enumerate(['red','blue']):
+        expect(child(index,'ChooseColor')).to_have_count(3)
+        expect(child(index,'ChosenPreview')).to_have_text(color)
+        expect(child(index,'ColorSelected').locator('visible=true')).to_have_count(1)
+    expect(child(0,'CurrentRow')).to_have_text('current')
+    expect(child(0,'OuterMetrics')).to_have_text(source_font+':9:18')
+    expect(child(1,'OuterMetrics')).to_have_text(source_font+':12:24')
+    assert child(0,'OuterMetrics').evaluate('el=>el.style.fontFamily')=='"Segoe UI", "Open Sans", sans-serif'
+    expect(child(0,'OuterMetrics')).to_have_css('width','42px')
+    expect(child(1,'OuterMetrics')).to_have_css('width','54px')
+    expect(child(0,'ColorMetric').nth(0)).to_have_text(source_font+':9:18:2')
+    expect(child(1,'ColorMetric').nth(2)).to_have_text(source_font+':12:24:6')
+    control(page,'ToggleColors').click()
+    expect(child(1,'ChooseColor')).to_have_count(0)
+    control(page,'ToggleColors').click()
+    expect(child(1,'ChosenPreview')).to_have_text('blue')
+    child(1,'ChooseColor').nth(0).click()
+    expect(control(page,'SelectedCaption')).to_have_text('red for Install')
+    assert page.evaluate('[state.parentCaption,state.parentCalls]')==['Install',1]
+    expect(child(1,'ChosenPreview')).to_have_text('red')
+    expect(child(0,'ChosenPreview')).to_have_text('red')
+    note=child(1,'ColorNote').nth(1)
+    note.fill('green draft');note.press('Tab')
+    assert page.evaluate('state.lastNote')=='green draft for Install'
+    expect(child(1,'ChosenPreview')).to_have_text('green')
+    note.evaluate('el=>window.__nestedNote=el')
+    control(page,'Unrelated').click()
+    expect(note).to_have_value('green draft')
+    expect(child(0,'OuterMetrics')).to_have_css('width','43px')
+    expect(child(1,'OuterMetrics')).to_have_css('width','55px')
+    control(page,'ToggleSize').click()
+    assert child(1,'Colors').evaluate('el=>parseFloat(el.style.width)')==114
+    assert child(1,'ColorNote').nth(0).evaluate('el=>parseFloat(el.style.width)')==30
+    assert note.evaluate('el=>el===window.__nestedNote')
+    control(page,'SortParents').click()
+    expect(child(0,'OuterName')).to_have_value('Install')
+    expect(child(0,'OuterMetrics')).to_have_text(source_font+':12:24')
+    expect(child(0,'ColorMetric').nth(2)).to_have_text(source_font+':12:24:6')
+    expect(child(0,'ChosenPreview')).to_have_text('green')
+    expect(child(0,'ColorNote').nth(1)).to_have_value('green draft')
+    assert child(0,'ColorNote').nth(1).evaluate('el=>el===window.__nestedNote')
+    control(page,'ResetOuter').click()
+    expect(child(0,'CurrentRow')).to_have_text('current')
+    expect(child(0,'ChosenPreview')).to_have_text('green')
+    expect(child(0,'ColorNote').nth(1)).to_have_value('green draft')
+    assert page.evaluate('state.parentCalls')==1
+    child(0,'ResetColors').click()
+    expect(child(0,'ChosenPreview')).to_have_text('blue')
+    expect(child(1,'ChosenPreview')).to_have_text('red')
+    child(0,'ChooseColor').nth(0).click()
+    child(1,'ChooseColor').nth(1).focus()
+    child(1,'ChooseColor').nth(1).press('Enter')
+    child(0,'OuterName').fill('Install draft')
+    child(1,'OuterName').fill('Survey draft')
+    control(page,'SaveAll').click();page.wait_for_function('state.saved === true')
+    saved=backend({'fn':'api','args':['Parents','list',{}]})['result']
+    assert [(row['id'],row['name'],row['chosen']) for row in saved]==[
+        ('one','Survey draft','green'),('two','Install draft','red')],saved
+    page.screenshot(path=str(OUT/'nested-gallery/saved.png'))
+    page.reload()
+    expect(child(0,'OuterName')).to_have_value('Survey draft')
+    expect(child(0,'ChosenPreview')).to_have_text('green')
+    expect(child(1,'OuterName')).to_have_value('Install draft')
+    expect(child(1,'ChosenPreview')).to_have_text('red')
+
+
+def check_timers(page, _backend):
+    expect(page.locator('[data-screen="LoadingScreen"]')).to_be_visible()
+    page.wait_for_function("state.timerStarted === true")
+    page.clock.run_for(260)
+    expect(page.locator('[data-screen="ReadyScreen"]')).to_be_visible()
+    expect(control(page, "ReadyMessage")).to_have_text("Ready")
+    page.clock.run_for(60)
+    expect(control(page, "FocusInput")).to_be_focused()
+    control(page, "StartRepeat").click()
+    page.clock.run_for(50)
+    assert page.evaluate("val('RepeatTimer').value") == 50
+    control(page, "GoOther").click()
+    page.clock.run_for(500)
+    assert page.evaluate("state.cycles") == 0
+    control(page, "ReturnReady").click()
+    page.clock.run_for(260)
+    assert page.evaluate("state.cycles") == 3
+    page.clock.run_for(500)
+    assert page.evaluate("state.cycles") == 3
+    control(page, "ResetRepeat").click()
+    assert page.evaluate("val('RepeatTimer').value") == 0
+    control(page, "StartRepeat").click()
+    page.clock.run_for(310)
+    assert page.evaluate("state.cycles") == 3
+    page.screenshot(path=str(OUT / "timer-lifecycle/ready.png"))
+
+
+def run_case(browser, name, source, journey, clock=False, launch_parameters=None, viewport=None, solution=None, setup_backend=None, timezone_id=None, fixed_time=None, running_time=None):
+    if sum(bool(mode) for mode in (clock, fixed_time, running_time)) > 1:
+        raise ValueError('Choose exactly one simulated clock mode')
+    ir = analyze(parse(unpack(source)), solution=solution)
+    project = synthesize(ir, OUT / name / "project")
     validation = validate_project(project)
     assert validation["ok"], validation["problems"]
     server = subprocess.Popen(["node", str(REPO / "tests/browser/gas-server.cjs"), str(project)],
@@ -155,7 +455,7 @@ def run_case(browser, name, source, journey):
         if not line:
             raise RuntimeError("generated server test process stopped")
         return json.loads(line)
-    context = browser.new_context(viewport={"width": 1440, "height": 900}, locale="en-US")
+    context = browser.new_context(viewport=viewport or {"width": 1440, "height": 900}, locale="en-US", timezone_id=timezone_id)
     context.expose_function("__gasCall", backend)
     context.add_init_script(path=str(REPO / "tests/browser/bridge.js"))
     # No app-generated external requests are permitted in this local test.
@@ -170,26 +470,59 @@ def run_case(browser, name, source, journey):
         route.fulfill(content_type="text/html", body=response["result"])
     context.route("**/*", route_app)
     page = context.new_page()
+    if clock:
+        page.clock.install(time=0)
+        page.clock.pause_at(1)
+    if fixed_time:
+        page.clock.set_fixed_time(datetime.fromisoformat(fixed_time))
+    if running_time:
+        page.clock.install(time=datetime.fromisoformat(running_time))
     errors = []
     page.on("pageerror", lambda error: errors.append(str(error)))
     page.on("console", lambda msg: errors.append(msg.text) if msg.type == "error" else None)
     result = {"app": name, "status": "pass", "backend": "generated Code.gs + Sheets test double",
+              "codeValidation": validation,
               "originalVisualComparison": "unassessed", "evidenceType": "chromium-generated-client-and-server",
               "inputSha256": hashlib.sha256(source.read_bytes()).hexdigest(),
+              "sourceMetadata": ir.source_metadata,
               "converterSourceSha256": converter_fingerprint(), "browserVersion": browser.version}
+    if fixed_time or running_time or timezone_id:
+        result['dateContext'] = {'now':fixed_time or running_time,'timeZone':timezone_id,
+                                 'clock':'running' if running_time else 'fixed' if fixed_time else 'system'}
     try:
-        page.goto("https://converted.test/")
+        if setup_backend:
+            result['dataSetup'] = setup_backend(backend)
+        page.goto("https://converted.test/?" + urlencode(launch_parameters or {}))
         journey(page, backend)
-        assert not errors, errors
     except Exception as error:
         result.update(status="fail", error=str(error) or type(error).__name__)
     finally:
-        result["consoleErrors"] = errors
-        page.screenshot(path=str(OUT / name / "result.png"), full_page=True)
-        result["controls"] = page.locator('[data-screen]:visible [data-control]').evaluate_all(
-            "els => els.map(el => {const r=el.getBoundingClientRect(); return {name:el.dataset.control,"
-            "text:el.innerText, x:r.x,y:r.y,width:r.width,height:r.height,"
-            "font:getComputedStyle(el).fontFamily};})")
+        try:
+            page.wait_for_function('async () => await window.__waitForGasIdle()', timeout=10000)
+            result['serverCallDrain'] = {'status':'pass'}
+        except Exception as error:
+            result['status'] = 'fail'
+            result['serverCallDrain'] = {'status':'fail','error':str(error)}
+        try:
+            page.screenshot(path=str(OUT / name / "result.png"), full_page=True, timeout=10000)
+            result['screenshot'] = {'status':'pass'}
+        except Exception as error:
+            result['status'] = 'fail'
+            result['screenshot'] = {'status':'fail', 'error':str(error)}
+        try:
+            result["controls"] = page.locator('[data-screen]:visible [data-control]').evaluate_all(
+                "els => els.map(el => {const r=el.getBoundingClientRect(); return {name:el.dataset.control,"
+                "text:el.innerText, x:r.x,y:r.y,width:r.width,height:r.height,"
+                "font:getComputedStyle(el).fontFamily};})")
+        except Exception as error:
+            result['status'] = 'fail'
+            result['measurementError'] = str(error)
+        # RPC callbacks and captures can surface errors after the journey
+        # returns. Finalize the verdict only after those observations finish.
+        result['consoleErrors'] = list(errors)
+        if errors:
+            result['status'] = 'fail'
+            result.setdefault('error','runtime errors: ' + '; '.join(errors))
         (OUT / name / "result.json").write_text(json.dumps(result, indent=2) + "\n")
         context.close()
         server.terminate()
@@ -198,11 +531,1270 @@ def run_case(browser, name, source, journey):
     return result
 
 
+def check_storage(page, backend):
+    note, status, count = (control(page, name) for name in ("DraftNote", "CacheStatus", "DraftCount"))
+    expect(status).to_have_text("ready")
+    expect(count).to_have_text("0")
+    expect(control(page, "SaveDraft")).to_be_disabled()
+    identity = page.evaluate("JSON.parse(document.getElementById('fx-storage-context').textContent)")
+    note.fill("Inspect north entrance")
+    expect(control(page, "SaveDraft")).to_be_enabled()
+    control(page, "SaveDraft").click()
+    expect(status).to_have_text("saved")
+    page.reload()
+    expect(note).to_have_value("Inspect north entrance")
+    expect(count).to_have_text("1")
+    expect(control(page, "DraftDate")).to_have_value("2026-09-09")
+    expect(control(page, "DraftDone")).not_to_be_checked()
+    assert page.evaluate("state.Drafts[0].logged_at instanceof Date && state.Drafts[0].done === false && state.Drafts[0].count === 0 && state.Drafts[0].detail.code === 'inspection'")
+    note.fill("Unsaved note")
+    note.focus()
+    page.evaluate("document.querySelector('[data-control=DraftNote]').setSelectionRange(2, 6)")
+    # Keyboard activation changes unrelated state without moving input focus.
+    page.evaluate("document.querySelector('[data-control=DraftUnrelated]').click()")
+    expect(status).to_have_text("editing")
+    expect(note).to_have_value("Unsaved note")
+    assert page.evaluate("document.activeElement.dataset.control === 'DraftNote' && document.activeElement.selectionStart === 2 && document.activeElement.selectionEnd === 6")
+    control(page, "DraftReset").click()
+    expect(note).to_have_value("Inspect north entrance")
+    page.screenshot(path=str(OUT / "local-draft-storage/saved-and-reloaded.png"))
+    control(page, "AppendDraft").click()
+    expect(count).to_have_text("2")
+    control(page, "SaveBackup").click()
+    expect(status).to_have_text("backup saved")
+
+    # A browser quota failure is handled by the source's IfError and leaves
+    # the existing persistent draft available after a reload.
+    page.evaluate("() => { Storage.prototype.setItem = function(){throw new DOMException('quota full', 'QuotaExceededError')}; }")
+    note.fill("Must not replace saved draft")
+    control(page, "SaveDraft").click()
+    expect(status).to_have_text("save failed")
+    page.reload()
+    expect(note).to_have_value("Inspect north entrance")
+    expect(count).to_have_text("1")
+
+    page.evaluate("localStorage.setItem(Object.keys(localStorage).find(k => k.endsWith(':inspection-draft')), '{corrupt')")
+    page.reload()
+    expect(status).to_have_text("load failed")
+    expect(count).to_have_text("0")
+    control(page, "ClearDraft").click()
+    expect(status).to_have_text("draft cleared")
+    assert page.evaluate("Object.keys(localStorage).some(k => k.endsWith(':backup'))")
+    note.fill("Restored draft")
+    control(page, "SaveDraft").click()
+    expect(status).to_have_text("saved")
+
+    backend({"fn": "__setStorageIdentity", "args": ["another-script", identity["user"]]})
+    page.reload()
+    expect(note).to_have_value("")
+    note.fill("Other app draft")
+    control(page, "SaveDraft").click()
+    expect(status).to_have_text("saved")
+    backend({"fn": "__setStorageIdentity", "args": [identity["appId"], "another-user@example.test"]})
+    page.reload()
+    expect(note).to_have_value("")
+    note.fill("Other user draft")
+    control(page, "SaveDraft").click()
+    expect(status).to_have_text("saved")
+    backend({"fn": "__setStorageIdentity", "args": [identity["appId"], identity["user"]]})
+    page.goto("https://converted.test/?appId=another-script&user=another-user@example.test")
+    expect(note).to_have_value("Restored draft")
+    page.evaluate("localStorage.setItem('unrelated-app-storage', 'keep')")
+    control(page, "ClearAppCache").click()
+    expect(status).to_have_text("cache cleared")
+    assert page.evaluate("localStorage.length === 3 && localStorage.getItem('unrelated-app-storage') === 'keep'")
+    page.reload()
+    expect(note).to_have_value("")
+    expect(count).to_have_text("0")
+
+
+def check_modern_components(page, _backend):
+    first, second = control(page,'First__EntryInput'), control(page,'Second__EntryInput')
+    expect(first).to_have_value('Host')
+    expect(second).to_have_value('Second')
+    expect(control(page,'Nested__Inner__EntryInput')).to_have_value('nested')
+    expect(control(page,'First__Title')).to_have_text('Host EntryInput')
+    expect(control(page,'First__Html').locator('b')).to_have_text('EntryInput')
+    assert abs(first.bounding_box()['width'] - 230) <= 1
+    assert abs(second.bounding_box()['width'] - 260) <= 1
+    first.fill('First draft'); second.fill('Second draft')
+    control(page,'First__ResetButton').click()
+    expect(first).to_have_value('Host'); expect(second).to_have_value('Second draft')
+    first.fill('First saved')
+    control(page,'First__SaveButton').click()
+    expect(control(page,'First__Counts')).to_have_text('1/1')
+    expect(control(page,'Second__Counts')).to_have_text('0/0')
+    expect(first).to_have_value('Host'); expect(second).to_have_value('Second draft')
+    control(page,'Second__SelectButton').click()
+    expect(control(page,'Second__Counts')).to_have_text('1/1')
+    expect(second).to_have_value('Second')
+    control(page,'Nested__Inner__SaveButton').click()
+    expect(control(page,'Nested__Inner__Counts')).to_have_text('1/1')
+    expect(control(page,'AppCounts')).to_have_text('900/1')
+    control(page,'SharedInstance__Increment').click()
+    expect(control(page,'AppCounts')).to_have_text('901/1')
+    expect(control(page,'Outputs')).to_have_text('1/1/Host/record')
+    control(page,'EntryInput').fill('Changed')
+    expect(control(page,'First__Title')).to_have_text('Changed EntryInput')
+    expect(first).to_have_value('Changed'); expect(second).to_have_value('Second')
+    records = page.evaluate('Object.entries(state).filter(([key]) => key.startsWith("__pfx_component_") && key.endsWith("_entries")).map(([,value])=>value[0].text).sort()')
+    assert records == ['First saved','Second draft','nested']
+    page.reload()
+    expect(control(page,'AppCounts')).to_have_text('900/1')
+    expect(control(page,'First__Counts')).to_have_text('0/0')
+    expect(control(page,'Second__Counts')).to_have_text('0/0')
+
+
+def check_button_icons(page, _backend):
+    expand,after,plain,fallback=(control(page,name) for name in ['Expand','After','Plain','Fallback'])
+    symbol=lambda button:button.locator('[data-fx-button-symbol]')
+    caption=lambda button:button.locator('[data-fx-button-caption]')
+    expect(expand).to_have_accessible_name('Expand section')
+    expect(caption(expand)).to_be_hidden()
+    expect(symbol(expand)).to_be_visible()
+    assert symbol(expand).evaluate('el=>getComputedStyle(el,"::before").content').strip('"')=='❯'
+    assert page.evaluate('val("Expand").text')=='Expand'
+    expand.evaluate('el=>window.originalExpand=el')
+    expand.focus();page.keyboard.press('Enter')
+    expect(expand).to_have_accessible_name('Collapse section')
+    expect(control(page,'Result')).to_have_text('Expand/0')
+    expect(control(page,'SourceCaption')).to_have_text('Collapse')
+    expect(expand).to_be_focused()
+    assert expand.evaluate('el=>el===window.originalExpand')
+    expect(symbol(after)).to_have_css('transform','matrix(0, 1, -1, 0, 0, 0)')
+    expand.press('Space');expect(expand).to_have_accessible_name('Expand section')
+    expect(control(page,'Result')).to_have_text('Collapse/0')
+    assert symbol(after).bounding_box()['x']>caption(after).bounding_box()['x']
+    after.click();expect(control(page,'Result')).to_have_text('Save/0')
+    expect(symbol(plain)).to_be_hidden();expect(caption(plain)).to_be_visible()
+    plain.click();expect(control(page,'Result')).to_have_text('Plain/0')
+    expect(fallback).to_have_accessible_name('Delete')
+    expect(symbol(fallback)).to_be_visible();expect(caption(fallback)).to_be_hidden()
+    fallback.click();expect(control(page,'Result')).to_have_text('Delete/0')
+    network=control(page,'Network')
+    expect(network).to_have_accessible_name('Globe')
+    assert symbol(network).evaluate('el=>getComputedStyle(el,"::before").content').strip('"')=='🌐'
+    network.click();expect(control(page,'Result')).to_have_text('Network/0')
+    rows=control(page,'RowAction')
+    expect(rows).to_have_text(['Row Alpha','Row Beta'])
+    expect(rows.nth(0)).to_have_accessible_name('Toggle Alpha')
+    expect(rows.nth(1)).to_have_accessible_name('Toggle Beta')
+    glyphs=[symbol(rows.nth(i)).get_attribute('data-fx-glyph') for i in range(2)]
+    assert glyphs[0]!=glyphs[1]
+    assert symbol(rows.nth(0)).bounding_box()['x']<caption(rows.nth(0)).bounding_box()['x']
+    rows.nth(1).focus();page.keyboard.press('Enter')
+    expect(control(page,'Result')).to_have_text('Row Beta/2')
+    expect(rows.nth(1)).to_be_focused()
+    expect(symbol(rows.nth(1))).to_have_attribute('data-fx-glyph',glyphs[0])
+    expect(symbol(rows.nth(0))).to_have_attribute('data-fx-glyph',glyphs[0])
+    assert symbol(rows.nth(1)).bounding_box()['x']<caption(rows.nth(1)).bounding_box()['x']
+    rows.nth(0).click();expect(control(page,'Result')).to_have_text('Row Alpha/1')
+    expect(symbol(rows.nth(0))).to_have_attribute('data-fx-glyph',glyphs[1])
+    expect(symbol(rows.nth(1))).to_have_attribute('data-fx-glyph',glyphs[0])
+    page.reload();expect(control(page,'Result')).to_have_text('/0')
+    expect(expand).to_have_accessible_name('Expand section')
+    expect(symbol(rows.nth(1))).to_have_attribute('data-fx-glyph',glyphs[1])
+
+
+def check_selection_defaults(page, _backend):
+    picker,single,dynamic=(control(page,name) for name in ['Picker','Single','Dynamic'])
+    expect(picker).to_have_attribute('multiple','')
+    expect(picker).to_have_accessible_name('Choose roles')
+    expect(picker.locator('option:checked')).to_have_count(0)
+    expect(single).not_to_have_attribute('multiple','')
+    expect(single.locator('option:checked')).to_have_text(['Gamma'])
+    expect(dynamic).not_to_have_attribute('multiple','')
+    picker.focus();picker.press('Home');picker.press('Shift+ArrowDown')
+    expect(picker.locator('option:checked')).to_have_text(['Alpha','Beta'])
+    expect(control(page,'Selection')).to_have_text('2/Alpha|Beta')
+    # There is no authored OnChange handler; formula dependents must still update.
+    control(page,'Toggle').click()
+    expect(picker).to_have_accessible_name('Choose teams');expect(picker).to_be_disabled()
+    expect(dynamic).to_have_attribute('multiple','')
+    dynamic.select_option(label=['Alpha','Gamma'])
+    expect(dynamic.locator('option:checked')).to_have_text(['Alpha','Gamma'])
+    control(page,'Toggle').click();expect(picker).to_be_enabled()
+    expect(dynamic).not_to_have_attribute('multiple','')
+    expect(dynamic.locator('option:checked')).to_have_count(1)
+    expect(control(page,'Selection')).to_have_text('2/Alpha|Beta')
+    control(page,'ResetPicker').click();expect(picker.locator('option:checked')).to_have_count(0)
+    expect(control(page,'Selection')).to_have_text('0/')
+    row_pickers=control(page,'RowPicker')
+    expect(row_pickers.nth(0)).to_have_accessible_name('Choose for First')
+    expect(row_pickers.nth(1)).to_have_accessible_name('Choose for Second')
+    row_pickers.nth(1).select_option(label=['Beta','Gamma'])
+    expect(control(page,'RowCount')).to_have_text(['0','2'])
+    control(page,'ResetRow').nth(0).click();expect(control(page,'RowCount')).to_have_text(['0','2'])
+    control(page,'ResetRow').nth(1).click();expect(control(page,'RowCount')).to_have_text(['0','0'])
+    page.reload();expect(picker.locator('option:checked')).to_have_count(0)
+    expect(single.locator('option:checked')).to_have_text(['Gamma'])
+
+
+def check_composite_controls(page,backend,case_name):
+    header=control(page,'PageHeader');card=control(page,'PreviewCard');rows=control(page,'ProductCard')
+    part=lambda root,name:root.locator('[data-fx-part="'+name+'"]')
+    expect(part(header,'title')).to_have_text('Alpha product catalog')
+    expect(part(header,'title')).to_have_attribute('aria-level','2')
+    expect(part(header,'initials')).to_have_text('AP')
+    expect(part(card,'title')).to_have_text('Alpha product')
+    expect(part(card,'subtitle')).to_have_text('Source subtitle')
+    expect(part(card,'description')).to_have_text('A detailed product summary')
+    expect(part(card,'title')).to_have_css('color','rgb(255, 255, 255)')
+    expect(part(card,'title')).to_have_css('font-size','24px')
+    expect(rows).to_have_count(2)
+    expect(part(rows.nth(1),'title')).to_have_text('Second product')
+    def images():
+        values=page.locator('[data-fx-composite] img[src]').evaluate_all('''async els=>{
+            await Promise.all(els.map(el=>el.decode()));return els.map(el=>({width:el.naturalWidth,height:el.naturalHeight}));
+        }''')
+        assert len(values)==7 and all(value['width']>0 and value['height']>0 for value in values),values
+    images()
+    control(page,'TitleInput').fill('R&D <teams>')
+    expect(part(card,'title')).to_have_text('R&D <teams>')
+    expect(part(header,'title')).to_have_text('R&D <teams> catalog')
+    expect(part(card,'title').locator('*')).to_have_count(0)
+    part(header,'title').click();expect(control(page,'Selection')).to_contain_text('logo: 0')
+    part(header,'logo-action').focus();part(header,'logo-action').press('Enter')
+    expect(control(page,'Selection')).to_contain_text('logo: 1')
+    card.focus();card.press('Space');expect(control(page,'Selection')).to_have_text('Selected: preview / clicks: 1 / logo: 1')
+    rows.nth(1).focus();rows.nth(1).press('Enter')
+    expect(control(page,'Selection')).to_have_text('Selected: 2 / clicks: 2 / logo: 1')
+    saved=backend({'fn':'api','args':['Products','list',{}]})['result']
+    assert [(row['id'],row['selected']) for row in saved]==[('1',False),('2',True)],saved
+    control(page,'LayoutToggle').click()
+    expect(card).to_have_attribute('data-fx-direction','horizontal')
+    boxes=card.locator('[data-fx-part="preview"], [data-fx-part="card-content"]').evaluate_all('els=>els.map(el=>{const r=el.getBoundingClientRect();return {x:r.x,width:r.width};})')
+    assert boxes[0]['x']>=boxes[1]['x']+boxes[1]['width'],boxes
+    control(page,'StateToggle').click()
+    expect(card).to_be_disabled();expect(rows.nth(1)).to_be_disabled()
+    expect(part(header,'logo-action')).to_be_hidden();expect(part(header,'profile')).to_be_hidden();expect(part(card,'description')).to_be_hidden()
+    card.dispatch_event('click');rows.nth(1).dispatch_event('click')
+    expect(control(page,'Selection')).to_have_text('Selected: 2 / clicks: 2 / logo: 1')
+    control(page,'StateToggle').click();expect(card).to_be_enabled();expect(part(header,'logo-action')).to_be_visible()
+    geometry={}
+    for width in [1280,640]:
+        page.set_viewport_size({'width':width,'height':960})
+        expect(header).to_have_css('width',str(width-40)+'px')
+        geometry[str(width)]=[]
+        for composite in page.locator('[data-fx-composite]').all():
+            composite.scroll_into_view_if_needed()
+            geometry[str(width)].append(composite.evaluate('''el=>{
+                const r=el.getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height,
+                    hit:el.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)),scrollWidth:el.scrollWidth,clientWidth:el.clientWidth};
+            }'''))
+        for box in geometry[str(width)]:
+            assert box['x']>=0 and box['x']+box['width']<=width+1 and box['width']>0 and box['height']>0 and box['hit'],box
+            assert box['scrollWidth']<=box['clientWidth']+1,box
+        rows.nth(0).focus();expect(rows.nth(0)).to_be_focused()
+        wraps=2 if width>=740 else 1
+        expect(control(page,'ProductsGallery')).to_have_attribute('data-wrap-count',str(wraps))
+        # The narrow source formula yields zero; the ledgered minimum keeps a
+        # usable cell and must recover to two columns after another resize.
+        assert page.evaluate("Math.floor(val('ProductsGallery').width / 620)")== (2 if width==1280 else 0)
+        expected_width=(width-40-14*(wraps+1))/wraps
+        assert abs(rows.nth(0).bounding_box()['width']-expected_width)<1
+        page.screenshot(path=str(OUT/case_name/('ui-'+str(width)+'.png')),full_page=True)
+    (OUT/case_name/'ui-geometry.json').write_text(json.dumps(geometry,indent=2)+'\n')
+    page.set_viewport_size({'width':1280,'height':960})
+    expect(control(page,'ProductsGallery')).to_have_attribute('data-wrap-count','2')
+    page.reload();expect(part(card,'title')).to_have_text('Alpha product');images()
+    assert backend({'fn':'api','args':['Products','list',{}]})['result']==saved
+
+
+def check_start_screen(page, backend):
+    expect(page.locator('[data-screen="Details"]')).to_be_visible()
+    expect(control(page,'DetailsStatus')).to_have_text('Details / true')
+    expect(control(page,'DetailsRoute')).to_have_text('Next launch: Details')
+    control(page,'DetailsToggle').click()
+    expect(control(page,'DetailsRoute')).to_have_text('Next launch: Home')
+    # A changing dependency must not navigate again during the same launch.
+    expect(page.locator('[data-screen="Details"]')).to_be_visible()
+    page.reload();expect(control(page,'HomeStatus')).to_have_text('Home / true')
+    control(page,'HomeToggle').click();expect(control(page,'HomeRoute')).to_have_text('Next launch: Details')
+    page.reload();expect(control(page,'DetailsStatus')).to_have_text('Details / true')
+    page.goto('https://converted.test/?screen=home')
+    expect(control(page,'HomeStatus')).to_have_text('Home / true')
+    control(page,'HomeNavigate').focus();control(page,'HomeNavigate').press('Enter')
+    expect(control(page,'DetailsStatus')).to_have_text('Details / true')
+    page.reload();expect(control(page,'HomeStatus')).to_have_text('Home / true')
+    page.screenshot(path=str(OUT/'start-screen/parameter-destination.png'))
+
+
+def setup_start_directory(backend):
+    data=json.loads((REPO/'tests/fixtures/google-directory.json').read_text())
+    assert backend({'fn':'__importDirectory','args':[data['migration']]})=={'result':{'ok':True,'users':2}}
+    backend({'fn':'__peopleResponses','args':[[{'method':'get','result':data['people'][0]}]]})
+    return {'source':'authored source-ID/account mapping','googlePeople':'explicit response fixture; no live authorization'}
+
+
+def check_start_directory(page,backend):
+    expect(control(page,'DetailsStatus')).to_have_text('Details / true')
+    requests=backend({'fn':'__peopleRequests','args':[]})['result']
+    assert len(requests)==1,requests
+    control(page,'DetailsNavigate').click();expect(control(page,'HomeStatus')).to_have_text('Home / true')
+    assert len(backend({'fn':'__peopleRequests','args':[]})['result'])==1
+    backend({'fn':'__peopleResponses','args':[[{'method':'get','error':'403 Directory access denied'}]]})
+    page.reload();expect(control(page,'RecoveryStatus')).to_have_text('Recovery / true')
+    page.screenshot(path=str(OUT/'start-directory/recovered-denial.png'))
+    data=json.loads((REPO/'tests/fixtures/google-directory.json').read_text())
+    backend({'fn':'__peopleResponses','args':[[{'method':'get','result':data['people'][0]}]]})
+    page.reload();expect(control(page,'DetailsStatus')).to_have_text('Details / true')
+
+
+def check_svg_text(page, _backend):
+    for name,fit,fill in [('Direct','contain','rgba(0, 0, 0, 0)'),('Nested','fill','rgb(255, 0, 0)'),('Cdata','cover','rgba(0, 255, 0, 0.5)')]:
+        expect(control(page,name)).to_have_css('object-fit',fit)
+        expect(control(page,name)).to_have_css('background-color',fill)
+    def assert_images(value):
+        for name in ['Direct','Nested','Cdata']:
+            state=control(page,name).evaluate('''async image => {
+                await image.decode();
+                const doc=new DOMParser().parseFromString(decodeURIComponent(image.src.split(',').slice(1).join(',')),'image/svg+xml');
+                if(doc.querySelector('parsererror')) throw new Error('Malformed SVG');
+                return {text:doc.querySelector('text').textContent,width:image.naturalWidth,height:image.naturalHeight};
+            }''')
+            assert state=={'text':value,'width':500,'height':50},(name,state,value)
+    assert_images('Hello SVG')
+    for value in ['R&D <teams> "ready"',"'yes'",'Café 東京','&amp;','<tspan>literal markup</tspan>','']:
+        control(page,'Caption').fill(value)
+        assert_images(value)
+    page.reload();assert_images('Hello SVG')
+
+
+def check_bare_inputs(page, _backend):
+    summary=control(page,'Summary');slider=control(page,'BareSlider')
+    expect(summary).to_have_text('50//false/blank')
+    slider.focus();slider.press('Home');expect(summary).to_have_text('0//false/blank')
+    slider.press('End');expect(summary).to_have_text('100//false/blank')
+    slider.press('ArrowLeft');expect(summary).to_have_text('99//false/blank')
+    control(page,'BareText').fill('Edited without OnChange')
+    expect(summary).to_have_text('99/Edited without OnChange/false/blank')
+    control(page,'BareCheck').check()
+    expect(summary).to_have_text('99/Edited without OnChange/true/blank')
+    control(page,'BareDate').fill('2026-09-10')
+    expect(summary).to_have_text('99/Edited without OnChange/true/2026-09-10')
+    expect(control(page,'Clock')).to_have_text('00:00:00')
+    expect(control(page,'AuthoredClock')).to_have_text('Authored timer')
+    page.clock.run_for(2500)
+    expect(control(page,'Clock')).to_have_text('00:00:02')
+    expect(control(page,'Elapsed')).to_have_text('2500/false')
+    page.clock.run_for(2500)
+    expect(control(page,'Clock')).to_have_text('00:00:05')
+    expect(control(page,'Elapsed')).to_have_text('5000/true')
+    page.clock.run_for(1000);expect(control(page,'Elapsed')).to_have_text('5000/true')
+    page.reload();expect(summary).to_have_text('50//false/blank')
+
+
+def check_dependent_layout(page, _backend):
+    draft=control(page,'RowDraft').nth(1)
+    draft.fill('Keep this edit through resizing')
+    for width,height in [(1440,900),(600,700),(1000,700),(520,700),(1440,900)]:
+        page.set_viewport_size({'width':width,'height':height})
+        anchor=80 if width<800 else 20
+        expect(control(page,'Centered')).to_have_css('left',str((width-550)//2)+'px')
+        expect(control(page,'Header')).to_have_css('top',str(anchor+240)+'px')
+        expect(control(page,'Rows')).to_have_css('top',str(anchor+276)+'px')
+        for index in range(6):
+            expect(control(page,'Link'+str(index))).to_have_css('top',str(anchor+(5-index)*40)+'px')
+        expect(draft).to_have_value('Keep this edit through resizing')
+        control(page,'SelectAll').check()
+        expect(control(page,'SelectRow').nth(0)).to_be_checked()
+        expect(control(page,'SelectRow').nth(1)).to_be_checked()
+        control(page,'SelectAll').uncheck()
+        expect(control(page,'SelectRow').nth(0)).not_to_be_checked()
+        expect(control(page,'SelectRow').nth(1)).not_to_be_checked()
+    page.reload();expect(draft).to_have_value('Second')
+
+
+def check_flexible_gallery(page, _backend):
+    cards=control(page,'Cards');rows=cards.locator(':scope > .fx-rows > .fx-row')
+    nested=lambda i:rows.nth(i).locator('[data-control="Entries"]')
+    def heights(expected):
+        # offsetHeight is in design pixels even when the entire canvas scales.
+        assert rows.evaluate_all('els=>els.map(el=>el.offsetHeight)')==expected
+        boxes=rows.evaluate_all('els=>els.map(el=>({top:el.offsetTop,height:el.offsetHeight,gap:parseFloat(getComputedStyle(el).marginBottom)}))')
+        assert boxes[1]['top']==boxes[0]['top']+expected[0]+4,boxes
+        assert all(row['gap']==4 for row in boxes),boxes
+        assert control(page,'Fixed').locator(':scope > .fx-rows > .fx-row').evaluate_all('els=>els.map(el=>el.offsetHeight)')==[222,222]
+    expect(rows).to_have_count(2);heights([32,32])
+    draft=control(page,'Draft').nth(1);draft.fill('Retained draft')
+    control(page,'Toggle').first.click();expect(nested(0)).to_be_visible()
+    heights([104,32])
+    expect(nested(0).locator('[data-control="Choose"]')).to_have_text(['One','Two'])
+    assert nested(0).locator(':scope > .fx-rows > .fx-row').evaluate_all('els=>els.map(el=>el.offsetHeight)')==[36,36]
+    nested(0).locator('[data-control="Choose"]').nth(1).click()
+    expect(control(page,'Choice')).to_have_text('Two')
+    control(page,'Toggle').nth(1).click();expect(nested(0)).to_be_hidden();heights([32,68])
+    nested(1).locator('[data-control="Choose"]').click();expect(control(page,'Choice')).to_have_text('Three')
+    control(page,'Tall').click();heights([450,68])
+    control(page,'Tall').click();heights([32,68])
+    draft.focus();draft.evaluate('el=>{window.savedDraft=el;el.setSelectionRange(2,5)}')
+    page.set_viewport_size({'width':520,'height':700})
+    page.wait_for_timeout(100);heights([32,68])
+    expect(draft).to_have_value('Retained draft');expect(draft).to_be_focused()
+    assert draft.evaluate('el=>el===window.savedDraft && el.selectionStart===2 && el.selectionEnd===5')
+    child=nested(1).locator('[data-control="Choose"]')
+    assert abs(child.bounding_box()['width']-nested(1).bounding_box()['width'])<=1
+    child.click();expect(control(page,'Choice')).to_have_text('Three')
+    control(page,'Toggle').nth(1).click();heights([32,32])
+    page.reload();expect(control(page,'Draft').nth(1)).to_have_value('Beta');heights([32,32])
+
+
+def check_native_layout(page, _backend):
+    def geometry():
+        return page.evaluate('''() => {
+          const get=name => {const ref=val(name), r=ref.el.getBoundingClientRect();
+            return {x:r.x,y:r.y,width:r.width,height:r.height,logicalWidth:ref.width,logicalHeight:ref.height};};
+          return Object.fromEntries(['Stack','Header','Body','Left','Left__Press','Right','Next'].map(name=>[name,get(name)]));
+        }''')
+    def verify():
+        boxes=geometry()
+        header,body,left,right,press=(boxes[key] for key in ['Header','Body','Left','Right','Left__Press'])
+        assert abs(header['logicalHeight']-48)<1,boxes
+        assert abs(header['logicalWidth']-150)<1,boxes
+        assert abs(left['logicalHeight']-body['logicalHeight'])<1,boxes
+        assert abs(right['logicalHeight']-body['logicalHeight'])<1,boxes
+        assert abs(right['logicalWidth']-2*left['logicalWidth'])<1,boxes
+        assert abs(press['logicalHeight']-32)<1,boxes
+        assert abs(press['logicalWidth']-left['logicalWidth'])<1,boxes
+        assert body['y']>=header['y']+header['height'],boxes
+        assert right['x']>=left['x']+left['width'],boxes
+        assert left['logicalHeight']>400,boxes
+        width,height=map(float,control(page,'Left__Extent').inner_text().split('/'))
+        assert abs(width-left['logicalWidth'])<1 and abs(height-left['logicalHeight'])<1,boxes
+        assert control(page,'Left__Extent').evaluate('el=>el.scrollWidth<=el.clientWidth+1')
+    verify()
+    control(page,'Left__Press').click()
+    expect(control(page,'Header')).to_have_text('Count 1')
+    control(page,'Next').click()
+    expect(page.locator('[data-screen="Other"]')).to_be_visible()
+    control(page,'Back').click()
+    expect(control(page,'Header')).to_have_text('Count 1')
+    page.set_viewport_size({'width':1000,'height':700})
+    page.wait_for_function('innerWidth===1000 && innerHeight===700')
+    page.wait_for_timeout(100)
+    verify()
+    control(page,'Left__Press').click()
+    expect(control(page,'Header')).to_have_text('Count 2')
+    page.reload()
+    expect(control(page,'Header')).to_have_text('Count 0')
+    verify()
+
+
+def check_named_formulas(page, backend):
+    caption = control(page, 'TotalCaption')
+    expect(caption).to_have_text('Total: 10')
+    assert page.evaluate('state.startValue') == 3
+    amount = control(page, 'AmountInput')
+    amount.fill('4')
+    expect(caption).to_have_text('Total: 16')
+    control(page, 'SaveEntry').click()
+    expect(caption).to_have_text('Total: 22')
+    assert [row['amount'] for row in backend({'fn':'api','args':['Entries','list',{}]})['result']] == [9,5]
+    expect(control(page, 'Destination')).to_have_text(['Work'])
+    control(page, 'ShowAdmin').click()
+    expect(control(page, 'Destination')).to_have_text(['Work','Admin'])
+    control(page, 'Destination').nth(1).click()
+    expect(page.locator('[data-screen="Admin"]')).to_be_visible()
+    control(page, 'AdminBack').click()
+    expect(page.locator('[data-screen="Home"]')).to_be_visible()
+    expect(amount).to_have_value('4')
+    control(page, 'Destination').nth(0).click()
+    expect(page.locator('[data-screen="Work"]')).to_be_visible()
+    control(page, 'WorkBack').click()
+    page.reload()
+    expect(caption).to_have_text('Total: 16')
+    expect(control(page, 'Destination')).to_have_text(['Work'])
+
+
+def check_checkbox_events(page, backend):
+    counts=control(page,'EventCounts');toggle=control(page,'EventToggle')
+    expect(counts).to_have_text('0/0/0')
+    toggle.check();expect(counts).to_have_text('1/0/1')
+    toggle.uncheck();expect(counts).to_have_text('1/1/2')
+    toggle.focus();toggle.press('Space');expect(counts).to_have_text('2/1/3')
+    control(page,'ResetEventToggle').click();expect(counts).to_have_text('2/2/3')
+    control(page,'ChangeEventDefault').click();expect(counts).to_have_text('3/2/3')
+    expect(toggle).to_be_checked()
+    rows=control(page,'RowEnabled');announcement=control(page,'EventAnnouncement')
+    rows.nth(1).check();expect(announcement).to_have_text('two:on')
+    expect(announcement).to_have_attribute('aria-live','assertive')
+    assert [(r['id'],r['enabled']) for r in backend({'fn':'api','args':['Flags','list',{}]})['result']]==[('one',False),('two',True)]
+    assert page.evaluate('state.parentSelections')==0
+    page.reload();expect(rows.nth(1)).to_be_checked();expect(rows.nth(0)).not_to_be_checked()
+    expect(announcement).to_have_text('')
+    rows.nth(1).uncheck();expect(announcement).to_have_text('two:off')
+    page.reload();expect(rows.nth(1)).not_to_be_checked()
+    assert all(r['enabled'] is False for r in backend({'fn':'api','args':['Flags','list',{}]})['result'])
+
+
+def check_dataverse_state(page, backend):
+    expect(control(page,'ActiveCount')).to_have_text('Active: 0')
+    control(page,'NewName').fill('Settings example')
+    control(page,'CreateWork').click()
+    expect(control(page,'ActiveCount')).to_have_text('Active: 1')
+    expect(control(page,'WorkTitle')).to_have_text('Settings example: 0/101')
+    rows=backend({'fn':'api','args':['Work','list',{}]})['result']
+    assert len(rows)==1 and rows[0]['statecode']==0 and rows[0]['statuscode']==101
+    identity=rows[0]['id']
+    page.reload()
+    expect(control(page,'ActiveCount')).to_have_text('Active: 1')
+    control(page,'InvalidPair').click()
+    expect(control(page,'PairResult')).to_have_text('Invalid pair rejected')
+    expect(control(page,'WorkTitle')).to_have_text('Settings example: 0/101')
+    control(page,'ToggleState').click()
+    expect(control(page,'ActiveCount')).to_have_text('Active: 0')
+    expect(control(page,'WorkTitle')).to_have_text('Settings example: 1/202')
+    page.reload()
+    expect(control(page,'ActiveCount')).to_have_text('Active: 0')
+    expect(control(page,'ToggleState')).to_have_text('Activate')
+    control(page,'ToggleState').click()
+    expect(control(page,'ActiveCount')).to_have_text('Active: 1')
+    page.reload()
+    expect(control(page,'WorkTitle')).to_have_text('Settings example: 0/101')
+    rows=backend({'fn':'api','args':['Work','list',{}]})['result']
+    assert len(rows)==1 and rows[0]['id']==identity and rows[0]['statuscode']==101
+
+
+def check_dataverse(page, backend):
+    name, status, count = (control(page, key) for key in ("ContractName", "ContractResult", "ContractCount"))
+    expect(name).to_have_value("Second project")
+    expect(count).to_have_text("2")
+    expect(control(page, "ContractChoice").locator("option")).to_have_text(["Open", "Closed"])
+    assert page.evaluate("state['Project Active'].no === false && state['Project Status'].open === 0")
+    assert page.evaluate("() => { try { google.script.run.api('Projects', 'create', {record:{msft_start:new Date()}}); return false; } catch(e) { return /cannot transport/.test(e.message); } }")
+    name.fill("Second project edited")
+    control(page, "ContractChoice").select_option(index=0)
+    control(page, "ContractSave").click()
+    expect(status).to_have_text("saved")
+    saved = backend({"fn": "api", "args": ["Projects", "list", {}]})["result"]
+    assert [(r["id"], r["name"]) for r in saved] == [("project-one", "First project"), ("project-two", "Second project edited")]
+    assert saved[1]["status"] == 0 and saved[1]["active"] is False
+    control(page, "ContractInvalid").click()
+    expect(status).to_have_text("invalid choice")
+    assert backend({"fn": "api", "args": ["Projects", "list", {}]})["result"] == saved
+    page.reload()
+    expect(name).to_have_value("Second project edited")
+    expect(control(page, "ContractChoice")).to_have_value("0")
+    control(page, "ContractNew").click()
+    expect(status).to_have_text("created")
+    expect(count).to_have_text("3")
+    new = backend({"fn": "api", "args": ["Projects", "list", {}]})["result"][-1]
+    assert new["id"] == new["project"] == new["msft_projectid"]
+    assert new["active"] is True and new["budget"] == 0 and new["status"] == 0
+    assert new["msft_start"] == "2026-09-09T00:00:00.000Z"
+    assert new["owner"] == {"user_id": "user-1", "full_name": "Grace"} and new["tags"] == [0, 1]
+    page.reload()
+    expect(name).to_have_value("New project")
+    page.screenshot(path=str(OUT / "dataverse-contract/persisted-project.png"))
+    control(page, "ContractDelete").click()
+    expect(status).to_have_text("deleted")
+    expect(count).to_have_text("2")
+    page.reload()
+    expect(name).to_have_value("Second project edited")
+    expect(count).to_have_text("2")
+
+    before = backend({'fn':'api','args':['Projects','list',{}]})['result']
+    name.fill('Updated through the source key')
+    backend({'fn':'__failNextMutation','args':[]})
+    control(page,'ContractKeySave').click()
+    expect(status).to_have_text('key save failed')
+    assert backend({'fn':'api','args':['Projects','list',{}]})['result'] == before
+    control(page,'ContractKeySave').click()
+    expect(status).to_have_text('key saved')
+    expect(count).to_have_text('2')
+    saved = backend({'fn':'api','args':['Projects','list',{}]})['result']
+    assert saved[0] == before[0] and saved[1]['project'] == 'project-two'
+    assert saved[1]['name'] == 'Updated through the source key' and saved[1]['budget'] == 0 and saved[1]['active'] is False
+    name.fill('Created using a fixed key')
+    control(page,'ContractKeyUpsert').click()
+    expect(status).to_have_text('key upserted')
+    expect(count).to_have_text('3')
+    name.fill('Retry updates the same row')
+    control(page,'ContractKeyUpsert').click()
+    page.wait_for_function("state.selectedProject.name === 'Retry updates the same row'")
+    expect(count).to_have_text('3')
+    saved = backend({'fn':'api','args':['Projects','list',{}]})['result']
+    assert saved[-1]['project'] == 'fixed-new-key' and saved[-1]['name'] == 'Retry updates the same row'
+    control(page,'ContractKeyInvalid').click()
+    expect(status).to_have_text('key required')
+    assert backend({'fn':'api','args':['Projects','list',{}]})['result'] == saved
+    page.reload()
+    expect(name).to_have_value('Retry updates the same row')
+    expect(count).to_have_text('3')
+    page.screenshot(path=str(OUT / 'dataverse-contract/keyed-patch-reloaded.png'))
+    control(page,'ContractDelete').click()
+    expect(count).to_have_text('2')
+
+
+def check_source_formulas(page, _backend):
+    url, error = (control(page, key) for key in ("txtSetupSharePoint_URL", "lblSetupSharePoint_ErrorURL"))
+    expect(error).to_have_text("")
+    for text, message in [
+        ("not a URL", "Please enter a valid URL"),
+        ("https://contoso.sharepoint.com/sites/Team/extra", "URL must have exactly 4 forward slashes"),
+        ("https://contoso.example.com/sites/Team", "URL must include .sharepoint.com/sites/"),
+        ("https://contoso.sharepoint.com/sites/Ab", "URL must include at least a three character site name"),
+        ("https://contoso.sharepoint.com/sites/Team", ""),
+        ("", ""),
+    ]:
+        url.fill(text)
+        if message:
+            expect(error).to_contain_text(message)
+        else:
+            expect(error).to_have_text("")
+    label = control(page, "lblEditWorkItemCreatedOn")
+    expect(label).to_have_text("Created on 09 Sep")
+    control(page, "FormulaFrench").click()
+    expect(label).to_have_text("Créé le 09 sept.")
+    control(page, "FormulaJapanese").click()
+    expect(label).to_have_text("Created on 09 9月")
+    control(page, "FormulaToday").click()
+    expect(label).to_have_text(re.compile(r"Created at \d{2}:\d{2} (AM|PM)"))
+    assert label.evaluate("el => el.scrollWidth <= el.clientWidth")
+    page.screenshot(path=str(OUT / "source-formulas/validated-formulas.png"))
+
+
+def check_canvas(page, _backend):
+    expect(control(page, "CanvasTitle")).to_have_text("1440 / 5")
+    assert page.evaluate("state.initialWidth === 1440 && state.initialToggle === false")
+    expect(control(page, "ThemeCaption")).to_have_text("Light theme")
+    assert page.evaluate("val('Details Screen').width === 1440")
+    draft, button = control(page, 'Draft'), control(page, 'OpenDetails')
+    panel = control(page, 'ManualPanel')
+    def geometry():
+        a, b, c = panel.bounding_box(), draft.bounding_box(), button.bounding_box()
+        assert b['x'] == a['x'] + 20 and b['y'] == a['y'] + 20, (a, b)
+        assert c['y'] == a['y'] + 100 and b['width'] == a['width'] - 40, (a, b, c)
+        assert c['y'] >= b['y'] + b['height'], (b, c)
+        assert button.evaluate('el => el.scrollWidth <= el.clientWidth && el.scrollHeight <= el.clientHeight')
+        first, second = control(page, 'AutoFirst').bounding_box(), control(page, 'AutoSecond').bounding_box()
+        assert second['x'] == first['x'] + first['width'] + 8 and first['y'] == second['y'], (first, second)
+    geometry()
+    draft.fill('Unsaved mobile draft')
+    draft.focus()
+    draft.evaluate('el => { window.__draft = el; el.setSelectionRange(2, 5); }')
+    for width, logical, size in [(900, 900, 2), (390, 390, 1), (280, 320, 1), (1201, 1201, 4)]:
+        page.set_viewport_size({'width': width, 'height': 700})
+        expect(control(page, 'CanvasTitle')).to_have_text(f'{logical} / {size}')
+        geometry()
+        expect(draft).to_have_value('Unsaved mobile draft')
+        assert draft.evaluate('el => el === window.__draft && document.activeElement === el && el.selectionStart === 2 && el.selectionEnd === 5')
+    page.set_viewport_size({'width': 390, 'height': 700})
+    expect(control(page, 'CanvasTitle')).to_have_text('390 / 1')
+    page.screenshot(path=str(OUT / 'responsive-canvas/narrow.png'))
+    button.click()
+    expect(control(page, 'DetailsTitle')).to_have_text('Light details')
+    page.wait_for_function("state.exitCount === 1 && state.enteredAfterExit === true")
+    assert page.evaluate("state.exitScreenWidth === 390 && state.exitDraft === 'Unsaved mobile draft'")
+    control(page, 'ReturnCanvas').click()
+    control(page, 'ThemeToggle').check()
+    expect(control(page, 'ThemeCaption')).to_have_text('Blue theme')
+    expect(page.locator('[data-screen="Responsive Screen"]')).to_have_css('background-color', 'rgb(221, 238, 255)')
+    button.click()
+    expect(control(page, 'DetailsTitle')).to_have_text('Blue details')
+    page.wait_for_function('state.exitCount === 2')
+    control(page, 'ReturnCanvas').click()
+    expect(draft).to_have_value('Unsaved mobile draft')
+    expect(control(page, 'CaptionReference')).to_have_text('Open details: Unsaved mobile draft')
+
+
+def check_scaled_canvas(page, _backend):
+    expect(control(page, 'CanvasTitle')).to_have_text('1200 / 3')
+    assert page.evaluate("state.initialWidth === 1200 && state.initialToggle === false")
+    for width, height in [(600, 500), (1500, 400)]:
+        page.set_viewport_size({'width': width, 'height': height})
+        scale = min(width / 1200, height / 800)
+        expect(page.locator('[data-screen="Responsive Screen"]')).to_have_css('transform', f'matrix({scale}, 0, 0, {scale}, 0, 0)')
+        assert page.evaluate("val('App').width === 1200 && val('App').height === 800")
+        rect = control(page, 'ManualPanel').bounding_box()
+        assert abs(rect['width'] - 1160 * scale) < 1, rect
+        control(page, 'OpenDetails').click()
+        expect(control(page, 'DetailsTitle')).to_have_text('Light details')
+        control(page, 'ReturnCanvas').click()
+    page.screenshot(path=str(OUT / 'scaled-canvas/letterboxed.png'))
+
+
+def check_navigation(page, backend):
+    expect(control(page, 'BrowseScope')).to_have_text('browse:blank:global')
+    contacts = control(page, 'NavigationRows').locator('[data-control="OpenContact"]')
+    expect(contacts).to_have_text(['Ada Lovelace', 'Grace Hopper'])
+    contacts.nth(1).click()
+    expect(control(page, 'DetailFirst')).to_have_value('Grace')
+    expect(control(page, 'DetailStatus')).to_have_text('detail:0:disabled:quoted')
+    expect(control(page, 'DetailScope')).to_have_text('selected:global:1')
+    assert page.evaluate('state.enteredName') == 'Grace'
+    control(page, 'DetailFirst').fill('Amazing Grace')
+    control(page, 'SaveContact').click()
+    expect(control(page, 'OtherScope')).to_have_text('other:global')
+    expect(control(page, 'HiddenDetail')).to_have_text('saved:0:disabled:quoted')
+    saved = backend({'fn': 'api', 'args': ['Contacts', 'list', {}]})['result']
+    assert [(r['id'], r['first_name']) for r in saved] == [('one', 'Ada'), ('two', 'Amazing Grace')], saved
+    control(page, 'ReturnDetail').click()
+    expect(control(page, 'DetailTitle')).to_have_text('Amazing Grace Hopper')
+    expect(control(page, 'DetailScope')).to_have_text('selected:global:2')
+    control(page, 'ClearDetail').click()
+    expect(control(page, 'DetailScope')).to_have_text('blank:global:2')
+    control(page, 'BrowseAgain').click()
+    expect(control(page, 'BrowseScope')).to_have_text('browse:blank:global')
+    contacts.nth(0).click()
+    expect(control(page, 'DetailTitle')).to_have_text('Ada Lovelace')
+    expect(control(page, 'DetailFirst')).to_have_value('Ada')
+    page.reload()
+    expect(contacts).to_have_text(['Ada Lovelace', 'Amazing Grace Hopper'])
+    contacts.nth(1).click()
+    expect(control(page, 'DetailTitle')).to_have_text('Amazing Grace Hopper')
+    expect(control(page, 'DetailScope')).to_have_text('selected:global:1')
+    page.screenshot(path=str(OUT / 'navigation-context/persisted-contact.png'))
+
+
+def check_collection_aliases(page, backend):
+    rows = control(page,'DraftRows').locator('[data-control="DraftName"]')
+    expect(rows).to_have_count(2)
+    expect(rows.nth(0)).to_have_value('Draft one')
+    expect(rows.nth(1)).to_have_value('Draft two')
+    expect(control(page,'DraftRows').locator('[data-control="DraftOwner"]')).to_have_text(['Ada','Grace'])
+    expect(control(page,'StandaloneModeDraft')).to_have_js_property('tagName','INPUT')
+    expect(control(page,'MaskedExample')).to_have_attribute('type','password')
+    expect(control(page,'DraftSummary')).to_have_text('Draft one:0, Draft two:0')
+    rows.nth(1).fill('Edited second draft')
+    rows.nth(1).press('Tab')
+    expect(control(page,'DraftSummary')).to_have_text('Draft one:0, Edited second draft:0')
+    control(page,'BumpDrafts').click()
+    expect(control(page,'DraftSummary')).to_have_text('Draft one:1, Edited second draft:1')
+    control(page,'DraftRows').locator('[data-control="SaveDraftRow"]').nth(1).click()
+    expect(control(page,'DraftStatus')).to_have_text('saved')
+    records = backend({'fn':'api','args':['Projects','list',{}]})['result']
+    assert records[0]['name'] == 'First project' and records[1]['name'] == 'Edited second draft'
+    page.reload()
+    expect(control(page,'DraftSummary')).to_have_text('Draft one:0, Draft two:0')
+    control(page,'RestoreDrafts').click()
+    expect(control(page,'DraftSummary')).to_have_text('Draft one:1, Edited second draft:1')
+    expect(rows.nth(0)).to_have_value('Draft one')
+    expect(rows.nth(1)).to_have_value('Edited second draft')
+    control(page,'ConflictingDraft').click()
+    expect(control(page,'DraftStatus')).to_have_text('conflict retained draft')
+    expect(control(page,'DraftSummary')).to_have_text('Draft one:1, Edited second draft:1')
+    page.screenshot(path=str(OUT / 'collection-aliases/restored-and-validated.png'))
+    rows.nth(1).focus()
+    rows.nth(1).evaluate('el=>el.setSelectionRange(2,7)')
+    control(page,'ToggleDraftMode').evaluate('el=>el.click()')
+    expect(rows.nth(1)).to_have_js_property('tagName','TEXTAREA')
+    assert rows.nth(1).evaluate('el=>document.activeElement===el && el.selectionStart===2 && el.selectionEnd===7')
+    expect(control(page,'StandaloneModeDraft')).to_have_js_property('tagName','TEXTAREA')
+    expect(control(page,'StandaloneModeDraft')).to_have_value('Standalone draft')
+    control(page,'StandaloneModeDraft').fill('Standalone\nsecond line')
+    control(page,'StandaloneModeDraft').press('Tab')
+    expect(control(page,'ModeChanged')).to_have_text('Standalone\nsecond line')
+    rows.nth(1).fill('Multiline draft\nSecond line')
+    rows.nth(1).press('Tab')
+    control(page,'DraftRows').locator('[data-control="SaveDraftRow"]').nth(1).click()
+    expect(control(page,'DraftStatus')).to_have_text('saved')
+    records = backend({'fn':'api','args':['Projects','list',{}]})['result']
+    assert records[1]['name'] == 'Multiline draft\nSecond line', records
+    control(page,'AppendDraft').click()
+    expect(rows).to_have_count(3)
+    expect(rows.nth(2)).to_have_value('Third draft')
+    expect(rows.nth(1)).to_have_value('Multiline draft\nSecond line')
+    page.screenshot(path=str(OUT / 'collection-aliases/appended-multiline-draft.png'))
+
+
+def check_card_layout(page, _backend):
+    page.set_viewport_size({'width':640,'height':400})
+    first, wide = control(page,'FirstCard'), control(page,'WideCard')
+    draft = control(page,'WideDraft')
+    def box(name):
+        return control(page,name).bounding_box()
+    expect(draft).to_have_value('Retain this draft')
+    assert first.bounding_box()['x'] == 0 and wide.bounding_box()['x'] == 120
+    assert wide.bounding_box()['width'] == 520
+    assert first.bounding_box()['height'] == wide.bounding_box()['height'] == 100
+    assert box('FullCard')['y'] == 160
+    assert box('HiddenCard')['width'] == box('LastCard')['width'] == 320
+    draft.fill('Draft survives resizing')
+    draft.focus()
+    draft.evaluate('el => {window.__cardInput=el; el.setSelectionRange(2,7)}')
+    page.set_viewport_size({'width':280,'height':400})
+    expect(wide).to_have_css('width','160px')
+    assert box('LastCard')['y'] == box('HiddenCard')['y'] + box('HiddenCard')['height']
+    assert draft.evaluate('el => el===window.__cardInput && document.activeElement===el && el.selectionStart===2 && el.selectionEnd===7')
+    control(page,'ToggleCard').click()
+    expect(control(page,'HiddenCard')).to_be_hidden()
+    assert box('LastCard')['y'] == 220 and box('LastCard')['width'] == 280
+    assert box('FooterCard')['y'] == 360
+    control(page,'FooterAction').click()
+    expect(control(page,'CapturedDraft')).to_have_text('Draft survives resizing')
+    assert control(page,'CardCanvas').evaluate('el => el.scrollTop > 0 && el.scrollWidth === el.clientWidth')
+    expect(draft).to_have_value('Draft survives resizing')
+    expect(control(page,'BoundedTitle')).to_have_css('overflow','hidden')
+    expect(control(page,'BoundedTitle')).to_have_css('white-space','nowrap')
+    scrollable = control(page,'ScrollableText')
+    expect(scrollable).to_have_css('overflow','auto')
+    assert scrollable.evaluate('el => {el.scrollTop=el.scrollHeight; return el.scrollTop > 0}')
+    page.screenshot(path=str(OUT / 'card-layout/scrolled-form.png'))
+
+
+def check_views(page, backend):
+    expect(control(page, 'SelectedProject')).to_have_text('')
+    expect(control(page, 'ViewRows')).to_have_text('Third project, First project')
+    expect(control(page, 'ViewCount')).to_have_text('1')
+    control(page, 'ViewSearch').fill('FIRST')
+    expect(control(page, 'ViewRows')).to_have_text('First project')
+    control(page, 'ViewSearch').fill('absent')
+    expect(control(page, 'ViewRows')).to_have_text('')
+    control(page, 'ViewSearch').fill('')
+    control(page, 'OpenSecond').click()
+    expect(control(page, 'ViewRows')).to_have_text('Second project, Third project, First project')
+    expect(control(page, 'ViewCount')).to_have_text('2')
+    buttons = control(page, 'ProjectGallery').locator('[data-control="SelectProject"]')
+    expect(buttons).to_have_text(['Second project', 'Third project', 'First project'])
+    buttons.nth(1).click()
+    expect(control(page, 'SelectedProject')).to_have_text('Third project')
+    page.reload()
+    expect(control(page, 'ViewRows')).to_have_text('Second project, Third project, First project')
+    expect(control(page, 'SelectedProject')).to_have_text('')
+    rows = backend({'fn':'api','args':['Projects','list',{}]})['result']
+    assert rows[1]['status'] == 0 and rows[1]['active'] is False
+    page.screenshot(path=str(OUT / 'saved-views/filtered-and-reloaded.png'))
+
+
+def check_relative_views(page, backend):
+    names = control(page,'ViewRows')
+    expect(names).to_have_text('Third project, Second project')
+    control(page,'ViewSearch').fill('SECOND')
+    expect(names).to_have_text('Second project')
+    control(page,'ViewSearch').fill('')
+    buttons = control(page,'ProjectGallery').locator('[data-control="SelectProject"]')
+    expect(buttons).to_have_text(['Third project','Second project'])
+    buttons.nth(1).click()
+    expect(control(page,'SelectedProject')).to_have_text('Second project')
+    control(page,'OpenSecond').click()
+    expect(names).to_have_text('First project, Third project, Second project')
+    rows = backend({'fn':'api','args':['Projects','list',{}]})['result']
+    assert next(row for row in rows if row['project']=='project-one')['start__date']=='2026-03-08T15:59:00.000Z'
+    page.reload()
+    expect(names).to_have_text('First project, Third project, Second project')
+    expect(buttons).to_have_text(['First project','Third project','Second project'])
+    page.screenshot(path=str(OUT/'relative-saved-views/saved-and-reloaded.png'))
+    # At the next local midnight, the oldest row leaves the seven-day range
+    # and the formerly future row enters. Persisted dates remain unchanged.
+    page.clock.set_fixed_time(datetime.fromisoformat('2026-03-09T04:00:00+00:00'))
+    page.reload()
+    expect(names).to_have_text('Future project, First project, Third project')
+    expect(buttons).to_have_text(['Future project','First project','Third project'])
+    assert backend({'fn':'api','args':['Projects','list',{}]})['result']==rows
+
+
+def check_relationships(page, backend):
+    names, count, reverse, status = [control(page,name) for name in ['RelatedNames','RelatedCount','InverseCount','RelatedStatus']]
+    expect(control(page,'RelatedProject')).to_have_text('Second project')
+    expect(control(page,'RelatedUser')).to_have_text('Grace')
+    expect(count).to_have_text('0')
+    expect(reverse).to_have_text('0')
+    before = {ds:backend({'fn':'api','args':[ds,'list',{}]})['result'] for ds in ['Projects','Users']}
+    backend({'fn':'__failNextMutation','args':[]})
+    control(page,'AddMember').click()
+    expect(status).to_have_text('link failed')
+    expect(count).to_have_text('0')
+    control(page,'AddMember').click()
+    expect(status).to_have_text('linked')
+    expect(names).to_have_text('Grace')
+    expect(reverse).to_have_text('0')
+    control(page,'RefreshUsers').click()
+    expect(reverse).to_have_text('1')
+    control(page,'ChooseFirstProject').click()
+    expect(count).to_have_text('0')
+    control(page,'AddMember').click()
+    expect(count).to_have_text('1')
+    control(page,'ChooseFirstUser').click()
+    control(page,'AddMember').click()
+    expect(count).to_have_text('2')
+    expect(names).to_have_text('Grace, Ada')
+    control(page,'AddMember').click()
+    page.wait_for_function('async () => await window.__waitForGasIdle()')
+    expect(count).to_have_text('2')
+    page.reload()
+    expect(names).to_have_text('Grace')
+    expect(reverse).to_have_text('2')
+    backend({'fn':'__failNextMutation','args':[]})
+    control(page,'RemoveMember').click()
+    expect(status).to_have_text('unlink failed')
+    expect(count).to_have_text('1')
+    control(page,'RemoveMember').click()
+    expect(status).to_have_text('unlinked')
+    expect(count).to_have_text('0')
+    expect(reverse).to_have_text('2')
+    control(page,'RefreshUsers').click()
+    expect(reverse).to_have_text('1')
+    control(page,'AddReverse').click()
+    expect(status).to_have_text('reverse linked')
+    expect(reverse).to_have_text('2')
+    expect(count).to_have_text('0')
+    control(page,'RefreshProjects').click()
+    expect(count).to_have_text('1')
+    control(page,'RemoveReverse').click()
+    expect(status).to_have_text('reverse unlinked')
+    expect(reverse).to_have_text('1')
+    page.reload()
+    expect(count).to_have_text('0')
+    expect(reverse).to_have_text('1')
+    control(page,'ChooseFirstProject').click()
+    expect(names).to_have_text('Grace, Ada')
+    for ds in before:
+        assert backend({'fn':'api','args':[ds,'list',{}]})['result'] == before[ds]
+    links = backend({'fn':'api','args':['Projects','links',{}]})['result']
+    assert len(links) == 2 and all(link[1] == 'project-one' for link in links), links
+    response = backend({'fn':'api','args':['Users','patch',{'base':{'id':'user-two'},'record':{'fullname':'Grace Hopper'}}]})
+    assert 'error' not in response, response
+    expect(names).to_have_text('Grace, Ada')
+    control(page,'RefreshProjects').click()
+    expect(names).to_have_text('Grace Hopper, Ada')
+    assert page.evaluate("state.Users.find(row=>row.id==='user-two').fullname") == 'Grace'
+    assigned = control(page,'AssignedCount')
+    expect(assigned).to_have_text('0')
+    control(page,'AssignProject').click()
+    expect(status).to_have_text('assigned')
+    expect(assigned).to_have_text('1')
+    assert page.evaluate('state.Projects[0].owner') is None
+    control(page,'ChooseFirstUser').click()
+    expect(assigned).to_have_text('0')
+    control(page,'AssignProject').click()
+    expect(assigned).to_have_text('1')
+    control(page,'ChooseSecondUser').click()
+    expect(assigned).to_have_text('0')
+    control(page,'UnassignProject').click()
+    expect(status).to_have_text('unassigned')
+    rows = backend({'fn':'api','args':['Projects','list',{}]})['result']
+    assert rows[0]['owner']['user'] == 'user-one' and rows[1]['owner'] is None
+    control(page,'ChooseFirstUser').click()
+    backend({'fn':'__failNextMutation','args':[]})
+    control(page,'UnassignProject').click()
+    expect(status).to_have_text('unassignment failed')
+    expect(assigned).to_have_text('1')
+    control(page,'UnassignProject').click()
+    expect(status).to_have_text('unassigned')
+    expect(assigned).to_have_text('0')
+    page.reload()
+    expect(assigned).to_have_text('0')
+    rows = backend({'fn':'api','args':['Projects','list',{}]})['result']
+    assert all(row['owner'] is None for row in rows), rows
+    page.screenshot(path=str(OUT / 'many-to-many-relationships/reloaded-memberships.png'))
+
+
+def setup_planner(backend):
+    migration=json.loads((REPO/'tests/fixtures/planner-board.json').read_text())
+    result=backend({'fn':'__importPlanner','args':[migration]})
+    assert result.get('result')=={'ok':True,'plans':2,'tasks':2}, result
+    return {'source':'authored Planner migration fixture','plans':2,'tasks':2}
+
+
+def check_planner(page, backend):
+    for name,label in [('BoardTitle','Task title'),('BoardAssignee','Assignee email'),('BoardDescription','Task description')]:
+        expect(control(page,name)).to_have_attribute('aria-label',label)
+    for name in ['BoardTitle','BoardAssignee','BoardDescription','BoardCreate','BoardUpdate','BoardTasks']:
+        expect(control(page,name)).to_be_visible()
+        geometry=control(page,name).bounding_box()
+        assert geometry['x'] >= 0 and geometry['x']+geometry['width'] <= page.viewport_size['width'],geometry
+    for name in ['BoardCreate','BoardUpdate']:
+        assert control(page,name).evaluate('el => el.scrollWidth <= el.clientWidth && el.scrollHeight <= el.clientHeight')
+    expect(control(page,'BoardPlans')).to_have_text('Shared inspections')
+    expect(control(page,'BoardGroup')).to_have_text('Shared inspections')
+    expect(control(page,'BoardBuckets')).to_have_text('Repairs')
+    expect(control(page,'BoardCount')).to_have_text('1')
+    expect(control(page,'BoardAssigned')).to_have_text('1')
+    rows=control(page,'BoardTasks').locator('[data-control="BoardSelect"]')
+    expect(rows).to_have_text(['Repair door / 50% / 2 assigned'])
+    control(page,'BoardTitle').fill('Repair window')
+    control(page,'BoardDescription').fill('Inspection notes\nReplace damaged hinge')
+    backend({'fn':'__failNextMutation','args':[]})
+    control(page,'BoardCreate').click()
+    expect(control(page,'BoardStatus')).to_have_text('create failed')
+    expect(control(page,'BoardCount')).to_have_text('1')
+    control(page,'BoardCreate').click()
+    expect(control(page,'BoardStatus')).to_have_text('created')
+    expect(rows).to_have_text(['Repair door / 50% / 2 assigned','Repair window / 0% / 1 assigned'])
+    expect(control(page,'BoardCount')).to_have_text('2')
+    expect(control(page,'BoardAssigned')).to_have_text('1')
+    saved=backend({'fn':'__plannerSnapshot','args':[]})['result']['tasks'][-1]
+    assert saved['title']=='Repair window' and saved['assignees']==['user-b']
+    assert saved['bucket_id']=='bucket-a' and saved['due_date_time']=='2026-09-12T00:00:00.000Z'
+    assert saved['description']=='Inspection notes\nReplace damaged hinge'
+    page.reload()
+    expect(rows).to_have_count(2)
+    rows.nth(1).click()
+    control(page,'BoardDescription').fill('Revised details')
+    backend({'fn':'__failNextMutation','args':[]})
+    control(page,'BoardUpdate').click()
+    expect(control(page,'BoardStatus')).to_have_text('update failed')
+    assert backend({'fn':'__plannerSnapshot','args':[]})['result']['tasks'][-1]==saved
+    control(page,'BoardUpdate').click()
+    expect(control(page,'BoardStatus')).to_have_text('updated')
+    control(page,'BoardAssignee').fill('outside@example.test')
+    control(page,'BoardCreate').click()
+    expect(control(page,'BoardStatus')).to_have_text('create failed')
+    expect(rows).to_have_count(2)
+    page.reload()
+    expect(rows).to_have_count(2)
+    final=backend({'fn':'__plannerSnapshot','args':[]})['result']['tasks']
+    assert len(final)==3 and final[-1]=={**saved,'description':'Revised details'}
+    assert final[0]['description']=='Existing notes' and final[1]['title']=='Private task'
+    page.screenshot(path=str(OUT/'google-planner/persisted-board.png'))
+
+
+def setup_directory(backend):
+    setup_planner(backend)
+    data=json.loads((REPO/'tests/fixtures/google-directory.json').read_text())
+    assert backend({'fn':'__importDirectory','args':[data['migration']]})=={'result':{'ok':True,'users':2}}
+    return {'source':'authored directory identity mappings and Planner board',
+            'googlePeople':'explicit native API response fixtures; no live Google authorization',
+            'users':2,'plans':2,'tasks':2}
+
+
+def check_directory(page,backend):
+    data=json.loads((REPO/'tests/fixtures/google-directory.json').read_text())
+    people=data['people'];grace=people[1]
+    def responses(*items):
+        backend({'fn':'__peopleResponses','args':[list(items)]})
+    def requests():
+        return backend({'fn':'__peopleRequests','args':[]})['result']
+    # Authored image returned at the fixture API's photo URL; no network download.
+    page.route('https://lh3.googleusercontent.com/test-grace',lambda route:route.fulfill(
+        content_type='image/svg+xml',body='<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><circle cx="16" cy="16" r="16" fill="teal"/></svg>'))
+    expect(control(page,'DirectoryStatus')).to_have_text('ready')
+    expect(control(page,'DirectorySearch')).to_have_attribute('aria-label','Search people')
+    responses({'method':'listDirectoryPeople','result':{'people':people}})
+    control(page,'DirectoryFind').click()
+    expect(control(page,'DirectoryStatus')).to_have_text('search complete')
+    rows=control(page,'DirectorySelect')
+    expect(rows).to_have_text(['Ada Lovelace / business.tester@example.test','Grace Hopper / second@example.test'])
+    assert requests()[0]['method']=='listDirectoryPeople'
+    responses({'error':'403 Directory permission revoked'})
+    control(page,'DirectorySearch').fill('Grace')
+    control(page,'DirectoryFind').click()
+    expect(control(page,'DirectoryStatus')).to_have_text('search failed')
+    expect(rows).to_have_count(2)
+    responses({'method':'searchDirectoryPeople','result':{'people':[grace]}})
+    control(page,'DirectoryFind').focus()
+    page.keyboard.press('Enter')
+    expect(control(page,'DirectoryStatus')).to_have_text('search complete')
+    expect(rows).to_have_text(['Grace Hopper / second@example.test'])
+    assert requests()[0]['args'][0]['query']=='Grace'
+    responses({'method':'get','result':grace},{'error':'403 Photo access denied'})
+    rows.click()
+    expect(control(page,'DirectoryStatus')).to_have_text('assignment failed')
+    assert page.evaluate('(state.colTaskAssignments || []).length')==0
+    expect(rows).to_have_count(1)
+    responses({'method':'get','result':grace},{'method':'get','result':grace})
+    rows.click()
+    expect(control(page,'DirectoryStatus')).to_have_text('assigned')
+    expect(control(page,'DirectoryAssigned')).to_have_text('Grace Hopper')
+    expect(rows).to_have_count(0)
+    page.wait_for_function('document.querySelector("[data-control=DirectoryPhoto]").naturalWidth === 32')
+    assert page.evaluate('state.colUserProfiles[0]')=={
+        'app_ref':'user-b','app_email':'second@example.test','app_img':grace['photos'][0]['url'],'app_display_name':'Grace Hopper'}
+    assert [request['args'][0] for request in requests()]==['people/200','people/200']
+    for name in ['DirectorySearch','DirectoryFind','DirectoryCreate','DirectoryPhoto']:
+        expect(control(page,name)).to_be_visible()
+        box=control(page,name).bounding_box()
+        assert box['width']>0 and box['height']>0 and box['x']>=0 and box['x']+box['width']<=page.viewport_size['width'],box
+    backend({'fn':'__failNextMutation','args':[]})
+    control(page,'DirectoryCreate').click()
+    expect(control(page,'DirectoryStatus')).to_have_text('task failed')
+    expect(control(page,'DirectoryTaskCount')).to_have_text('1')
+    control(page,'DirectoryCreate').click()
+    expect(control(page,'DirectoryStatus')).to_have_text('task created')
+    expect(control(page,'DirectoryTaskCount')).to_have_text('2')
+    task=backend({'fn':'__plannerSnapshot','args':[]})['result']['tasks'][-1]
+    assert task['title']=='Directory assigned repair' and task['assignees']==['user-b']
+    page.screenshot(path=str(OUT/'google-directory/assigned-google-person.png'))
+    page.reload()
+    expect(control(page,'DirectoryTaskCount')).to_have_text('2')
+    assert backend({'fn':'__plannerSnapshot','args':[]})['result']['tasks'][-1]==task
+
+
+def setup_chat(backend):
+    data=json.loads((REPO/'tests/fixtures/google-chat.json').read_text())
+    assert backend({'fn':'__importChat','args':[data['migration']]})=={'result':{'ok':True,'teams':2,'channels':3}}
+    return {'source':'authored source-ID to Google space mappings',
+            'googleChat':'explicit native API response fixtures; no real messages or live authorization'}
+
+
+def check_chat(page,backend):
+    data=json.loads((REPO/'tests/fixtures/google-chat.json').read_text())
+    spaces={'method':'list','result':{'spaces':data['spaces']}}
+    created={'method':'create','result':{'name':'spaces/REPAIRS/messages/idea.1'}}
+    def responses(*items):
+        backend({'fn':'__chatResponses','args':[list(items)]})
+    def requests():
+        return backend({'fn':'__chatRequests','args':[]})['result']
+    def messages():
+        return backend({'fn':'__chatMessages','args':[]})['result']
+    expect(control(page,'ChatStatus')).to_have_text('ready')
+    for name,label in [('ChatTeam','Choose team'),('ChatChannel','Choose channel'),
+                       ('ChatSubject','Notification subject'),('ChatDescription','Idea description')]:
+        expect(control(page,name)).to_have_attribute('aria-label',label)
+    responses({'method':'list','error':'403 Chat is disabled'})
+    control(page,'ChatLoadTeams').click()
+    expect(control(page,'ChatStatus')).to_have_text('teams failed')
+    responses(spaces)
+    control(page,'ChatLoadTeams').click()
+    expect(control(page,'ChatStatus')).to_have_text('teams ready')
+    expect(control(page,'ChatTeam').locator('option')).to_have_text(['Facilities','Operations'])
+    control(page,'ChatTeam').select_option(index=0)
+    responses(spaces,spaces)
+    control(page,'ChatLoadChannels').click()
+    expect(control(page,'ChatStatus')).to_have_text('channels ready')
+    expect(control(page,'ChatTeamName')).to_have_text('Facilities')
+    expect(control(page,'ChatChannel').locator('option')).to_have_text(['Facilities','Repairs'])
+    expect(control(page,'ChatRowChannel').locator('option')).to_have_text(['Facilities','Repairs'])
+    control(page,'ChatRowChannel').select_option(index=1)
+    expect(control(page,'ChatPreviewId')).to_have_text('repairs')
+    expect(control(page,'ChatRowChannel')).to_have_value('repairs')
+    page.evaluate('window.__chatRow=document.querySelector("[data-control=ChatRowChannel]")')
+    control(page,'ChatChannel').select_option(index=1)
+    assert page.evaluate('val("ChatTeam").selected.id')=='team-a'
+    assert page.evaluate('val("ChatChannel").selected.id')=='repairs'
+    control(page,'ChatSubject').fill('Repair door')
+    control(page,'ChatDescription').fill('Replace hinge & tighten bolts')
+    responses(spaces,{'method':'create','error':'403 Posting permission revoked'})
+    control(page,'ChatPost').click()
+    expect(control(page,'ChatStatus')).to_have_text('send failed')
+    assert messages()==[] and [r['method'] for r in requests()]==['list','create']
+    responses(spaces,created)
+    control(page,'ChatPost').focus();page.keyboard.press('Enter')
+    expect(control(page,'ChatStatus')).to_have_text('sent')
+    expect(control(page,'ChatMessageId')).to_have_text('spaces/REPAIRS/messages/idea.1')
+    expect(control(page,'ChatRowChannel')).to_have_value('repairs')
+    assert page.evaluate('window.__chatRow===document.querySelector("[data-control=ChatRowChannel]")')
+    saved=messages();assert len(saved)==1
+    message,parent,options=saved[0]['request']
+    assert parent=='spaces/REPAIRS' and set(options)=={'requestId'}
+    assert message=={'text':'**Repair door**\n\nA new employee idea has been created\\!  \n  \n**Description**  \nReplace hinge \\& tighten bolts',
+                     'markupSyntax':'MARKUP_SYNTAX_MARKDOWN'}
+    page.screenshot(path=str(OUT/'google-chat/native-notification.png'))
+    responses()
+    control(page,'ChatDescription').fill('<at>Everyone</at>')
+    control(page,'ChatPost').click()
+    expect(control(page,'ChatStatus')).to_have_text('send failed')
+    assert requests()==[] and messages()==saved
+    for name in ['ChatTeam','ChatChannel','ChatPost','ChatMessageId']:
+        expect(control(page,name)).to_be_visible()
+        box=control(page,name).bounding_box()
+        assert box['width']>0 and box['height']>0 and box['x']>=0 and box['x']+box['width']<=page.viewport_size['width'],box
+    page.reload()
+    expect(control(page,'ChatStatus')).to_have_text('ready')
+    assert messages()==saved
+
+
+def check_horizontal_gallery(page,_backend):
+    for name,wrap,count in [('LoadingLogos',1,3),('WrappedLogos',2,6)]:
+        gallery=control(page,name)
+        expect(gallery).to_have_attribute('data-gallery-layout','horizontal')
+        expected_height=(48+20)*wrap+20
+        page.wait_for_function('([name,height]) => {const r=document.querySelector(`[data-control="${name}"]`).getBoundingClientRect(); return r.width===224 && r.height===height;}',arg=[name,expected_height])
+        buttons=control(page,name+'Select');expect(buttons).to_have_count(count)
+        host=gallery.bounding_box()
+        for index in range(count):
+            row=buttons.nth(index);expect(row).to_be_visible();bounds=row.bounding_box()
+            assert bounds['width']==bounds['height']==48,bounds
+            assert bounds['x']==host['x']+20+(index//wrap)*68,bounds
+            assert bounds['y']==host['y']+20+(index%wrap)*68,bounds
+        buttons.last.click()
+        expect(control(page,'SelectedLogo')).to_have_text('ABCDEF'[count-1])
+    for _ in range(10): control(page,'LayoutTick').click()
+    page.wait_for_timeout(500)
+    assert control(page,'LoadingLogos').bounding_box()['width']==224
+    assert page.evaluate('document.documentElement.scrollWidth')<=page.viewport_size['width']
+    assert page.evaluate('document.documentElement.scrollHeight')<=page.viewport_size['height']
+    page.screenshot(path=str(OUT/'horizontal-gallery/stable-template-geometry.png'),full_page=True)
+
+
+def check_responsive_gallery(page,_backend):
+    def geometry(size,count,logo_size):
+        page.wait_for_function('([size,count,logo])=>{const v=FXRuntime.val; return v("ResponsiveRows").template_height===size && v("ResponsiveRows").height===size*count && v("GalleryCard").height===size*count+20 && v("ResponsiveLogos").width===(logo+20)*3+20;}',arg=[size,count,logo_size])
+        assert control(page,'GalleryCard').bounding_box()['height']==size*count+20
+        drafts=control(page,'RowDraft');expect(drafts).to_have_count(count)
+        host=control(page,'ResponsiveRows').bounding_box()
+        for index in range(count):
+            bounds=drafts.nth(index).bounding_box()
+            assert bounds['height']==size-16 and bounds['y']==host['y']+index*size+8,bounds
+        logos=control(page,'ChooseLogo');expect(logos).to_have_count(3)
+        for index in range(3):
+            bounds=logos.nth(index).bounding_box()
+            assert bounds['width']==bounds['height']==logo_size,bounds
+    page.set_viewport_size({'width':1280,'height':800})
+    geometry(72,0,48)
+    control(page,'PopulateRows').focus();page.keyboard.press('Enter')
+    geometry(72,2,48)
+    control(page,'RowDraft').first.fill('Keep edited milestone')
+    page.evaluate('window.__responsiveDraft=document.querySelector("[data-control=RowDraft]")')
+    page.set_viewport_size({'width':760,'height':800})
+    geometry(84,2,64)
+    expect(control(page,'RowDraft').first).to_have_value('Keep edited milestone')
+    assert page.evaluate('window.__responsiveDraft===document.querySelector("[data-control=RowDraft]")')
+    control(page,'ChooseRow').last.click();expect(control(page,'ChosenRow')).to_have_text('Beta')
+    control(page,'ChooseLogo').last.focus();page.keyboard.press('Enter')
+    expect(control(page,'ChosenRow')).to_have_text('C')
+    page.screenshot(path=str(OUT/'responsive-gallery/narrow-template-geometry.png'),full_page=True)
+    page.set_viewport_size({'width':1280,'height':800});geometry(72,2,48)
+    control(page,'ClearRows').click();geometry(72,0,48)
+    page.screenshot(path=str(OUT/'responsive-gallery/empty-template-geometry.png'),full_page=True)
+
+
 def main():
     subprocess.run([sys.executable, str(REPO / "tests/fixtures/build.py")], check=True, capture_output=True)
     cases = [("business-form", REPO / "tests/fixtures/fixtureForm.msapp", check_form),
              ("business-charts", REPO / "tests/fixtures/fixtureCharts.msapp", check_charts),
              ("record-scopes", REPO / "tests/fixtures/fixtureScopes.msapp", check_scopes)]
+    cases.append(("editable-gallery", REPO / "tests/fixtures/fixtureGallery.msapp", check_gallery))
+    cases.append(('nested-gallery',REPO/'tests/fixtures/fixtureNestedGallery.msapp',check_nested_gallery))
+    cases.append(('control-coercion',REPO/'tests/fixtures/fixtureControlCoercion.msapp',check_control_coercion))
+    cases.append(('control-coercion-v1',REPO/'tests/fixtures/fixtureControlCoercionV1.msapp',
+                  lambda page,backend:check_control_coercion(page,backend,True)))
+    cases.append(('fluent-dates',REPO/'tests/fixtures/fixtureFluentDates.msapp',check_fluent_dates,
+                  False,None,None,None,None,'America/New_York','2026-03-01T16:00:00+00:00'))
+    cases.append(("timer-lifecycle", REPO / "tests/fixtures/fixtureTimer.msapp", check_timers, True))
+    cases.append(("local-draft-storage", REPO / "tests/fixtures/fixtureStorage.msapp", check_storage))
+    cases.append(("dataverse-contract", REPO / "tests/fixtures/fixtureDataverse.msapp", check_dataverse))
+    cases.append(('dataverse-state',REPO/'tests/fixtures/fixtureDataverseState.msapp',check_dataverse_state))
+    cases.append(('checkbox-events',REPO/'tests/fixtures/fixtureCheckboxEvents.msapp',check_checkbox_events))
+    cases.append(('named-formulas',REPO/'tests/fixtures/fixtureNamedFormulas.msapp',check_named_formulas))
+    cases.append(('modern-components',REPO/'tests/fixtures/fixtureModernComponents.msapp',check_modern_components))
+    cases.append(('button-icons',REPO/'tests/fixtures/fixtureButtonIcons.msapp',check_button_icons))
+    cases.append(('flexible-gallery',REPO/'tests/fixtures/fixtureFlexibleGallery.msapp',check_flexible_gallery))
+    cases.append(('scaled-flexible-gallery',REPO/'tests/fixtures/fixtureScaledFlexibleGallery.msapp',check_flexible_gallery))
+    cases.append(('selection-defaults',REPO/'tests/fixtures/fixtureSelectionDefaults.msapp',check_selection_defaults))
+    cases.append(('modern-selection-defaults',REPO/'tests/fixtures/fixtureModernSelectionDefaults.msapp',check_selection_defaults))
+    cases.append(('dependent-layout',REPO/'tests/fixtures/fixtureDependentLayout.msapp',check_dependent_layout))
+    cases.append(('bare-inputs',REPO/'tests/fixtures/fixtureBareInputs.msapp',check_bare_inputs,True))
+    cases.append(('svg-text',REPO/'tests/fixtures/fixtureSvgText.msapp',check_svg_text))
+    cases.append(('start-screen',REPO/'tests/fixtures/fixtureStartScreen.msapp',check_start_screen))
+    cases.append(('modern-composites',REPO/'tests/fixtures/fixtureComposite.msapp',lambda page,backend:check_composite_controls(page,backend,'modern-composites'),False,None,{'width':1280,'height':960}))
+    cases.append(('legacy-composites',REPO/'tests/fixtures/fixtureCompositeLegacy.msapp',lambda page,backend:check_composite_controls(page,backend,'legacy-composites'),False,None,{'width':1280,'height':960}))
+    cases.append(('start-directory',REPO/'tests/fixtures/fixtureStartDirectory.msapp',check_start_directory,
+                  False,None,None,None,setup_start_directory))
+    cases.append(('native-layout',REPO/'tests/fixtures/fixtureNativeLayout.msapp',check_native_layout))
+    cases.append(('scaled-native-layout',REPO/'tests/fixtures/fixtureScaledNativeLayout.msapp',check_native_layout))
+    cases.append(('many-to-many-relationships', REPO / 'tests/fixtures/fixtureRelationships.msapp', check_relationships))
+    cases.append(("source-formulas", REPO / "tests/fixtures/fixtureSourceFormulas.msapp", check_source_formulas))
+    cases.append(("responsive-canvas", REPO / "tests/fixtures/fixtureCanvas.msapp", check_canvas))
+    cases.append(("scaled-canvas", REPO / "tests/fixtures/fixtureScaledCanvas.msapp", check_scaled_canvas))
+    cases.append(("navigation-context", REPO / "tests/fixtures/fixtureNavigation.msapp", check_navigation))
+    cases.append(('card-layout', REPO / 'tests/fixtures/fixtureCardLayout.msapp', check_card_layout))
+    cases.append(('collection-aliases', REPO / 'tests/fixtures/fixtureCollectionAliases.msapp', check_collection_aliases))
+    cases.append(('google-planner', REPO/'tests/fixtures/fixturePlanner.msapp', check_planner,
+                  False,None,None,None,setup_planner,'UTC'))
+    cases.append(('google-directory', REPO/'tests/fixtures/fixtureDirectory.msapp', check_directory,
+                  False,None,None,None,setup_directory,'UTC'))
+    cases.append(('google-chat', REPO/'tests/fixtures/fixtureChat.msapp', check_chat,
+                  False,None,None,None,setup_chat,'UTC'))
+    cases.append(('horizontal-gallery',REPO/'tests/fixtures/fixtureHorizontalGallery.msapp',check_horizontal_gallery))
+    cases.append(('responsive-gallery',REPO/'tests/fixtures/fixtureResponsiveGallery.msapp',check_responsive_gallery))
+    cases.append(("saved-views", REPO / "tests/fixtures/fixtureViews.msapp", check_views,
+                  False, None, None, REPO / 'tests/fixtures/fixtureViews.solution.zip'))
+    cases.append(('relative-saved-views', REPO/'tests/fixtures/fixtureRelativeViews.msapp', check_relative_views,
+                  False, None, None, REPO/'tests/fixtures/fixtureRelativeViews.solution.zip', None,
+                  'America/New_York', '2026-03-08T16:00:00+00:00'))
     helpdesk = REPO / "samples/real/helpdesk.msapp"
     if helpdesk.exists():
         cases.append(("helpdesk", helpdesk, check_helpdesk))
@@ -210,6 +1802,28 @@ def main():
     with sync_playwright() as p:
         browser = p.chromium.launch()
         results = [run_case(browser, *case) for case in cases]
+        def fail_capture(page, _backend):
+            def fail_screenshot(**_kwargs):
+                raise RuntimeError('deliberate screenshot failure')
+            page.screenshot = fail_screenshot
+            raise RuntimeError('deliberate journey failure')
+        failed = run_case(browser, 'evidence-failure-gate', REPO / 'tests/fixtures/fixtureA.msapp', fail_capture)
+        assert failed['status'] == 'fail' and failed['error'] == 'deliberate journey failure'
+        assert failed['screenshot'] == {'status':'fail','error':'deliberate screenshot failure'}
+        assert (OUT / 'evidence-failure-gate/result.json').exists()
+        def late_console_error(page, _backend):
+            screenshot = page.screenshot
+            def capture(**kwargs):
+                page.evaluate("console.error('deliberate late capture error')")
+                return screenshot(**kwargs)
+            page.screenshot = capture
+        late = run_case(browser,'late-runtime-error-gate',REPO / 'tests/fixtures/fixtureA.msapp',late_console_error)
+        assert late['status'] == 'fail' and 'deliberate late capture error' in late['consoleErrors']
+        def pending_callback_error(page, _backend):
+            page.evaluate("google.script.run.withSuccessHandler(() => console.error('deliberate pending callback error')).whoami(); void 0")
+        pending = run_case(browser,'pending-runtime-error-gate',REPO / 'tests/fixtures/fixtureA.msapp',pending_callback_error)
+        assert pending['status'] == 'fail' and 'deliberate pending callback error' in pending['consoleErrors']
+        assert pending['serverCallDrain']['status'] == 'pass'
         browser.close()
     (OUT / "results.json").write_text(json.dumps(results, indent=2) + "\n")
     return int(any(result["status"] != "pass" for result in results))

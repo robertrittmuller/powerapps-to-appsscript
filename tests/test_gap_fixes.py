@@ -337,8 +337,9 @@ def test_generated_app_navigates_to_start_screen(legacy_ir, tmp_path):
 
     ir = __import__("pfx2gas.analyze", fromlist=["analyze"]).analyze(legacy_ir)
     out = synthesize(ir, tmp_path / "StartScreen")
-    app_js = (out / "App.js.html").read_text()
-    assert "go('HOME')" in app_js
+    from pfx2gas.startup_sim import simulate_project
+    result = simulate_project(out)
+    assert result['visible'] == ['HOME'] and not result['consoleErrors'], result
     # every screen section is hidden in static markup; runtime reveals HOME
     screens_html = (out / "Screens.html").read_text()
     assert 'data-screen="HOME" style="display:none"' in screens_html
