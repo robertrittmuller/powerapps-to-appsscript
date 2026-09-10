@@ -481,6 +481,7 @@ def run_case(browser, name, source, journey, clock=False, launch_parameters=None
     page.on("pageerror", lambda error: errors.append(str(error)))
     page.on("console", lambda msg: errors.append(msg.text) if msg.type == "error" else None)
     result = {"app": name, "status": "pass", "backend": "generated Code.gs + Sheets test double",
+              "codeValidation": validation,
               "originalVisualComparison": "unassessed", "evidenceType": "chromium-generated-client-and-server",
               "inputSha256": hashlib.sha256(source.read_bytes()).hexdigest(),
               "sourceMetadata": ir.source_metadata,
@@ -642,6 +643,91 @@ def check_modern_components(page, _backend):
     expect(control(page,'AppCounts')).to_have_text('900/1')
     expect(control(page,'First__Counts')).to_have_text('0/0')
     expect(control(page,'Second__Counts')).to_have_text('0/0')
+
+
+def check_button_icons(page, _backend):
+    expand,after,plain,fallback=(control(page,name) for name in ['Expand','After','Plain','Fallback'])
+    symbol=lambda button:button.locator('[data-fx-button-symbol]')
+    caption=lambda button:button.locator('[data-fx-button-caption]')
+    expect(expand).to_have_accessible_name('Expand section')
+    expect(caption(expand)).to_be_hidden()
+    expect(symbol(expand)).to_be_visible()
+    assert symbol(expand).evaluate('el=>getComputedStyle(el,"::before").content').strip('"')=='❯'
+    assert page.evaluate('val("Expand").text')=='Expand'
+    expand.evaluate('el=>window.originalExpand=el')
+    expand.focus();page.keyboard.press('Enter')
+    expect(expand).to_have_accessible_name('Collapse section')
+    expect(control(page,'Result')).to_have_text('Expand/0')
+    expect(control(page,'SourceCaption')).to_have_text('Collapse')
+    expect(expand).to_be_focused()
+    assert expand.evaluate('el=>el===window.originalExpand')
+    expect(symbol(after)).to_have_css('transform','matrix(0, 1, -1, 0, 0, 0)')
+    expand.press('Space');expect(expand).to_have_accessible_name('Expand section')
+    expect(control(page,'Result')).to_have_text('Collapse/0')
+    assert symbol(after).bounding_box()['x']>caption(after).bounding_box()['x']
+    after.click();expect(control(page,'Result')).to_have_text('Save/0')
+    expect(symbol(plain)).to_be_hidden();expect(caption(plain)).to_be_visible()
+    plain.click();expect(control(page,'Result')).to_have_text('Plain/0')
+    expect(fallback).to_have_accessible_name('Delete')
+    expect(symbol(fallback)).to_be_visible();expect(caption(fallback)).to_be_hidden()
+    fallback.click();expect(control(page,'Result')).to_have_text('Delete/0')
+    network=control(page,'Network')
+    expect(network).to_have_accessible_name('Globe')
+    assert symbol(network).evaluate('el=>getComputedStyle(el,"::before").content').strip('"')=='🌐'
+    network.click();expect(control(page,'Result')).to_have_text('Network/0')
+    rows=control(page,'RowAction')
+    expect(rows).to_have_text(['Row Alpha','Row Beta'])
+    expect(rows.nth(0)).to_have_accessible_name('Toggle Alpha')
+    expect(rows.nth(1)).to_have_accessible_name('Toggle Beta')
+    glyphs=[symbol(rows.nth(i)).get_attribute('data-fx-glyph') for i in range(2)]
+    assert glyphs[0]!=glyphs[1]
+    assert symbol(rows.nth(0)).bounding_box()['x']<caption(rows.nth(0)).bounding_box()['x']
+    rows.nth(1).focus();page.keyboard.press('Enter')
+    expect(control(page,'Result')).to_have_text('Row Beta/2')
+    expect(rows.nth(1)).to_be_focused()
+    expect(symbol(rows.nth(1))).to_have_attribute('data-fx-glyph',glyphs[0])
+    expect(symbol(rows.nth(0))).to_have_attribute('data-fx-glyph',glyphs[0])
+    assert symbol(rows.nth(1)).bounding_box()['x']<caption(rows.nth(1)).bounding_box()['x']
+    rows.nth(0).click();expect(control(page,'Result')).to_have_text('Row Alpha/1')
+    expect(symbol(rows.nth(0))).to_have_attribute('data-fx-glyph',glyphs[1])
+    expect(symbol(rows.nth(1))).to_have_attribute('data-fx-glyph',glyphs[0])
+    page.reload();expect(control(page,'Result')).to_have_text('/0')
+    expect(expand).to_have_accessible_name('Expand section')
+    expect(symbol(rows.nth(1))).to_have_attribute('data-fx-glyph',glyphs[1])
+
+
+def check_flexible_gallery(page, _backend):
+    cards=control(page,'Cards');rows=cards.locator(':scope > .fx-rows > .fx-row')
+    nested=lambda i:rows.nth(i).locator('[data-control="Entries"]')
+    def heights(expected):
+        # offsetHeight is in design pixels even when the entire canvas scales.
+        assert rows.evaluate_all('els=>els.map(el=>el.offsetHeight)')==expected
+        boxes=rows.evaluate_all('els=>els.map(el=>({top:el.offsetTop,height:el.offsetHeight,gap:parseFloat(getComputedStyle(el).marginBottom)}))')
+        assert boxes[1]['top']==boxes[0]['top']+expected[0]+4,boxes
+        assert all(row['gap']==4 for row in boxes),boxes
+        assert control(page,'Fixed').locator(':scope > .fx-rows > .fx-row').evaluate_all('els=>els.map(el=>el.offsetHeight)')==[222,222]
+    expect(rows).to_have_count(2);heights([32,32])
+    draft=control(page,'Draft').nth(1);draft.fill('Retained draft')
+    control(page,'Toggle').first.click();expect(nested(0)).to_be_visible()
+    heights([104,32])
+    expect(nested(0).locator('[data-control="Choose"]')).to_have_text(['One','Two'])
+    assert nested(0).locator(':scope > .fx-rows > .fx-row').evaluate_all('els=>els.map(el=>el.offsetHeight)')==[36,36]
+    nested(0).locator('[data-control="Choose"]').nth(1).click()
+    expect(control(page,'Choice')).to_have_text('Two')
+    control(page,'Toggle').nth(1).click();expect(nested(0)).to_be_hidden();heights([32,68])
+    nested(1).locator('[data-control="Choose"]').click();expect(control(page,'Choice')).to_have_text('Three')
+    control(page,'Tall').click();heights([450,68])
+    control(page,'Tall').click();heights([32,68])
+    draft.focus();draft.evaluate('el=>{window.savedDraft=el;el.setSelectionRange(2,5)}')
+    page.set_viewport_size({'width':520,'height':700})
+    page.wait_for_timeout(100);heights([32,68])
+    expect(draft).to_have_value('Retained draft');expect(draft).to_be_focused()
+    assert draft.evaluate('el=>el===window.savedDraft && el.selectionStart===2 && el.selectionEnd===5')
+    child=nested(1).locator('[data-control="Choose"]')
+    assert abs(child.bounding_box()['width']-nested(1).bounding_box()['width'])<=1
+    child.click();expect(control(page,'Choice')).to_have_text('Three')
+    control(page,'Toggle').nth(1).click();heights([32,32])
+    page.reload();expect(control(page,'Draft').nth(1)).to_have_value('Beta');heights([32,32])
 
 
 def check_native_layout(page, _backend):
@@ -1464,6 +1550,9 @@ def main():
     cases.append(('checkbox-events',REPO/'tests/fixtures/fixtureCheckboxEvents.msapp',check_checkbox_events))
     cases.append(('named-formulas',REPO/'tests/fixtures/fixtureNamedFormulas.msapp',check_named_formulas))
     cases.append(('modern-components',REPO/'tests/fixtures/fixtureModernComponents.msapp',check_modern_components))
+    cases.append(('button-icons',REPO/'tests/fixtures/fixtureButtonIcons.msapp',check_button_icons))
+    cases.append(('flexible-gallery',REPO/'tests/fixtures/fixtureFlexibleGallery.msapp',check_flexible_gallery))
+    cases.append(('scaled-flexible-gallery',REPO/'tests/fixtures/fixtureScaledFlexibleGallery.msapp',check_flexible_gallery))
     cases.append(('native-layout',REPO/'tests/fixtures/fixtureNativeLayout.msapp',check_native_layout))
     cases.append(('scaled-native-layout',REPO/'tests/fixtures/fixtureScaledNativeLayout.msapp',check_native_layout))
     cases.append(('many-to-many-relationships', REPO / 'tests/fixtures/fixtureRelationships.msapp', check_relationships))

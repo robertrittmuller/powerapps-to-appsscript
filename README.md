@@ -350,6 +350,13 @@ Converted apps aim to match the original visually and behaviorally:
   `ImageRotation`; safe local PNG/JPEG/GIF/WebP resources are embedded as data
   URIs so old docserver URLs and asset-name/icon-name collisions cannot break
   the generated app.
+- **Button icons** — modern Button/ModernButton Icon and Layout formulas render
+  portable glyphs before/after the caption, alone, or hidden for TextOnly.
+  IconRotation, changing accessible labels and source actions remain reactive
+  in standalone and gallery controls. The icon does not alter Power Fx Text.
+  Buttons retain native Enter/Space activation and focus; an unlabeled icon
+  uses its source icon name as a marked accessibility fallback. Unknown visible
+  icons fail explicitly. Exact Fluent glyphs, IconStyle and Appearance remain gaps.
 - **Accessibility & input semantics** — `Role` (ARIA roles), `AccessibleLabel`/
   `Tooltip` (aria-label), `Live` (aria-live), `TabIndex`, `DisplayMode: Disabled`
   (disabled/readonly attributes), `MaxLength`, `VirtualKeyboardMode` (inputmode),
@@ -373,6 +380,13 @@ Converted apps aim to match the original visually and behaviorally:
   after the child handler, avoiding duplicate parent actions from DOM bubbling.
   ID-less records use object identity, then typed equality for fresh equivalent
   records. Identical clones follow prior occurrence order.
+- **Flexible-height galleries** — the exported VariableHeight variant sizes each
+  row from its visible direct children, including nested galleries. TemplateSize
+  remains available to formulas as the editor extent; it does not impose empty
+  space below each running row. Fixed galleries retain their template size.
+  Static TemplatePadding separates flexible rows. Resize preserves row inputs
+  and focus, including scaled canvases. Full AutoHeight dependency scheduling,
+  horizontal flexible galleries and wrapped flexible layouts remain unverified.
 - **Selectors** — Dropdown, ComboBox, and ListBox options preserve their source
   records for `Selected`/`SelectedItems`; `DisplayFields`, default selections,
   and multi-select are wired into native selects.
@@ -443,7 +457,11 @@ Converted apps aim to match the original visually and behaviorally:
   unsupported definitions render an error and fail runtime checks. Custom
   actions/events/functions and OnReset remain gaps. The public navigation sample
   now exposes its menu and Google profile data and passes Work → Home navigation;
-  expansion controls and the complete destination workflow still need testing.
+  its full navigation critical workflow and UI pass 75 browser checks at three
+  window sizes, including expansion/collapse, every destination/return, profile
+  fallback and reload. Source canvas minimum dimensions remain, so smaller
+  windows can scroll. Exit shows browser close-window feedback. Exact source
+  visuals and live Google permissions remain separate checks.
 - **Omitted modern layout defaults** — native Rules and DynamicProperties from
   the same export supplement missing YAML layout formulas, with property-level
   provenance. Explicit YAML values win; conflicting native values fail and
@@ -451,8 +469,8 @@ Converted apps aim to match the original visually and behaviorally:
   control dimensions without stale component defaults replacing measured sizes.
   Native and scaled-canvas fixtures verify dimensions, readable controls,
   navigation, resize and reload. Dynamic container orientation/fill settings,
-  factory defaults absent from both representations and flexible gallery row
-  heights remain separate gaps.
+  factory defaults absent from both representations and full AutoHeight
+  dependency scheduling remain separate gaps.
 - **Charts** — legacy pie/bar/line families render as SVG, including visible
   single-value pies; generated series labels/color sets feed separate Legend
   controls instead of rendering `No data`.

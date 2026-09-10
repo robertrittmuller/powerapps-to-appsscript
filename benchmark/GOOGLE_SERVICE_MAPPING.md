@@ -157,7 +157,9 @@ are checked. Native API responses and the photo image are authored test fixtures
 live Google authorization, visibility, URL lifetime and quotas remain unverified.
 No full real-app workflow is inferred from this fixture.
 The unchanged public navigation sample displays its MyProfileV2 mail field using
-an explicit Google People response fixture and passes Work → Home navigation.
+an explicit Google People response fixture. Its complete navigation critical
+workflow and UI now pass 75 browser checks: all destinations/returns, expansion,
+keyboard use, menu layout at three window sizes, profile fallback and reload.
 Menu expansion and every destination still require verification; this remains
 partial workflow and service evidence.
 

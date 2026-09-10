@@ -508,6 +508,13 @@ def _static_text(ctrl: ControlNode) -> str:
     return ""
 
 
+def _button_visual_properties(ctrl: ControlNode):
+    if ctrl.type != 'Button' or not {'Icon','Layout'} & ctrl.properties.keys():
+        return []
+    return [('Icon','buttonIcon'),('Layout','buttonLayout'),('IconRotation','buttonRotation'),
+            ('AccessibleLabel','ariaLabel'),('Tooltip','title')]
+
+
 def _static_html(ctrl: ControlNode) -> str:
     if ctrl.type != "HtmlText":
         return ""
@@ -751,6 +758,8 @@ def _render_control(
         wrap_count = _static_scalar(ctrl.properties.get("WrapCount"))
         orientation = (_static_raw(ctrl.properties.get("Layout")) or '').lower()
         gallery_attrs = ""
+        if ctrl.variant == 'VariableHeight':
+            gallery_attrs += ' data-gallery-flexible-height="true"'
         if orientation in {"horizontal", "vertical"}:
             gallery_attrs += f' data-gallery-layout="{orientation}"'
             mark_emission(ctrl.properties.get("Layout"), "approximated",
@@ -758,6 +767,8 @@ def _render_control(
         if row_size:
             gallery_attrs += f' data-template-size="{html.escape(row_size, quote=True)}"'
             mark_emission(ctrl.properties.get("TemplateSize"), "approximated",
+                          "flexible gallery retains editor template extent; rendered rows follow visible child bounds"
+                          if ctrl.variant == 'VariableHeight' else
                           "gallery template extent follows TemplateSize in its source orientation")
         if row_padding:
             gallery_attrs += f' data-template-padding="{html.escape(row_padding, quote=True)}"'
@@ -1050,6 +1061,7 @@ def _emit_gallery(lines: list[str], ctrl: ControlNode, parent_names: dict[str, s
             if texpr and texpr.js and _static_raw(texpr) is None:
                 row_properties.append(("text", texpr))
             row_inputs = [('TemplateSize','templateSize')] if child.type == 'Gallery' else []
+            row_inputs.extend(_button_visual_properties(child))
             if child.type in {"Dropdown", "ComboBox", "ListBox"}:
                 display_property = "Value" if child.type == "Dropdown" and "Value" in child.properties else "DisplayFields"
                 row_inputs.extend([(display_property, "displayFields"), ("Items", "items"),
@@ -1109,8 +1121,9 @@ def _emit_gallery(lines: list[str], ctrl: ControlNode, parent_names: dict[str, s
                     )
                     mark_emission(
                         prop_expr,
-                        "approximated" if runtime_key in {"display", "src"} else "emitted",
-                        "gallery-row formula is evaluated in ThisItem/Self/Parent context",
+                        "approximated" if runtime_key in {"display", "src", "buttonIcon"} else "emitted",
+                        "portable button glyph; exact Fluent icon appearance is not reproduced" if runtime_key == 'buttonIcon'
+                        else "gallery-row formula is evaluated in ThisItem/Self/Parent context",
                     )
                 row_fns.append("        });")
             row_fns.extend('      '+line for line in nested_lines)
@@ -1193,6 +1206,9 @@ def render_app_js(ir: AppIR) -> str:
         lines.append('  });')
     parent_names = _control_parents(ir)
     control_nodes = {ctrl.name:ctrl for screen in ir.screens for ctrl in screen.walk_controls()}
+    if any(_button_visual_properties(ctrl) for ctrl in control_nodes.values()):
+        from ..icons import icon_map
+        lines.append('  FXRuntime.configureButtonIcons(' + json.dumps(icon_map()) + ');')
     referenced_props = _referenced_control_properties(ir, parent_names)
     contexts = {screen.name: screen.context_vars for screen in ir.screens}
     lines.append(f"  FXRuntime.configureContexts({json.dumps(contexts)});")
@@ -1302,6 +1318,9 @@ def render_app_js(ir: AppIR) -> str:
                     inputs.extend([('AccessibleLabel', 'ariaLabel'), ('Tooltip', 'title')])
                 if ctrl.type in {'TextInput', 'TextArea'}:
                     inputs.insert(0, ('Mode', 'mode'))
+                button_visuals = _button_visual_properties(ctrl)
+                if button_visuals:
+                    inputs.extend([('Text','text'),*button_visuals])
                 properties = [(key, ctrl.properties[prop]) for prop, key in inputs
                               if prop in ctrl.properties and ctrl.properties[prop].js
                               and "await " not in ctrl.properties[prop].js]
@@ -1309,7 +1328,8 @@ def render_app_js(ir: AppIR) -> str:
                     lines.append(f"  FXRuntime.inputControl({ctrl.name!r}, {parent_names.get(ctrl.name)!r}, {{")
                     for key, expr in properties:
                         lines.append(f"    {key!r}: function (val, selfRef, parentRef) {{ return {expr.js}; }},")
-                        mark_emission(expr)
+                        mark_emission(expr, 'approximated' if key == 'buttonIcon' else 'emitted',
+                                      'portable button glyph; exact Fluent icon appearance is not reproduced' if key == 'buttonIcon' else '')
                     lines.append("  });")
             wanted_props = set(referenced_props.get(ctrl.name, set()))
             wanted_props.update(ctrl.component_inputs)
@@ -1469,7 +1489,7 @@ def render_app_js(ir: AppIR) -> str:
 
             text_expr = ctrl.properties.get("Text")
             if (text_expr and text_expr.js and not text_expr.js.startswith("'")
-                    and ctrl.type not in {"Gallery"}):
+                    and ctrl.type not in {"Gallery"} and not _button_visual_properties(ctrl)):
                 lines.append(f"  // {ctrl.name}.Text (reactive)")
                 lines.append("  FXRuntime.addEvaluator(function () {")
                 lines.append(f"    var el = FXRuntime.controlElement({ctrl.name!r});")
@@ -1588,6 +1608,12 @@ INDEX_CSS = """
     [data-control] { box-sizing: border-box; }
     [data-screen] > [data-control] { position: absolute; }
     button { cursor: pointer; overflow: hidden; }
+    [data-fx-button-content] { display:inline-flex; align-items:center; gap:6px; vertical-align:middle; max-width:100%; }
+    [data-fx-button-content][data-fx-button-layout="iconafter"] { flex-direction:row-reverse; }
+    [data-fx-button-symbol] { display:inline-block; flex-shrink:0; line-height:1;
+      font-family:'Apple Symbols','Noto Sans Symbols 2','Segoe UI Symbol',sans-serif; }
+    [data-fx-button-symbol]::before { content:attr(data-fx-glyph); }
+    [data-fx-button-caption] { overflow:hidden; text-overflow:ellipsis; }
     input, select, textarea { box-sizing: border-box; }
     .fx-gallery { overflow: auto; }
     .fx-component { position: relative; overflow: hidden; }

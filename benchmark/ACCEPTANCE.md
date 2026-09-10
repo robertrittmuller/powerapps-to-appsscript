@@ -43,3 +43,12 @@ original-app visual comparisons and is reported separately. Neither a lower
 formula-gap count nor pixel parity substitutes for a functional UI. Current
 per-app evidence and remaining failures are recorded in `GAP_ASSESSMENT.md` and
 the generated scorecards; this scope document does not grant a passing grade.
+
+Current complete browser evidence: **Expandable Navigation** passes 75 checks
+covering its declared critical workflow and UI at 1440×900, 1000×700 and 520×700.
+Its generated server uses explicit Google directory mappings/response fixtures;
+source canvas minimum sizes, the no-photo avatar fallback and browser Exit
+feedback are recorded in the result. Run `./pfx2gas browser
+scripts/assess_public_workflows.py` to reproduce it. The identity-free soak
+simulator remains a separate unmigrated baseline. The other nine target apps
+still require complete critical-workflow and UI evidence.

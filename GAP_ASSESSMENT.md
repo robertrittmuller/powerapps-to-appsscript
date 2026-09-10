@@ -346,13 +346,18 @@ static data and Dataverse contracts survive parsing; absent option categories
 exported as null no longer abort conversion, while malformed non-null metadata
 still fails. MyProfileV2 maps the accessing Google identity to its native People
 profile, preserving supported select fields and requiring explicit migration.
-The pinned expandable-nav browser probe passes its start-screen, original
-four-entry menu data, menu DOM content and mapped profile email checks. Its Work
-click, TaskScreen destination and Home return now pass without forced clicks:
-all eight checks pass. The earlier 37-pixel collapsed container is repaired.
-Menu expansion, all destinations, accessible icon-only buttons and flexible
-gallery row sizing remain unverified or incomplete. No full critical-journey
-or UI usability pass is claimed yet.
+The pinned expandable-nav browser probe now passes its complete declared
+navigation critical workflow and UI: 75 checks cover all ten screens and returns,
+keyboard expansion/collapse, visible glyphs and accessible names, compact menu
+rows, profile state, reload and browser exit feedback at three window sizes.
+The 37-pixel collapsed container and 280-pixel empty menu rows are repaired.
+Source canvas minimum dimensions remain; smaller windows scroll rather than
+inventing a mobile reflow. The Google People response is an explicit fixture,
+and User().Image uses the documented no-photo CSS avatar. Exit asks the user to
+close the window; it does not sign out of Google. Live Google authorization,
+exact source visuals and the other nine apps' complete critical/UI workflows
+remain open. The identity-free soak simulator still fails the unmigrated profile
+dependency; this configured generated-server browser evidence is separate.
 
 Native Controls/Components Rules and DynamicProperties now supplement omitted
 YAML layout formulas, with per-property provenance. YAML overrides win;
@@ -363,6 +368,21 @@ Scaled-canvas measurements are converted back to design pixels. Two generated
 Chromium fixtures verify fixed/filled sizing, explicit alignment, component
 dimensions, readable actions, navigation, resize and reload. Dynamic direction,
 alignment/fill, absent factory defaults and broader gallery layout remain gaps.
+
+Button/ModernButton Icon and Layout now render a deterministic portable glyph
+before/after the source caption, alone, or hidden in TextOnly mode. Rotation and
+accessible labels update in standalone and gallery scope; source Text, button
+identity, keyboard activation and focus survive updates. Unknown visible icons
+fail explicitly, and missing labels fall back to a marked source icon name.
+Exact Fluent glyphs, IconStyle and Appearance remain fidelity gaps.
+
+VariableHeight galleries now size rows from visible direct child bounds,
+including nested galleries, while fixed galleries keep TemplateSize. Browser
+fixtures cover expanding/collapsing individual rows, hidden tall content, static
+padding, ordinary fixed rows, retained inputs/focus on resize and canvas scaling.
+The sizing follows Microsoft's [flexible gallery model](https://learn.microsoft.com/en-us/power-apps/maker/canvas-apps/gallery-dynamic-sizing),
+where changing the editor template extent does not change runtime row height.
+Full AutoHeight dependency scheduling and wrapped flexible layouts remain open.
 
 The lost reference data and collapsed text widths are repaired. DataInit preserves
 all exported seed records, with sheet-capacity checks before writes. Milestones
@@ -379,14 +399,15 @@ remain open.
 
 | Evidence | Latest result | What remains unproven |
 |---|---|---|
-| Unit/runtime tests | 551 Python pass, 3 skip; 108 JS pass; bare globals, FX, FXRuntime and FX.collections emitter/runtime consistency passes | Complete deployed workflows and broader control semantics |
+| Unit/runtime tests | 554 Python pass, 3 skip; 109 JS pass; bare globals, FX, FXRuntime and FX.collections emitter/runtime consistency passes | Complete deployed workflows and broader control semantics |
 | Current real-app soak | 5/5 valid code and generated-server initialization; 3/5 Bootable; 3,286 formulas | Editable Grid requests unexported Student Tracker choices; expanded navigation requires directory migration. Usability unassessed; five historical local exports are absent |
-| Current regression translation/wiring | 3,281 translated; 2,354 emitted, 220 approximated, 712 ignored/unsupported | The larger census includes previously missing modern component and native layout formulas. Translation does not establish runtime behavior |
+| Current regression translation/wiring | 3,281 translated; 2,385 emitted, 251 approximated, 650 ignored/unsupported | The census includes modern component, button and native layout formulas. Translation does not establish runtime behavior |
 | Historical ten-app corpus | Previously 10/10 Bootable; 23,746 formulas | Not reproduced in this workspace; those results did not establish usability |
 | HelpDesk generated-app journeys | HOME → NEW → HOME; dashboard row text, logo URI, pie and legend output pass | All-screen interactions, image decoding/layout in CI, persistence |
 | HelpDesk @14 live browser | Ticket cards, decoded 64×64 logos, pie/bar/legend SVGs, readable fonts/labels, HOME → NEW → HOME | Same-state original comparison, user name/avatar, complete workflow coverage |
 | Chromium: business form | Actual generated client + Code.gs: edit/create, required validation, write failure, delete and page reload pass against a persistent Sheets test double | Real Google authorization/Sheets writes and another user/session |
-| Chromium regression suite | 31/31 fixtures pass, including recovered native layout formulas, container sizing and scaled-canvas dimensions; independent modern component inputs/outputs/private state, nested instances and Reset/Select; reactive named-formula calculations and menu navigation; checkbox/toggle transitions, keyboard input and persisted row updates; Dataverse state/status defaults and reload; nested galleries and responsive geometry; Fluent date input across DST; native Google Chat/directory, imported Planner tasks, persisted relationships and saved views. Three intentional failure gates preserve failed verdicts | Real Google services, real-app critical workflows and broader UI usability; HelpDesk is absent here. Original visual comparisons belong to the separate High fidelity grade |
+| Chromium regression suite | 34/34 fixtures pass, including button icons/layout/accessibility and flexible/scaled gallery sizing; recovered native layout formulas and container dimensions; independent modern components and named formulas; checkbox transitions, keyboard input and persisted row updates; Dataverse state/status defaults and reload; nested galleries and responsive geometry; Fluent dates across DST; native Google Chat/directory, imported Planner tasks, persisted relationships and saved views. Three intentional failure gates preserve failed verdicts | Real Google services, remaining real-app critical workflows and broader UI usability; HelpDesk is absent here. Original visual comparisons belong to the separate High fidelity grade |
+| Expandable Navigation critical workflow/UI | 75/75 checks pass with generated code/server validation and zero runtime errors. Every source destination and Home return, keyboard expansion/collapse, menu geometry, glyphs/names, mapped profile/no-photo fallback, reload and Exit feedback are tested at 1440×900, 1000×700 and 520×700 | Source canvas minimum size causes scrolling in smaller windows. Native Google access and original visual comparison remain unverified; this does not repair the other nine acceptance apps or promote the identity-free soak result |
 | Planner to Google adapter | Eight operations use generated Code.gs and a reserved Sheets task-board store. Chromium lists plans/buckets/tasks, creates and assigns, writes descriptions, selects/updates, reloads and recovers from failed writes. Labels and geometry pass. Missing migration, unknown/unmapped identity, denied membership, invalid dates and oversized records fail explicitly | Native Tasks UI, Planner roles/audit metadata, ordering hints, categories, notifications, aliases/additional operations and complete real-app workflows. Workbook editors bypass API membership checks; live identity and storage access require deployment verification |
 | Office365Users/Microsoft365Users to Google | SearchUser, MyProfileV2, UserProfileV2 and UserPhotoV2 use native Google People with explicit source-ID/account mappings and manifest scopes. Chromium searches, selects profiles/photos, persists assignment and recovers from failures. The real navigation source displays its mapped current-user mail field | Native responses/images are authored fixtures. Live access/photo visibility, unsupported fields, exact search semantics and complete workflows remain unverified. Owner-delegated access is denied |
 | MicrosoftTeams to Google Chat | Four exported operations preserve source team/channel IDs through explicit named-space mappings. Native joined-space checks, deterministic supported HTML-to-Markdown posts, byte limits and API failures execute in generated-server tests. Chromium selectors, labels, posting/reload and error recovery pass. The unchanged Employee Ideas notification scenario passes 31 checks | Explicit native API fixtures, no live messages. Google Cloud/OAuth setup, native rendering, richer HTML, attachments, Teams roles/settings, connector aliases and complete workflows remain open; the hierarchy exists in the converted UI rather than native Chat |

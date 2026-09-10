@@ -14,6 +14,7 @@
   var cardLayouts = [], cardGeometry = {}, galleryLayouts = [];
   var handlers = {};     // controlName -> { event: fn }
   var controlValues = {}; // control name -> evaluated properties used by dependents
+  var buttonIcons = Object.create(null);
   var controlNodes = new WeakMap();
   var controlProperties = Object.create(null), resolvingProperties = [];
   var galleryTemplates = Object.create(null), resolvingTemplates = [];
@@ -985,6 +986,57 @@
     return replacement;
   }
 
+  function configureButtonIcons(mapping) {
+    buttonIcons = Object.assign(Object.create(null), mapping || {});
+  }
+
+  function setControlText(el, value) {
+    var text = value == null ? '' : String(value);
+    if (el.__fxButtonContent) el.__fxButtonContent.caption.textContent = text;
+    else el.textContent = text;
+  }
+
+  function updateButtonPresentation(el) {
+    var settings = el.__fxButton, content = el.__fxButtonContent;
+    if (!content) {
+      var caption = document.createElement('span'), icon = document.createElement('span');
+      var host = document.createElement('span'), text = el.textContent || '';
+      caption.setAttribute('data-fx-button-caption','');
+      icon.setAttribute('data-fx-button-symbol','');
+      icon.setAttribute('aria-hidden','true');
+      host.setAttribute('data-fx-button-content','');
+      caption.textContent = text;
+      el.textContent = '';
+      host.appendChild(icon); host.appendChild(caption); el.appendChild(host);
+      content = el.__fxButtonContent = {host:host,icon:icon,caption:caption};
+    }
+    var raw = settings.buttonIcon == null ? '' : String(settings.buttonIcon).trim();
+    var key = raw.toLowerCase().replace(/[^a-z0-9]/g,'').replace(/^icon/,'');
+    var glyph = buttonIcons[key], layout = settings.buttonLayout;
+    var mode = layout == null || layout === '' ? 'iconbefore' : String(layout).toLowerCase().replace(/[^a-z]/g,'');
+    if (['iconbefore','iconafter','icononly','textonly'].indexOf(mode) < 0)
+      throw new Error('Unsupported button Layout: ' + layout);
+    content.host.setAttribute('data-fx-button-layout',mode);
+    content.icon.setAttribute('data-fx-glyph',glyph || (raw ? '?' : ''));
+    content.icon.style.display = !raw || mode === 'textonly' ? 'none' : '';
+    content.caption.style.display = mode === 'icononly' ? 'none' : '';
+    var rotation = settings.buttonRotation == null ? 0 : Number(settings.buttonRotation);
+    if (!Number.isFinite(rotation)) throw new Error('Button IconRotation must be finite');
+    content.icon.style.transform = 'rotate(' + rotation + 'deg)';
+    var label = String(settings.ariaLabel || settings.title || content.caption.textContent || '').trim();
+    if (!label && raw) {
+      label = raw.replace(/^Icon\./,'').replace(/([a-z])([A-Z])/g,'$1 $2').replace(/[_-]+/g,' ');
+      el.setAttribute('data-fx-inferred-label','icon name');
+    } else el.removeAttribute('data-fx-inferred-label');
+    if (label) el.setAttribute('aria-label',label);
+    else el.removeAttribute('aria-label');
+    if (raw && !glyph && mode !== 'textonly') {
+      el.setAttribute('data-unsupported-icon',raw);
+      throw new Error('Unsupported button Icon: ' + raw);
+    }
+    el.removeAttribute('data-unsupported-icon');
+  }
+
   function rowControl(row, name, parentName, propertyFns) {
     if (!row || typeof row.querySelector !== 'function') return;
     var el = findControl(row, name);
@@ -1001,7 +1053,10 @@
         if (key === 'mode') {
           el = inputMode(el, value);
         } else if (key === 'text') {
-          el.textContent = value == null ? '' : String(value);
+          setControlText(el,value);
+        } else if (key === 'buttonIcon' || key === 'buttonLayout' || key === 'buttonRotation') {
+          el.__fxButton = el.__fxButton || {};
+          el.__fxButton[key] = value;
         } else if (key === 'default') {
           if (el.tagName === 'SELECT') el.__fxDefaultSelection = value;
           var signature = JSON.stringify(value == null ? '' : value);
@@ -1040,6 +1095,7 @@
         } else if (key === 'acceptsFocus') {
           el.tabIndex = value ? 0 : -1;
         } else if (key === 'ariaLabel' || key === 'title') {
+          if (el.__fxButton) el.__fxButton[key] = value;
           el.setAttribute(key === 'ariaLabel' ? 'aria-label' : 'title', value == null ? '' : String(value));
         } else if (key === 'reset') {
           var rising = value && !el.__fxReset;
@@ -1055,6 +1111,7 @@
           el.style[key] = value == null ? '' : String(value).toLowerCase();
         }
       });
+      if (el.__fxButton) updateButtonPresentation(el);
     } catch (err) { console.error('gallery row property error', name, err); }
   }
 
@@ -1077,13 +1134,35 @@
     var mounted = new Map();
     var identities = new WeakMap(), nextIdentity = 0;
     var resetRequested = false, defaultSignature;
+    function sizeFlexibleRow(host, row) {
+      if (host.getAttribute('data-gallery-flexible-height') !== 'true') return;
+      if (host.getAttribute('data-gallery-layout') === 'horizontal')
+        throw new Error('Flexible height gallery must be vertical: ' + name);
+      // VariableHeight's TemplateSize is the editor's template extent. The
+      // running row follows its visible direct children, in design pixels;
+      // offset geometry is unaffected by the canvas CSS scale transform.
+      var bottom = 1;
+      Array.from(row.children || []).forEach(function (child) {
+        if (!child.getAttribute || !child.getAttribute('data-control')) return;
+        var style = child.style || {};
+        if (style.display === 'none' || (global.getComputedStyle && global.getComputedStyle(child).display === 'none')) return;
+        var rendered = typeof child.getClientRects === 'function' && child.getClientRects().length > 0;
+        var top = rendered ? child.offsetTop : parseFloat(style.top) || 0;
+        var height = rendered ? child.offsetHeight : parseFloat(style.height) || 0;
+        bottom = Math.max(bottom, top + height);
+      });
+      var padding = parseFloat(host.getAttribute('data-template-padding')) || 0;
+      Object.assign(row.style, {height:bottom+'px', minHeight:'1px', boxSizing:'border-box',
+        padding:'0', borderBottom:'0', marginBottom:Math.max(0,padding)+'px'});
+    }
     function layout() {
       var host = getHost();
-      if (!rowFn || !host || host.getAttribute('data-gallery-layout') !== 'horizontal') return;
+      if (!rowFn || !host || (host.getAttribute('data-gallery-layout') !== 'horizontal'
+          && host.getAttribute('data-gallery-flexible-height') !== 'true')) return;
       // Ordinary style bindings may size the gallery after its Items binding.
       // Reapply row geometry against the final size without rerunning Items or
       // remounting controls, so Parent.TemplateHeight is correct on first paint.
-      mounted.forEach(function (row) { rowFn(row.__fxScope,row); });
+      mounted.forEach(function (row) { rowFn(row.__fxScope,row); sizeFlexibleRow(host,row); });
     }
     function identity(item) {
       if (item && typeof item === 'object') {
@@ -1326,6 +1405,7 @@
           if (rowFn) {
             try { rowFn(row.__fxScope, row); } catch (e) { console.error('gallery row error', e); }
           }
+          sizeFlexibleRow(host,row);
         });
         if (restoreFocus && rowsEl.contains(focused) && document.activeElement !== focused) {
           focused.focus({preventScroll: true});
@@ -1911,6 +1991,7 @@
     controlElement: controlElement,
     registerRowProps: registerRowProps,
     registerControlProps: registerControlProps,
+    configureButtonIcons: configureButtonIcons,
     registerGalleryTemplate: registerGalleryTemplate,
     registerCardLayout: registerCardLayout,
     styleControl: styleControl,

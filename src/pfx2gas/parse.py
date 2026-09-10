@@ -33,6 +33,7 @@ _CONTROL_ALIASES = {
     "moderntablecontrol": "DataTable",
     "fluidgrid": "FluidGrid",
     "htmlviewer": "HtmlText",
+    "modernbutton": "Button",
 }
 
 

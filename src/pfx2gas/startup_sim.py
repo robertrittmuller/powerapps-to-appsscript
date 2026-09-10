@@ -19,8 +19,11 @@ const consoleErrors = [];
 function makeEl(tag, attrs) {
   return {
     tag, tagName: String(tag).toUpperCase(), attrs, style: {}, children: [], listeners: {},
-    get textContent() { return this.__text || ''; },
-    set textContent(value) { this.__text = value == null ? '' : String(value); },
+    get textContent() { return (this.__text || '') + this.children.map(child => child.textContent || '').join(''); },
+    set textContent(value) {
+      this.__text = value == null ? '' : String(value);
+      this.children.forEach(child => {child.parentNode = null;}); this.children = [];
+    },
     innerHTML: '', value: '', selectedOptions: [],
     get attributes() { return Object.keys(attrs).map(name=>({name,value:attrs[name]})); },
     getAttribute(k) { return attrs[k] !== undefined ? attrs[k] : null; },

@@ -1520,7 +1520,76 @@ def native_layout_fixture_files(scale_to_fit=False) -> dict[str,str]:
             'Components/Panel.json':json.dumps({'TopParent':definition})}
 
 
+def flexible_gallery_fixture_files(scale_to_fit=False) -> dict[str,str]:
+    def control(name,kind,props,children=None,**extra):
+        return {name:{'Control':kind,'Properties':{key:'='+str(value) for key,value in props.items()},
+                      'Children':children or [],**extra}}
+    entries='[{ID:1,Title:"Alpha",Entries:[{Title:"One"},{Title:"Two"}]},{ID:2,Title:"Beta",Entries:[{Title:"Three"}]}]'
+    home={'Children':[
+        control('Tall','Button',{'Text':'"Toggle tall detail"','X':20,'Y':10,'Width':180,'Height':32,
+                                'OnSelect':'Set(showTall,!showTall)'}),
+        control('Choice','Label',{'Text':'chosen','X':220,'Y':10,'Width':250,'Height':32}),
+        control('Cards','Gallery@2.15.0',{'Items':entries,'TemplateSize':280,'TemplatePadding':4,
+                    'X':20,'Y':60,'Width':'Min(600,Parent.Width-40)','Height':500},[
+            control('Toggle','Button',{'Text':'ThisItem.Title','X':0,'Y':0,'Width':120,'Height':32,
+                    'OnSelect':'Set(expanded,If(expanded=ThisItem.ID,0,ThisItem.ID))'}),
+            control('Draft','TextInput',{'Default':'ThisItem.Title','X':140,'Y':0,'Width':'Parent.TemplateWidth-140','Height':32}),
+            control('Entries','Gallery@2.15.0',{'Items':'ThisItem.Entries','TemplateSize':222,'TemplatePadding':0,
+                    'X':0,'Y':32,'Width':'Parent.TemplateWidth','Height':'CountRows(ThisItem.Entries)*36',
+                    'Visible':'expanded=ThisItem.ID'},[
+                control('Choose','Button',{'Text':'ThisItem.Title','X':0,'Y':0,'Width':'Parent.TemplateWidth','Height':36,
+                                          'OnSelect':'Set(chosen,Self.Text)'})],Variant='VariableHeight'),
+            control('TallDetail','Label',{'Text':'"Tall content"','X':0,'Y':400,'Width':200,'Height':50,
+                                         'Visible':'showTall && ThisItem.ID=1'}),
+        ],Variant='VariableHeight'),
+        control('Fixed','Gallery@2.15.0',{'Items':'["Fixed A","Fixed B"]','TemplateSize':222,'TemplatePadding':0,
+                  'X':640,'Y':60,'Width':240,'Height':500},[
+            control('FixedCaption','Label',{'Text':'ThisItem.Value','X':0,'Y':0,'Width':200,'Height':32})]),
+    ]}
+    return {'CanvasManifest.json':json.dumps({'Name':'FlexibleGallery','DocumentLayoutWidth':900,
+                    'DocumentLayoutHeight':600,'DocumentLayoutScaleToFit':scale_to_fit,'DocumentLayoutMaintainAspectRatio':True}),
+            'Src/App.pa.yaml':json.dumps({'App':{'Properties':{'OnStart':'=Set(expanded,0);Set(chosen,"");Set(showTall,false)'}}}),
+            'Src/Screens.pa.yaml':json.dumps({'Screens':{'Home':home}})}
+
+
+def button_icons_fixture_files() -> dict[str,str]:
+    def control(name,kind,props):
+        return {name:{'Control':kind,'Properties':props}}
+    children=[
+        control('Expand','ModernButton@1.0.0',{'Text':'=If(open,"Collapse","Expand")',
+            'Icon':'=If(open,"ChevronUp","ChevronRight")','Layout':'=ButtonLayout.IconOnly',
+            'AccessibleLabel':'=If(open,"Collapse section","Expand section")',
+            'Tooltip':'="Toggle section"','Width':'=150','Height':'=40','X':'=20','Y':'=20',
+            'OnSelect':'=Set(seen,Self.Text);Set(open,!open)'}),
+        control('After','Button@0.0.45',{'Text':'="Save"','Icon':'="Save"',
+            'Layout':"='ButtonCanvas.Layout'.IconAfter",'Width':'=150','Height':'=40','X':'=190','Y':'=20',
+            'IconRotation':'=If(open,90,0)','OnSelect':'=Set(seen,Self.Text)'}),
+        control('Plain','Button',{'Text':'="Plain"','Icon':'="Save"','Layout':'="Text only"',
+            'Width':'=150','Height':'=40','X':'=360','Y':'=20','OnSelect':'=Set(seen,Self.Text)'}),
+        control('Fallback','Button',{'Icon':'="Delete"','Layout':'="Icon only"','Width':'=80','Height':'=40',
+            'X':'=530','Y':'=20','OnSelect':'=Set(seen,"Delete")'}),
+        control('Network','Button',{'Icon':'="Globe"','Layout':'="Icon only"','Width':'=80','Height':'=40',
+            'X':'=630','Y':'=20','OnSelect':'=Set(seen,"Network")'}),
+        control('SourceCaption','Label',{'Text':'=Expand.Text','Width':'=300','Height':'=40','X':'=20','Y':'=80'}),
+        control('Result','Label',{'Text':'=seen & "/" & lastRow','Width':'=300','Height':'=40','X':'=20','Y':'=125'}),
+        {'Actions':{'Control':'Gallery','Properties':{'Items':'=Rows','TemplateSize':'=48','TemplatePadding':'=0',
+                    'X':'=20','Y':'=185','Width':'=600','Height':'=160'},'Children':[
+            control('RowAction','Button@0.0.45',{'Text':'="Row " & ThisItem.Title',
+                'Icon':'=If(ThisItem.Active,"Checkmark","Add")',
+                'Layout':'=If(ThisItem.Active,ButtonLayout.IconAfter,ButtonLayout.IconBefore)',
+                'AccessibleLabel':'="Toggle " & ThisItem.Title','Width':'=260','Height':'=32','X':'=0','Y':'=0',
+                'OnSelect':'=Set(seen,Self.Text);Set(lastRow,ThisItem.ID);Patch(Rows,ThisItem,{Active:!ThisItem.Active})'})]}}
+    ]
+    return {'CanvasManifest.json':json.dumps({'Name':'ButtonIcons'}),
+            'Src/App.pa.yaml':json.dumps({'App':{'Properties':{'OnStart':
+                '=Set(open,false);Set(seen,"");Set(lastRow,0);ClearCollect(Rows,{ID:1,Title:"Alpha",Active:false},{ID:2,Title:"Beta",Active:true})'}}}),
+            'Src/Home.pa.yaml':json.dumps({'Screens':{'Home':{'Children':children}}})}
+
+
 def build_fixtures() -> None:
+    _write_msapp(FIXTURE_DIR / 'fixtureButtonIcons.msapp', button_icons_fixture_files())
+    _write_msapp(FIXTURE_DIR / 'fixtureFlexibleGallery.msapp', flexible_gallery_fixture_files())
+    _write_msapp(FIXTURE_DIR / 'fixtureScaledFlexibleGallery.msapp', flexible_gallery_fixture_files(True))
     _write_msapp(FIXTURE_DIR / 'fixtureNativeLayout.msapp', native_layout_fixture_files())
     _write_msapp(FIXTURE_DIR / 'fixtureScaledNativeLayout.msapp', native_layout_fixture_files(True))
     _write_msapp(FIXTURE_DIR / 'fixtureModernComponents.msapp', modern_component_fixture_files())

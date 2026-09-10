@@ -83,11 +83,21 @@ _ICON_GLYPHS = {
     "camera": 0x25C9,                # ◉
     "zoomin": 0x2295,                # ⊕
     "zoomout": 0x2296,               # ⊖
+    "griddots": 0x25A6,              # ▦
+    "appslist": 0x2637,              # ☷
+    "history": 0x21BA,               # ↺
+    "arrowexit": 0x21AA,             # ↪
+    "globe": 0x1F310,               # 🌐
 }
 
 
 def _normalize(name: str) -> str:
     return re.sub(r"[^a-z0-9]", "", name.strip().lower())
+
+
+def icon_map() -> dict[str,str]:
+    """Share the deterministic portable glyph map with dynamic button bindings."""
+    return {name:chr(codepoint) for name,codepoint in _ICON_GLYPHS.items()}
 
 
 def icon_glyph(name: str) -> str | None:

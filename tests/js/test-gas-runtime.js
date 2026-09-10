@@ -21,6 +21,59 @@ require('../../static/fx-stdlib.js');
 require('../../static/gas-runtime.js');
 const RT = global.FXRuntime;
 
+test('button presentation preserves source text and exposes unsupported values with recovery', () => {
+  const vm=require('node:vm'),fs=require('node:fs'),errors=[];
+  function element() {
+    return {tagName:'BUTTON',style:{},attrs:{},children:[],caption:'',
+      get textContent() {return this.caption+this.children.map(child=>child.textContent).join('');},
+      set textContent(value) {this.caption=String(value);this.children=[];},
+      appendChild(child) {this.children.push(child);},
+      setAttribute(key,value) {this.attrs[key]=String(value);},
+      getAttribute(key) {return this.attrs[key]??null;},
+      removeAttribute(key) {delete this.attrs[key];},
+    };
+  }
+  const button=element(), document={querySelector:()=>button,getElementById:()=>null,
+    createElement:element,addEventListener:()=>{}};
+  const ctx=vm.createContext({document,console:{error:(...args)=>errors.push(args.join(' '))}});ctx.window=ctx;
+  vm.runInContext(fs.readFileSync(require.resolve('../../static/gas-runtime.js'),'utf8'),ctx);
+  const rt=ctx.FXRuntime;
+  assert.strictEqual(rt.configureButtonIcons.length,1);
+  rt.configureButtonIcons({save:'▣',delete:'×'});
+  let caption='Save draft',icon='Icon.Save',layout='Icon after',rotation=0,label='';
+  const update=()=>rt.rowControl(document,'Action',null,{text:()=>caption,
+    buttonIcon:()=>icon,buttonLayout:()=>layout,buttonRotation:()=>rotation,ariaLabel:()=>label});
+  update();
+  const content=button.__fxButtonContent;
+  assert.strictEqual(button.textContent,'Save draft');
+  assert.strictEqual(content.icon.getAttribute('data-fx-glyph'),'▣');
+  assert.strictEqual(content.host.getAttribute('data-fx-button-layout'),'iconafter');
+  assert.strictEqual(button.getAttribute('aria-label'),'Save draft');
+  caption='';icon='Delete';layout='IconOnly';rotation=90;update();
+  assert.strictEqual(button.__fxButtonContent,content,'updates retain the caption and icon nodes');
+  assert.strictEqual(button.textContent,'');
+  assert.strictEqual(button.getAttribute('aria-label'),'Delete');
+  assert.strictEqual(content.caption.style.display,'none');
+  assert.strictEqual(content.icon.style.transform,'rotate(90deg)');
+  label='Delete entry';update();
+  assert.strictEqual(button.getAttribute('aria-label'),'Delete entry');
+  assert.strictEqual(button.getAttribute('data-fx-inferred-label'),null);
+  icon='UnmappedGlyph';update();
+  assert.match(errors.pop(),/Unsupported button Icon: UnmappedGlyph/);
+  assert.strictEqual(content.icon.getAttribute('data-fx-glyph'),'?');
+  assert.strictEqual(button.getAttribute('data-unsupported-icon'),'UnmappedGlyph');
+  layout='TextOnly';caption='Continue';update();
+  assert.strictEqual(content.icon.style.display,'none');
+  assert.strictEqual(button.getAttribute('data-unsupported-icon'),null);
+  layout='InvalidLayout';update();assert.match(errors.pop(),/Unsupported button Layout/);
+  layout='IconBefore';icon='Save';rotation='invalid';update();
+  assert.match(errors.pop(),/Button IconRotation must be finite/);
+  rotation=0;update();
+  assert.strictEqual(content.icon.getAttribute('data-fx-glyph'),'▣');
+  assert.strictEqual(button.textContent,'Continue');
+  assert.deepStrictEqual(errors,[]);
+});
+
 test('document-scoped input reads retain lazy component properties', () => {
   const previous = document.querySelector;
   const host = {tagName:'DIV',style:{},textContent:'',getAttribute:()=>null};
