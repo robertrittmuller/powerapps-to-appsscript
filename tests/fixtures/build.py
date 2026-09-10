@@ -1398,7 +1398,41 @@ def control_coercion_fixture_files(v1=False) -> dict[str,str]:
         'References/Templates.json':json.dumps({'UsedTemplates':templates})}
 
 
+def named_formula_fixture_files() -> dict[str, str]:
+    def control(name, kind, props):
+        return {name: {'Control': kind, 'Properties': {key: '=' + str(value) for key, value in props.items()}}}
+    app = {'App': {'Properties': {
+        'Formulas': '=Total = Value(AmountInput.Text) * rate + Sum(Entries, Amount); '
+                    'MenuItems = Filter(MenuDefinitions, role in Security); '
+                    'MenuDefinitions = [{Title:"Work", Screen:Work, Security:"user/admin"},'
+                    '{Title:"Admin", Screen:Admin, Security:"admin"}]; '
+                    'ForwardValue = BaseRate + 1; BaseRate = 2;',
+        'OnStart': '=Set(rate,BaseRate); Set(role,"user"); Set(startValue,ForwardValue)',
+    }}}
+    menu = control('Menu', 'Gallery', {'Items':'menuitems', 'X':20, 'Y':250, 'Width':300, 'Height':200, 'TemplateSize':50})
+    menu['Menu']['Children'] = [control('Destination', 'Button', {
+        'Text':'ThisItem.Title', 'OnSelect':'Navigate(ThisItem.Screen)', 'Width':250, 'Height':40})]
+    home = {'Home': {'Children': [
+        control('AmountInput', 'TextInput', {'Default':'"1"', 'X':20, 'Y':20, 'Width':200, 'Height':40}),
+        control('TotalCaption', 'Label', {'Text':'"Total: " & TOTAL', 'X':20, 'Y':75, 'Width':300, 'Height':40}),
+        control('SaveEntry', 'Button', {'Text':'"Update amount"', 'OnSelect':'Patch(Entries,First(Entries),{Amount:9})',
+                                       'X':20, 'Y':125, 'Width':200, 'Height':40}),
+        control('ShowAdmin', 'Button', {'Text':'"Show admin"', 'OnSelect':'Set(role,"admin")',
+                                       'X':20, 'Y':180, 'Width':200, 'Height':40}), menu,
+    ]}}
+    files = {'CanvasManifest.json': json.dumps({'Name':'NamedFormulas', 'ScreenOrder':['Home','Work','Admin']}),
+             'Src/App.pa.yaml': json.dumps(app), 'Src/Home.pa.yaml': json.dumps(home),
+             'DataSources/Entries.json': json.dumps({'Name':'Entries','Type':'SharePointDataSource',
+                 'Fields':[{'name':'id','type':'text'},{'name':'Amount','type':'number'}],
+                 'SampleData':[{'id':'one','Amount':3},{'id':'two','Amount':5}]})}
+    for screen in ['Work', 'Admin']:
+        files['Src/'+screen+'.pa.yaml'] = json.dumps({screen:{'Children':[
+            control(screen+'Back','Button',{'Text':'"Back"','OnSelect':'Back()', 'Width':150, 'Height':40})]}})
+    return files
+
+
 def build_fixtures() -> None:
+    _write_msapp(FIXTURE_DIR / 'fixtureNamedFormulas.msapp', named_formula_fixture_files())
     _write_msapp(FIXTURE_DIR/'fixtureCheckboxEvents.msapp',checkbox_event_fixture_files())
     _write_msapp(FIXTURE_DIR/'fixtureDataverseState.msapp',state_fixture_files())
     _write_msapp(FIXTURE_DIR/'fixtureControlCoercion.msapp',control_coercion_fixture_files())

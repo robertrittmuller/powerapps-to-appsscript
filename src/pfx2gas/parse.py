@@ -137,6 +137,14 @@ def parse(unpacked: UnpackedApp) -> AppIR:
         ir.on_start = _make_expr(str(app_props["OnStart"]), "OnStart")
     ir.properties = {name: _make_expr(value, name) for name, value in app_props.items()
                      if name != "OnStart" and value is not None}
+    if 'Formulas' in ir.properties:
+        from .named_formulas import declarations
+        from .fx.lexer import FxSyntaxError
+        try:
+            ir.named_formulas = {name: FxExpr(raw=value)
+                                 for name, value in declarations(ir.properties['Formulas'].raw).items()}
+        except FxSyntaxError as exc:
+            ir.named_formula_error = str(exc)
 
     for screen_name in sorted(unpacked.screens):
         screen_yaml = unpacked.screens[screen_name]

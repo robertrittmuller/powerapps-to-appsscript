@@ -97,6 +97,8 @@ class AppIR(BaseModel):
     name: str
     on_start: FxExpr | None = None
     properties: dict[str, FxExpr] = Field(default_factory=dict)
+    named_formulas: dict[str, FxExpr] = Field(default_factory=dict)
+    named_formula_error: str | None = None
     layout: dict = Field(default_factory=dict)
     power_fx_v1: bool = False
     screens: list[ScreenNode] = Field(default_factory=list)

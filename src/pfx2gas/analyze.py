@@ -306,6 +306,13 @@ def verdict_for_property(prop: FxExpr, control_names: set[str], row_fields: set[
 
 def analyze(ir: AppIR, uncovered: list[dict] | None = None, solution=None) -> AppIR:
     ir.global_vars = collect_global_vars(ir)
+    collisions = {name.casefold() for name in ir.global_vars}
+    collisions.update(ds.name.casefold() for ds in ir.data_sources)
+    collisions.update(s.name.casefold() for s in ir.screens)
+    collisions.update(c.name.casefold() for s in ir.screens for c in s.walk_controls())
+    conflicting = [name for name in ir.named_formulas if name.casefold() in collisions]
+    if conflicting:
+        ir.named_formula_error = 'Named formulas conflict with app symbols: ' + ', '.join(conflicting)
     infer_local_collections(ir)
     infer_data_source_fields(ir)
     from .collection_contracts import infer_collection_contracts
@@ -331,11 +338,12 @@ def analyze(ir: AppIR, uncovered: list[dict] | None = None, solution=None) -> Ap
             res = transpile(expr.raw, behavior=(expr.kind == "behavior"),
                             row_fields=row_fields, control_names=control_names,
                             collections=collections, screen_names=screen_names,
-                            global_names=set(ir.global_vars) | {ds.name for ds in ir.data_sources},
+                            global_names=set(ir.global_vars) | {ds.name for ds in ir.data_sources} | set(ir.named_formulas),
                             media_resources=ir.media_resources, row_alias=row_alias,
                             screen_name=screen_name, control_screens=control_screens, view_sets=ir.view_sets,
                             relationship_keys=relationship_keys,
-                            service_adapters=adapters, power_fx_v1=ir.power_fx_v1)
+                            service_adapters=adapters, power_fx_v1=ir.power_fx_v1,
+                            named_formulas=set(ir.named_formulas))
             expr.js = res.js
             expr.translation_status = "stubbed" if res.unmapped else "rule"
             expr.blocked_dependencies = [name for name in res.unmapped if name.startswith('Dataverse view')]
@@ -351,6 +359,9 @@ def analyze(ir: AppIR, uncovered: list[dict] | None = None, solution=None) -> Ap
         except Exception as exc:  # TranspileError or unexpected
             expr.js = None
             expr.translation_status = "stubbed"
+            if 'Named formula is read-only' in str(exc):
+                expr.blocked_dependencies = [str(exc)]
+                expr.fidelity_note = str(exc)
             ir.support_matrix.append(SupportEntry(
                 subject=expr.raw[:80], status="stubbed",
                 detail=f"transpile failed: {exc}",
@@ -358,8 +369,31 @@ def analyze(ir: AppIR, uncovered: list[dict] | None = None, solution=None) -> Ap
 
     if ir.on_start:
         convert_formula(ir.on_start)
-    for expr in ir.properties.values():
+    for name, expr in ir.properties.items():
+        if name != 'Formulas':
+            convert_formula(expr)
+        elif ir.named_formula_error:
+            expr.translation_status = 'stubbed'
+            expr.blocked_dependencies = [ir.named_formula_error]
+            expr.fidelity_note = ir.named_formula_error
+    from .named_formulas import validate_value
+    for name, expr in ir.named_formulas.items():
+        try:
+            validate_value(expr.raw)
+        except lx.FxSyntaxError as exc:
+            expr.translation_status = 'stubbed'
+            expr.blocked_dependencies = [str(exc)]
+            expr.fidelity_note = str(exc)
+            continue
         convert_formula(expr)
+        if expr.js and 'await ' in expr.js:
+            from .validate import js_syntax_ok
+            # Literal text containing "await " is still a synchronous value.
+            if not js_syntax_ok('(\n' + expr.js + '\n)')[0]:
+                expr.js = None
+                expr.translation_status = 'stubbed'
+                expr.blocked_dependencies = ['Asynchronous named formula is unsupported']
+                expr.fidelity_note = expr.blocked_dependencies[0]
 
     def convert_control(ctrl: ControlNode, row_alias: str | None = None, screen_name: str | None = None) -> None:
         child_alias = row_alias
@@ -401,6 +435,8 @@ def analyze(ir: AppIR, uncovered: list[dict] | None = None, solution=None) -> Ap
             choice_refs.add(f"{m.group(1)}.{m.group(2)}")
 
     find_choices(ir.on_start)
+    for expr in ir.named_formulas.values():
+        find_choices(expr)
     for screen in ir.screens:
         find_choices(screen.on_visible)
         for ctrl in screen.walk_controls():

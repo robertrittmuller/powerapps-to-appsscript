@@ -335,6 +335,26 @@ def test_generated_control_blank_checks_keep_source_version_and_row_values(tmp_p
     assert verdict['journeyResults'][0]['status']=='pass',verdict
 
 
+def test_generated_named_formulas_recalculate_inputs_tables_and_forward_references(tmp_path):
+    from pfx2gas.analyze import analyze
+    from pfx2gas.parse import parse
+    from pfx2gas.startup_sim import simulate_project
+    from pfx2gas.synth.build import synthesize
+    from pfx2gas.unpack import unpack
+    project = synthesize(analyze(parse(unpack(FIXTURES/'fixtureNamedFormulas.msapp'))),tmp_path/'Named')
+    verdict = simulate_project(project,[{'id':'named-values','steps':[
+        {'action':'expectState','key':'startValue','equals':3},
+        {'action':'expectText','control':'TotalCaption','equals':'Total: 10'},
+        {'action':'setValue','control':'AmountInput','value':'4'},
+        {'action':'expectText','control':'TotalCaption','equals':'Total: 16'},
+        {'action':'click','control':'SaveEntry'},
+        {'action':'expectText','control':'TotalCaption','equals':'Total: 22'},
+        {'action':'expectDataRow','source':'Entries','where':{'id':'one','amount':9}},
+    ]}])
+    assert not verdict['consoleErrors'], verdict
+    assert verdict['journeyResults'][0]['status'] == 'pass', verdict
+
+
 def test_generated_checkbox_events_react_to_user_changes_defaults_and_reset(tmp_path):
     from pfx2gas.analyze import analyze
     from pfx2gas.parse import parse

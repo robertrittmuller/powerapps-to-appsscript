@@ -75,7 +75,7 @@ class Emitter:
                  row_alias: str | None = None, screen_name: str | None = None,
                  control_screens: dict[str, str] | None = None, view_sets: dict | None = None,
                  relationship_keys: set[str] | None = None, service_adapters: dict | None = None,
-                 power_fx_v1: bool = False):
+                 power_fx_v1: bool = False, named_formulas: set[str] | None = None):
         self.res = res
         self.behavior = behavior
         self.view_sets = view_sets or {}
@@ -86,6 +86,7 @@ class Emitter:
         self.control_names = control_names or set()
         self.known_controls = control_names is not None
         self.global_names = global_names or set()
+        self.named_formulas = {name.casefold(): name for name in named_formulas or ()}
         self.media_resources = media_resources or {}
         # Data-source names that are Power Apps collections (client-side
         # state arrays); data calls against them run locally, not server-side.
@@ -241,7 +242,8 @@ class Emitter:
                           f"{_q(_snake(base))}, () => {access})")
                 control = False  # explicit Blank in a record remains Blank
         else:
-            fallback = _q(base.lower()) if base in NAMED_COLORS else self.state_ref(base)
+            canonical = self.named_formulas.get(base.casefold(), base)
+            fallback = _q(base.lower()) if base in NAMED_COLORS else self.state_ref(canonical)
             if self.screen_name is not None and not global_only and base not in NAMED_COLORS:
                 fallback = f"FXRuntime.variable({_q(self.screen_name)}, {_q(base)}, () => {fallback})"
             if self.scopes and not global_only:
@@ -300,6 +302,10 @@ class Emitter:
     def call(self, node) -> str:
         name = str(node.value)
         args = node.children
+        if name in {'Set', 'Collect', 'ClearCollect', 'Clear', 'Remove', 'RemoveIf', 'Update', 'UpdateIf', 'Patch', 'Refresh', 'LoadData'} and args:
+            target = self.source_name(args[0])
+            if target and target.casefold() in self.named_formulas:
+                raise lx.FxSyntaxError('Named formula is read-only: ' + target)
         service, _, operation = name.partition('.')
         adapter = self.service_adapters.get(service)
         contract = adapter and adapter['operations'].get(operation)

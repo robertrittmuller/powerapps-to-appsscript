@@ -280,6 +280,32 @@
     return state;
   }
 
+  function registerNamedFormulas(definitions) {
+    var stack = [], names = Object.keys(definitions), seen = Object.create(null);
+    Object.getOwnPropertyNames(state).forEach(function (name) { seen[name.toLowerCase()] = true; });
+    // Validate the entire registry before defining any immutable properties.
+    names.forEach(function (name) {
+      var key = name.toLowerCase();
+      if (seen[key] || Object.prototype.hasOwnProperty.call(state, name) || typeof definitions[name] !== 'function')
+        throw new Error('Invalid or conflicting named formula: ' + name);
+      seen[key] = true;
+    });
+    names.forEach(function (name) {
+      Object.defineProperty(state, name, {enumerable: false, configurable: false,
+        get: function () {
+          if (stack.includes(name)) throw new Error('Circular named formula: ' + stack.concat(name).join(' -> '));
+          stack.push(name);
+          try {
+            var value = definitions[name](val, val('App'), null);
+            if (value && typeof value.then === 'function') throw new Error('Asynchronous named formula is unsupported: ' + name);
+            return value;
+          } finally { stack.pop(); }
+        },
+        set: function () { throw new Error('Named formula is read-only: ' + name); },
+      });
+    });
+  }
+
   function configureContexts(definitions) {
     screenContexts = Object.create(null);
     Object.keys(definitions || {}).forEach(function (screen) {
@@ -1864,6 +1890,7 @@
     val: val,
     configureCanvas: configureCanvas,
     configureContexts: configureContexts,
+    registerNamedFormulas: registerNamedFormulas,
     variable: variable,
     updateContext: updateContext,
     registerForm: registerForm,

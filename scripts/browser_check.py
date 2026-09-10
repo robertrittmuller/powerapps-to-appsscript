@@ -607,6 +607,32 @@ def check_storage(page, backend):
     expect(count).to_have_text("0")
 
 
+def check_named_formulas(page, backend):
+    caption = control(page, 'TotalCaption')
+    expect(caption).to_have_text('Total: 10')
+    assert page.evaluate('state.startValue') == 3
+    amount = control(page, 'AmountInput')
+    amount.fill('4')
+    expect(caption).to_have_text('Total: 16')
+    control(page, 'SaveEntry').click()
+    expect(caption).to_have_text('Total: 22')
+    assert [row['amount'] for row in backend({'fn':'api','args':['Entries','list',{}]})['result']] == [9,5]
+    expect(control(page, 'Destination')).to_have_text(['Work'])
+    control(page, 'ShowAdmin').click()
+    expect(control(page, 'Destination')).to_have_text(['Work','Admin'])
+    control(page, 'Destination').nth(1).click()
+    expect(page.locator('[data-screen="Admin"]')).to_be_visible()
+    control(page, 'AdminBack').click()
+    expect(page.locator('[data-screen="Home"]')).to_be_visible()
+    expect(amount).to_have_value('4')
+    control(page, 'Destination').nth(0).click()
+    expect(page.locator('[data-screen="Work"]')).to_be_visible()
+    control(page, 'WorkBack').click()
+    page.reload()
+    expect(caption).to_have_text('Total: 16')
+    expect(control(page, 'Destination')).to_have_text(['Work'])
+
+
 def check_checkbox_events(page, backend):
     counts=control(page,'EventCounts');toggle=control(page,'EventToggle')
     expect(counts).to_have_text('0/0/0')
@@ -1358,6 +1384,7 @@ def main():
     cases.append(("dataverse-contract", REPO / "tests/fixtures/fixtureDataverse.msapp", check_dataverse))
     cases.append(('dataverse-state',REPO/'tests/fixtures/fixtureDataverseState.msapp',check_dataverse_state))
     cases.append(('checkbox-events',REPO/'tests/fixtures/fixtureCheckboxEvents.msapp',check_checkbox_events))
+    cases.append(('named-formulas',REPO/'tests/fixtures/fixtureNamedFormulas.msapp',check_named_formulas))
     cases.append(('many-to-many-relationships', REPO / 'tests/fixtures/fixtureRelationships.msapp', check_relationships))
     cases.append(("source-formulas", REPO / "tests/fixtures/fixtureSourceFormulas.msapp", check_source_formulas))
     cases.append(("responsive-canvas", REPO / "tests/fixtures/fixtureCanvas.msapp", check_canvas))

@@ -27,8 +27,12 @@ def iter_expressions(ir: AppIR):
     if on_start and on_start.raw:
         yield "App", "App", "OnStart", on_start
     for name, expr in getattr(ir, 'properties', {}).items():
+        if name == 'Formulas' and not getattr(ir, 'named_formula_error', None):
+            continue  # each declaration has its own fidelity row
         if expr.raw:
             yield "App", "App", name, expr
+    for name, expr in getattr(ir, 'named_formulas', {}).items():
+        yield 'App', 'App', 'Formulas.' + name, expr
     for screen in ir.screens:
         if screen.on_visible and screen.on_visible.raw:
             yield screen.name, screen.name, "OnVisible", screen.on_visible

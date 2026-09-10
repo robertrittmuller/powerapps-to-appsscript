@@ -255,7 +255,7 @@ scaled canvases, card grids, responsive gallery template sizes and horizontal wr
 native Google directory assignments, Chat selectors/notifications, record-valued
 selector defaults/reset in both standalone and row controls, independent nested
 property reads, checkbox editing without accidental gallery navigation, Fluent date entry/reset/bulk save,
-typed collection aliases and conditional draft
+reactive named formulas driving calculations and menus, typed collection aliases and conditional draft
 updates in Chromium, plus HelpDesk
 when its local export is present. It runs
 generated `doGet`/client/server code against a Sheets test double to check save,
@@ -398,6 +398,15 @@ Converted apps aim to match the original visually and behaviorally:
   control snapshot. Legacy bare screen-size Switch cases retain declared variable
   shadowing. Split exposes Value plus a legacy Result alias through AddColumns;
   that alias is not preserved through JSON or all table-copy operations, as ledgered.
+- **Named formulas** — App.Formulas declarations become immutable, lazy values,
+  with forward references and case-insensitive reads. Generated Node and Chromium
+  journeys recalculate totals after input and Sheets changes and navigate a menu
+  backed by a named table. Each declaration has its own fidelity row. Mutation,
+  malformed declarations and circular reads fail explicitly; LLM fallback cannot
+  override declaration/purity failures. Values reevaluate on read rather than
+  reproducing Power Fx's dependency cache. Volatile functions, user-defined
+  functions/types and asynchronous named values remain unsupported; control
+  initialization order and full source scheduling still need work.
 - **Input defaults and disabled states** — standalone text, date, checkbox and
   slider defaults react to loaded records while preserving edits through
   unrelated state updates. Reset restores the current default. Native inputs

@@ -168,7 +168,7 @@ def _llm_fallback(ir, client) -> None:
 
     def try_fix(expr, context: str) -> None:
         if expr.blocked_dependencies:
-            return  # A model must not guess missing saved-query contracts.
+            return  # A model cannot repair missing contracts or invalid declarations.
         if not expr.raw:
             return
         if expr.js is not None and "FX.unsupported" not in expr.js:
@@ -190,5 +190,6 @@ def _llm_fallback(ir, client) -> None:
         screen = screens.get(screen_name)
         scope = {"definingScreen": screen.name if screen else None,
                  "localVariables": screen.context_vars if screen else [],
-                 "globalVariables": ir.global_vars}
+                 "globalVariables": ir.global_vars,
+                 "namedFormulas": list(ir.named_formulas)}
         try_fix(expr, f"{screen_name}.{control}.{property_name}\nScope: {json.dumps(scope)}")

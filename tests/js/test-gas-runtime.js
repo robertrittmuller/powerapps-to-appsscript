@@ -21,6 +21,33 @@ require('../../static/fx-stdlib.js');
 require('../../static/gas-runtime.js');
 const RT = global.FXRuntime;
 
+test('named values remain lazy, immutable and reactive, with forward references and cycle recovery', () => {
+  assert.strictEqual(RT.registerNamedFormulas.length, 1);
+  let base = 2, reads = 0, broken = true;
+  RT.registerNamedFormulas({
+    NamedLater: () => RT.state.NamedBase + 1,
+    NamedBase: () => { reads++; return base; },
+    NamedCycleA: () => RT.state.NamedCycleB,
+    NamedCycleB: () => RT.state.NamedCycleA,
+    NamedFailure: () => { if (broken) throw new Error('dependency unavailable'); return 8; },
+    NamedPromise: () => Promise.resolve(1),
+  });
+  assert.strictEqual(reads, 0, 'registration must not evaluate unused dependencies');
+  assert.strictEqual(RT.state.NamedLater, 3);
+  base = 8;
+  assert.strictEqual(RT.state.NamedLater, 9);
+  assert.throws(() => { RT.state.NamedBase = 20; }, /read-only/);
+  assert.strictEqual(RT.state.NamedBase, 8);
+  assert.throws(() => RT.state.NamedCycleA, /Circular named formula: NamedCycleA -> NamedCycleB -> NamedCycleA/);
+  assert.throws(() => RT.state.NamedFailure, /dependency unavailable/);
+  broken = false;
+  assert.strictEqual(RT.state.NamedFailure, 8, 'failed reads must release dependency stack');
+  assert.throws(() => RT.state.NamedPromise, /Asynchronous named formula/);
+  assert.throws(() => RT.registerNamedFormulas({NamedNew: () => 1, namedbase: () => 2}), /conflicting/);
+  assert.strictEqual(Object.hasOwn(RT.state, 'NamedNew'), false, 'a rejected registry cannot partly install');
+  assert(!Object.keys(RT.state).includes('NamedCycleA'), 'debug snapshots must not force unused formulas');
+});
+
 test('row property definitions resolve in their own scope and detect actual dependency cycles', () => {
   const first={tagName:'SPAN',textContent:'first',style:{}},second={tagName:'SPAN',textContent:'second',style:{}};
   const row1={querySelector:name=>name.includes('ScopedCaption')?first:null};
