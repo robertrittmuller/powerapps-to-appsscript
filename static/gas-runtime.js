@@ -11,7 +11,7 @@
   var state = {};
   var screenContexts = Object.create(null);
   var evaluators = [];   // { fn, apply } — re-run on state change
-  var cardLayouts = [], cardGeometry = {};
+  var cardLayouts = [], cardGeometry = {}, galleryLayouts = [];
   var handlers = {};     // controlName -> { event: fn }
   var controlValues = {}; // control name -> evaluated properties used by dependents
   var forms = {};        // form name -> generated DataCard submit configuration
@@ -259,6 +259,9 @@
           }
         } catch (err) { console.error('binding error', err); }
       });
+      galleryLayouts.forEach(function (layout) {
+        try { layout(); } catch (error) { console.error('gallery layout error', error); }
+      });
       changed = false;
       cardLayouts.forEach(function (layout) {
         try { changed = layout() || changed; }
@@ -463,9 +466,13 @@
     // Template dimensions exist before Items has mounted its first row. Parent
     // card heights can reference these values during the very first binding.
     if (typeof el.getAttribute === 'function' && el.getAttribute('data-template-size') !== null) {
-      standard.template_size = standard.template_height = Number(el.getAttribute('data-template-size')) || 0;
+      standard.template_size = Number(el.getAttribute('data-template-size')) || 0;
       standard.template_padding = Number(el.getAttribute('data-template-padding')) || 0;
-      standard.template_width = standard.width;
+      var horizontal = el.getAttribute('data-gallery-layout') === 'horizontal';
+      var wraps = Math.max(1, Number(el.getAttribute('data-wrap-count')) || 1);
+      standard.template_width = horizontal ? standard.template_size : standard.width;
+      standard.template_height = horizontal
+        ? Math.max(0,(standard.height-standard.template_padding*(wraps+1))/wraps) : standard.template_size;
     }
     return Object.assign(standard, element ? (element.__fxValues || {}) : (controlValues[name] || {}),
       element ? {} : (cardGeometry[name] || {}));
@@ -877,6 +884,14 @@
   function gallery(name, itemsFn, rowFn, handlers) {
     var mounted = new Map();
     var identities = new WeakMap(), nextIdentity = 0;
+    galleryLayouts.push(function () {
+      var host = document.querySelector('[data-control="' + name + '"]');
+      if (!rowFn || !host || host.getAttribute('data-gallery-layout') !== 'horizontal') return;
+      // Ordinary style bindings may size the gallery after its Items binding.
+      // Reapply row geometry against the final size without rerunning Items or
+      // remounting controls, so Parent.TemplateHeight is correct on first paint.
+      mounted.forEach(function (row) { rowFn(row.__fxItem,row); });
+    });
     function identity(item) {
       if (item && typeof item === 'object') {
         for (var key of ['id', 'ID', 'key']) {
@@ -989,14 +1004,18 @@
         var templateSize = parseFloat(host.getAttribute('data-template-size'));
         var templatePadding = parseFloat(host.getAttribute('data-template-padding'));
         var wrapCount = parseInt(host.getAttribute('data-wrap-count'), 10);
-        var galleryValue = val(name);
-        controlValues[name] = Object.assign({}, controlValues[name] || {}, {
-          template_size: Number.isFinite(templateSize) ? templateSize : 0,
-          template_height: Number.isFinite(templateSize) ? templateSize : 0,
-          template_width: galleryValue.width || 0,
-          template_padding: Number.isFinite(templatePadding) ? templatePadding : 0,
-        });
-        if (rowsEl.style && Number.isFinite(wrapCount) && wrapCount > 1) {
+        var horizontal = host.getAttribute('data-gallery-layout') === 'horizontal';
+        // Read template dimensions directly from current metadata/geometry in
+        // val(). Caching the whole gallery width as TemplateWidth creates a
+        // feedback loop for a horizontal gallery sized from its own template.
+        if (horizontal && rowsEl.style) {
+          if (!Number.isFinite(templateSize) || templateSize < 1) throw new Error('Horizontal gallery requires a positive TemplateSize: ' + name);
+          Object.assign(rowsEl.style,{display:'grid',gridAutoFlow:'column',
+            gridTemplateRows:'repeat(' + (Number.isFinite(wrapCount) && wrapCount>0 ? wrapCount : 1) + ', minmax(0, 1fr))',
+            gridAutoColumns:templateSize+'px',height:'100%',boxSizing:'border-box',
+            gap:(Number.isFinite(templatePadding) ? Math.max(0,templatePadding) : 0)+'px',
+            padding:(Number.isFinite(templatePadding) ? Math.max(0,templatePadding) : 0)+'px'});
+        } else if (rowsEl.style && Number.isFinite(wrapCount) && wrapCount > 1) {
           rowsEl.style.display = 'grid';
           rowsEl.style.gridTemplateColumns = 'repeat(' + wrapCount + ', minmax(0, 1fr))';
         }
@@ -1004,10 +1023,12 @@
           var row = renderedRows[index];
           if (!row) return;
           row.style.position = 'relative';
-          if (Number.isFinite(templateSize) && templateSize > 0) {
+          if (horizontal) {
+            Object.assign(row.style,{width:templateSize+'px',minWidth:'0',minHeight:'0',padding:'0'});
+          } else if (Number.isFinite(templateSize) && templateSize > 0) {
             row.style.minHeight = templateSize + 'px';
           }
-          if (Number.isFinite(templatePadding) && templatePadding >= 0) {
+          if (!horizontal && Number.isFinite(templatePadding) && templatePadding >= 0) {
             row.style.padding = templatePadding + 'px';
           }
           if (rowFn) {

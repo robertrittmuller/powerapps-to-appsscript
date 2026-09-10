@@ -1086,6 +1086,26 @@ def directory_fixture_files() -> dict[str, str]:
             {'Name':name,'Type':'ServiceInfo'} for name in ['Planner','Office365Users','Microsoft365Users']]})}
 
 
+def horizontal_gallery_fixture_files() -> dict[str,str]:
+    def control(name,kind,props,children=None):
+        return {'Name':name,'Template':{'Name':kind},'Children':children or [],'Rules':[
+            {'Property':key,'InvariantScript':str(value)} for key,value in props.items()]}
+    def gallery(name,y,wrap,count):
+        row=control(name+'Select','button',{'X':0,'Y':0,'Width':'Parent.TemplateWidth',
+            'Height':'Parent.TemplateHeight','Text':'ThisItem.Name','OnSelect':'Set(chosenLogo, ThisItem.Name)'})
+        return control(name,'gallery',{'X':20,'Y':y,'Layout':'Layout.Horizontal','TemplateSize':48,'TemplatePadding':20,
+            'WrapCount':wrap,'Width':'(Self.TemplateWidth + Self.TemplatePadding) * 3 + Self.TemplatePadding',
+            'Height':f'(Self.TemplateWidth + Self.TemplatePadding) * {wrap} + Self.TemplatePadding',
+            'Items':'Table('+','.join('{Name:"'+letter+'"}' for letter in 'ABCDEF'[:count])+')'},[row])
+    controls=[gallery('LoadingLogos',20,1,3),gallery('WrappedLogos',150,2,6),
+        control('SelectedLogo','label',{'X':20,'Y':330,'Width':220,'Height':44,'Text':'chosenLogo'}),
+        control('LayoutTick','button',{'X':20,'Y':390,'Width':220,'Height':44,'Text':'"Refresh bindings"',
+            'OnSelect':'Set(layoutTick, Coalesce(layoutTick,0)+1)'})]
+    return {'Properties.json':json.dumps({'Name':'FixtureHorizontalGallery'}),
+        'Controls\\1.json':json.dumps({'TopParent':control('App','appinfo',{'OnStart':'Set(chosenLogo, "none")'})}),
+        'Controls\\2.json':json.dumps({'TopParent':control('HorizontalBoard','screen',{'Width':640,'Height':480},controls)})}
+
+
 def build_fixtures() -> None:
     # Fixture A: navigation + globals, all rule-transpilable
     _write_msapp(
@@ -1170,6 +1190,7 @@ def build_fixtures() -> None:
     _write_msapp(FIXTURE_DIR / 'fixtureCollectionAliases.msapp', collection_alias_fixture_files())
     _write_msapp(FIXTURE_DIR / 'fixturePlanner.msapp', planner_fixture_files())
     _write_msapp(FIXTURE_DIR / 'fixtureDirectory.msapp', directory_fixture_files())
+    _write_msapp(FIXTURE_DIR / 'fixtureHorizontalGallery.msapp', horizontal_gallery_fixture_files())
     _write_msapp(FIXTURE_DIR / 'fixtureViews.msapp', view_fixture_files())
     _write_msapp(FIXTURE_DIR / 'fixtureViews.solution.zip', {'customizations.xml':
         f'<ImportExportXml><Entities><Entity><savedqueries><savedquery><savedqueryid>{{{VIEW_ID}}}</savedqueryid><fetchxml>{VIEW_QUERY}</fetchxml></savedquery></savedqueries></Entity></Entities></ImportExportXml>'})

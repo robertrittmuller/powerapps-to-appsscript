@@ -60,6 +60,25 @@ test('startup waits for session identity before source OnStart snapshots User()'
   assert.strictEqual(ctx.FXUser().image,'avatar');
 });
 
+test('horizontal gallery template dimensions cannot recursively grow its source width', () => {
+  const vm=require('node:vm'),fs=require('node:fs');
+  const attrs={'data-gallery-layout':'horizontal','data-template-size':'48','data-template-padding':'20'};
+  const host={tagName:'DIV',style:{width:'1px',height:'1px'},textContent:'',getAttribute:key=>attrs[key]??null};
+  const ctx=vm.createContext({document:{...global.document,querySelector:()=>host}});ctx.window=ctx;
+  vm.runInContext(fs.readFileSync(require.resolve('../../static/gas-runtime.js'),'utf8'),ctx);
+  for (let pass=0;pass<50;pass++) {
+    const self=ctx.val('LoadingLogos');
+    host.style.width=((self.template_width+self.template_padding)*3+self.template_padding)+'px';
+    host.style.height=(self.template_width+2*self.template_padding)+'px';
+  }
+  assert.equal(host.style.width,'224px');
+  assert.equal(host.style.height,'88px');
+  assert.equal(ctx.val('LoadingLogos').template_width,48);
+  assert.equal(ctx.val('LoadingLogos').template_height,48);
+  attrs['data-wrap-count']='2';host.style.height='156px';
+  assert.equal(ctx.val('LoadingLogos').template_height,48);
+});
+
 test('launch parameters are case-sensitive text with Blank for absent keys', () => {
   const vm = require('node:vm');
   const fs = require('node:fs');
@@ -474,6 +493,7 @@ test('gallery row selection exposes Selected and AllItems records', () => {
     RT.rowControl(row, 'Name', 'PeopleGallery', {
       text: () => item.name,
       left: (_read, _self, parent) => parent.template_width - 5,
+      height: (_read, _self, parent) => parent.template_height,
     });
   }, null);
   RT.updateBindings();
@@ -497,6 +517,12 @@ test('gallery row selection exposes Selected and AllItems records', () => {
   assert.strictEqual(rows[2].child.textContent,'Katherine');
   assert.strictEqual(rows[0],retained[0]);
   assert.strictEqual(rows[1],retained[1]);
+  attrs['data-gallery-layout']='horizontal';
+  host.style.height='50px';
+  RT.styleControl('PeopleGallery','height',()=>100,'px');
+  RT.updateBindings();
+  assert.strictEqual(rows[0].child.style.height,'94px','row geometry must see the height set by a later style binding');
+  assert.strictEqual(rows[0].child.style.left,'82px');
   global.document.querySelector = original;
   global.document.createElement = originalCreate;
 });

@@ -708,11 +708,19 @@ def _render_control(
         row_size = _static_scalar(ctrl.properties.get("TemplateSize"))
         row_padding = _static_scalar(ctrl.properties.get("TemplatePadding"))
         wrap_count = _static_scalar(ctrl.properties.get("WrapCount"))
+        orientation = (_static_raw(ctrl.properties.get("Layout")) or '').lower()
         gallery_attrs = ""
+        if orientation == 'horizontal' and row_size is None:
+            mark_emission(ctrl.properties.get("Layout"), "unsupported",
+                          "horizontal gallery with dynamic TemplateSize still requires a layout adapter")
+        elif orientation in {"horizontal", "vertical"}:
+            gallery_attrs += f' data-gallery-layout="{orientation}"'
+            mark_emission(ctrl.properties.get("Layout"), "approximated",
+                          "gallery preserves its static orientation; dynamic orientation requires review")
         if row_size:
             gallery_attrs += f' data-template-size="{html.escape(row_size, quote=True)}"'
             mark_emission(ctrl.properties.get("TemplateSize"), "approximated",
-                          "gallery row minimum height follows TemplateSize")
+                          "gallery template extent follows TemplateSize in its source orientation")
         if row_padding:
             gallery_attrs += f' data-template-padding="{html.escape(row_padding, quote=True)}"'
             mark_emission(ctrl.properties.get("TemplatePadding"), "approximated",

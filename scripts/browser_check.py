@@ -958,6 +958,29 @@ def check_directory(page,backend):
     assert backend({'fn':'__plannerSnapshot','args':[]})['result']['tasks'][-1]==task
 
 
+def check_horizontal_gallery(page,_backend):
+    for name,wrap,count in [('LoadingLogos',1,3),('WrappedLogos',2,6)]:
+        gallery=control(page,name)
+        expect(gallery).to_have_attribute('data-gallery-layout','horizontal')
+        expected_height=(48+20)*wrap+20
+        page.wait_for_function('([name,height]) => {const r=document.querySelector(`[data-control="${name}"]`).getBoundingClientRect(); return r.width===224 && r.height===height;}',arg=[name,expected_height])
+        buttons=control(page,name+'Select');expect(buttons).to_have_count(count)
+        host=gallery.bounding_box()
+        for index in range(count):
+            row=buttons.nth(index);expect(row).to_be_visible();bounds=row.bounding_box()
+            assert bounds['width']==bounds['height']==48,bounds
+            assert bounds['x']==host['x']+20+(index//wrap)*68,bounds
+            assert bounds['y']==host['y']+20+(index%wrap)*68,bounds
+        buttons.last.click()
+        expect(control(page,'SelectedLogo')).to_have_text('ABCDEF'[count-1])
+    for _ in range(10): control(page,'LayoutTick').click()
+    page.wait_for_timeout(500)
+    assert control(page,'LoadingLogos').bounding_box()['width']==224
+    assert page.evaluate('document.documentElement.scrollWidth')<=page.viewport_size['width']
+    assert page.evaluate('document.documentElement.scrollHeight')<=page.viewport_size['height']
+    page.screenshot(path=str(OUT/'horizontal-gallery/stable-template-geometry.png'),full_page=True)
+
+
 def main():
     subprocess.run([sys.executable, str(REPO / "tests/fixtures/build.py")], check=True, capture_output=True)
     cases = [("business-form", REPO / "tests/fixtures/fixtureForm.msapp", check_form),
@@ -978,6 +1001,7 @@ def main():
                   False,None,None,None,setup_planner,'UTC'))
     cases.append(('google-directory', REPO/'tests/fixtures/fixtureDirectory.msapp', check_directory,
                   False,None,None,None,setup_directory,'UTC'))
+    cases.append(('horizontal-gallery',REPO/'tests/fixtures/fixtureHorizontalGallery.msapp',check_horizontal_gallery))
     cases.append(("saved-views", REPO / "tests/fixtures/fixtureViews.msapp", check_views,
                   False, None, None, REPO / 'tests/fixtures/fixtureViews.solution.zip'))
     cases.append(('relative-saved-views', REPO/'tests/fixtures/fixtureRelativeViews.msapp', check_relative_views,

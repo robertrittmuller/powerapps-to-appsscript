@@ -186,6 +186,11 @@ def test_fixture_b_startup_clean():
     assert verdict["totalConsoleErrors"] == 0, verdict
 
 
+def test_horizontal_template_size_source_formula_boots_without_reference_errors():
+    verdict=_simulate(FIXTURES/'fixtureHorizontalGallery.msapp')
+    assert verdict['visible']==['HorizontalBoard'] and verdict['totalConsoleErrors']==0,verdict
+
+
 @pytest.mark.parametrize('endpoint', ['connector', 'mistypedEndpoint', 'importPlanner_'])
 def test_unknown_or_unmigrated_server_cannot_pass_startup(tmp_path, endpoint):
     from pfx2gas.ir import AppIR, ScreenNode, FxExpr
