@@ -41,6 +41,7 @@ ELEMENT_MAP = {
     "ListBox": "select",
     "CheckBox": "input",
     "DatePicker": "input",
+    "FluentDatePicker": "input",
     "Gallery": "div",
     "GalleryTemplate": "div",
     "Image": "img",
@@ -507,7 +508,7 @@ def _static_scalar(expr) -> str | None:
 def _input_attrs(ctrl: ControlNode) -> str:
     """Static input defaults used both at first paint and by Reset()."""
     if ctrl.type not in {"TextInput", "TextArea", "Dropdown", "ComboBox",
-                          "CheckBox", "DatePicker", "Slider"}:
+                          "CheckBox", "DatePicker", "FluentDatePicker", "Slider"}:
         return ""
     props = ctrl.properties
     out = ""
@@ -599,7 +600,7 @@ def _static_attrs(ctrl: ControlNode) -> str:
     # DisplayMode: static Disabled -> disabled/readonly attribute
     if _static_raw(props.get("DisplayMode")) == "Disabled":
         if ctrl.type in {"Button", "Icon", "Dropdown", "ComboBox",
-                         "CheckBox", "DatePicker", "Slider"}:
+                         "CheckBox", "DatePicker", "FluentDatePicker", "Slider"}:
             out += " disabled"
         elif ctrl.type in {"TextInput", "TextArea"}:
             out += " readonly"
@@ -659,8 +660,10 @@ def _render_control(
         extra = ' type="password"' if input_mode == 'Password' else ' type="text"' if tag == 'input' else ''
     elif ctrl.type == "CheckBox":
         extra = ' type="checkbox"'
-    elif ctrl.type == "DatePicker":
+    elif ctrl.type in {"DatePicker", "FluentDatePicker"}:
         extra = ' type="date"'
+        if ctrl.type == 'FluentDatePicker':
+            extra += ' data-fx-date-value="local"'
     elif ctrl.type == "Slider":
         extra = ' type="range"'
     if ctrl.type == "CanvasComponent":
@@ -802,7 +805,9 @@ def _referenced_control_properties(ir: AppIR, parents: dict[str, str]) -> dict[s
                     r"(?<![A-Za-z0-9_])([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)",
                     expr.raw,
                 ):
-                    if base == "Parent" and owner.name in parents:
+                    if base == 'Self':
+                        referenced.setdefault(owner.name, set()).add(prop)
+                    elif base == "Parent" and owner.name in parents:
                         referenced.setdefault(parents[owner.name], set()).add(prop)
                     elif base in controls:
                         referenced.setdefault(base, set()).add(prop)
@@ -811,7 +816,7 @@ def _referenced_control_properties(ir: AppIR, parents: dict[str, str]) -> dict[s
 
 FORM_INPUT_TYPES = {
     "TextInput", "TextArea", "Dropdown", "ComboBox", "ListBox",
-    "CheckBox", "DatePicker", "Slider",
+    "CheckBox", "DatePicker", "FluentDatePicker", "Slider",
 }
 
 
@@ -853,6 +858,7 @@ def _fallback_input_value(input_ctrl: ControlNode) -> str:
     prop = {
         "CheckBox": "checked",
         "DatePicker": "selected_date",
+        "FluentDatePicker": "value",
         "Dropdown": "selected",
         "ComboBox": "selected",
         "ListBox": "selected",
@@ -1038,13 +1044,17 @@ def render_app_js(ir: AppIR) -> str:
         for ctrl in screen.walk_controls():
             if ctrl.name in gallery_children:
                 continue
-            if ctrl.type in {"TextInput", "TextArea", "CheckBox", "DatePicker", "Slider", "Button"}:
+            if ctrl.type in {"TextInput", "TextArea", "CheckBox", "DatePicker", "FluentDatePicker", "Slider", "Button"}:
                 inputs = [("DisplayMode", "disabled"), ("Reset", "reset")]
                 # Form/DataCard record application already owns their defaults.
                 # Standalone inputs need the same reactive default contract as
                 # gallery rows, including defaults populated by LoadData.
                 if ctrl.name not in form_children and ctrl.type != "Button":
-                    inputs.insert(0, ("DefaultDate" if ctrl.type == "DatePicker" else "Default", "default"))
+                    default_prop = 'Value' if ctrl.type == 'FluentDatePicker' else 'DefaultDate' if ctrl.type == 'DatePicker' else 'Default'
+                    inputs.insert(0, (default_prop, "default"))
+                if ctrl.type == 'FluentDatePicker':
+                    inputs.append(('AcceptsFocus', 'acceptsFocus'))
+                    inputs.extend([('AccessibleLabel', 'ariaLabel'), ('Tooltip', 'title')])
                 if ctrl.type in {'TextInput', 'TextArea'}:
                     inputs.insert(0, ('Mode', 'mode'))
                 properties = [(key, ctrl.properties[prop]) for prop, key in inputs
@@ -1061,6 +1071,8 @@ def render_app_js(ir: AppIR) -> str:
             if wanted_props:
                 registered = []
                 for prop_name in ctrl.properties:
+                    if ctrl.type == 'FluentDatePicker' and prop_name == 'Value':
+                        continue  # Value reads the user's current date, not its initial formula.
                     if prop_name not in wanted_props:
                         continue
                     expr = ctrl.properties.get(prop_name)
@@ -1162,10 +1174,14 @@ def render_app_js(ir: AppIR) -> str:
                             row_inputs.extend([(display_property, "displayFields"), ("Items", "items"),
                                                ("DefaultSelectedItems", "default")])
                         if child.type in {"TextInput", "TextArea", "Dropdown", "ComboBox", "ListBox",
-                                          "CheckBox", "DatePicker", "Slider"}:
+                                          "CheckBox", "DatePicker", "FluentDatePicker", "Slider"}:
                             if "DefaultSelectedItems" not in child.properties:
-                                row_inputs.append(("DefaultDate" if child.type == "DatePicker" else "Default", "default"))
+                                default_prop = 'Value' if child.type == 'FluentDatePicker' else 'DefaultDate' if child.type == 'DatePicker' else 'Default'
+                                row_inputs.append((default_prop, "default"))
                             row_inputs.extend([("DisplayMode", "disabled"), ("Reset", "reset")])
+                        if child.type == 'FluentDatePicker':
+                            row_inputs.append(('AcceptsFocus', 'acceptsFocus'))
+                            row_inputs.extend([('AccessibleLabel', 'ariaLabel'), ('Tooltip', 'title')])
                         if child.type == "Image":
                             row_inputs.append(("Image", "src"))
                         if child.type in {'TextInput', 'TextArea'}:

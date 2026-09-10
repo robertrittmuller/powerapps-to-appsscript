@@ -91,6 +91,18 @@ def main(project=False):
                 check('new-project-screen',lambda:expect(page.locator('[data-screen="Add Project Screen"]')).to_be_visible())
                 check('empty-name-cannot-continue',lambda:expect(control(page,'btnNextNewProjectMilestones')).to_be_disabled())
                 check('three-default-milestones',lambda:expect(control(page,'txtAddMilestoneName')).to_have_count(3))
+                def default_dates():
+                    dates=control(page,'datMilestoneTargetDate')
+                    expect(dates).to_have_count(3)
+                    for index,value in enumerate(['2026-03-01','2026-03-08','2026-03-15']):
+                        expect(dates.nth(index)).to_be_visible()
+                        expect(dates.nth(index)).to_have_value(value)
+                check('weekly-default-date-inputs',default_dates)
+                def edit_dates():
+                    dates=control(page,'datMilestoneTargetDate')
+                    dates.nth(1).fill('2026-03-10')
+                    dates.nth(2).fill('2026-03-20')
+                check('edit-independent-milestone-dates',edit_dates)
                 control(page,'txtNewProjectName').fill('Facilities renewal')
                 for index,title in enumerate(['Survey site','Replace equipment','Review handover']):
                     control(page,'txtAddMilestoneName').nth(index).fill(title)
@@ -112,11 +124,22 @@ def main(project=False):
                 check('distinct-milestone-edits-persist',project_records)
                 def milestone_dates():
                     milestones=backend({'fn':'api','args':['Project Milestones','list',{}]})['result']
-                    assert len(milestones)==3 and all(row['msft_milestonedate'] for row in milestones),{
+                    assert [row['msft_milestonedate'] for row in milestones]==[
+                        '2026-03-01T05:00:00.000Z','2026-03-10T04:00:00.000Z','2026-03-20T04:00:00.000Z'],{
                         'milestoneDates':[row['msft_milestonedate'] for row in milestones]}
-                check('milestone-default-dates-persist',milestone_dates)
+                check('milestone-edited-dates-persist',milestone_dates)
+                def milestone_colors():
+                    milestones=backend({'fn':'api','args':['Project Milestones','list',{}]})['result']
+                    assert [row['msft_color'] for row in milestones]==['#5AC6CC','#C5E9EA','#F0F9FA'],{
+                        'milestoneColors':[row['msft_color'] for row in milestones]}
+                check('source-milestone-colors-persist',milestone_colors)
         finally:
             snapshot()
+            (OUT/name/'runtime-state.json').write_text(json.dumps(page.evaluate("""() => ({
+                now: new Date().toISOString(), loaded: state.gblAppLoaded,
+                timer: {value: val('tmrLoadingDelay').value, running: val('tmrLoadingDelay').running},
+                screens: [...document.querySelectorAll('[data-screen]')].filter(el => el.style.display !== 'none').map(el => el.dataset.screen)
+            })"""),indent=2)+'\n')
             if project:
                 trace={key:backend({'fn':fn,'args':[]}) for key,fn in
                        [('peopleRequests','__peopleRequests'),('connectorRequests','__connectorRequests')]}
@@ -124,7 +147,8 @@ def main(project=False):
     with sync_playwright() as p:
         browser=p.chromium.launch()
         result=run_case(browser,name,REPO/'samples/microsoft/milestones.msapp',journey,
-            solution=REPO/'samples/microsoft/Milestones.solution.zip',setup_backend=seed)
+            solution=REPO/'samples/microsoft/Milestones.solution.zip',setup_backend=seed,
+            timezone_id='America/New_York',running_time='2026-03-01T16:00:00+00:00')
         browser.close()
     result.update(sourceAppId='milestones',steps=steps,assessmentScope='first-run onboarding and persisted settings across two simulated Google users'+('; project creation probe' if project else ''),
                   completeUsability='unassessed')

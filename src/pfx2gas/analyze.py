@@ -190,7 +190,7 @@ def infer_data_source_fields(ir: AppIR) -> None:
         if update and re.search(r"\bValue\s*\(", update.raw, re.I):
             return "number"
         input_types = {child.type for child in descendants(card)}
-        if "DatePicker" in input_types:
+        if {"DatePicker", "FluentDatePicker"} & input_types:
             return "date"
         if "CheckBox" in input_types:
             return "bool"
@@ -378,6 +378,8 @@ def analyze(ir: AppIR, uncovered: list[dict] | None = None, solution=None) -> Ap
             # properties (including Items) run outside that row's scope.
             alias = child_alias if ctrl.type == "Gallery" and name == "OnSelect" else row_alias
             convert_formula(prop, alias, screen_name)
+            if (ctrl.type == 'FluentDatePicker' and name == 'Value') or (ctrl.type == 'DatePicker' and name == 'DefaultDate'):
+                prop.approximations.append('Date picker uses the browser calendar and local midnight; source timezone settings, custom calendar formatting and exact Fluent appearance require review')
         for child in ctrl.children:
             convert_control(child, child_alias, screen_name)
 

@@ -229,6 +229,51 @@ def check_gallery(page, backend):
     expect(rows.nth(1).locator('[data-control="RowLast"]')).to_have_value('Second bulk edit')
 
 
+def check_fluent_dates(page, backend):
+    base=control(page,'CalendarBase');dates=control(page,'DueDate')
+    expect(base).to_have_value('2026-03-01')
+    expect(base).to_have_attribute('type','date')
+    expect(base).to_have_attribute('aria-label','Base date')
+    assert control(page,'SizingHeader').evaluate('el=>parseFloat(el.style.width)')==188
+    expect(control(page,'ScreenSizeName')).to_have_text('medium')
+    base.fill('2026-03-04');base.press('Tab')
+    expect(control(page,'BasePreview')).to_have_text('2026-03-04')
+    assert page.evaluate('state.changedDate.toISOString()')=='2026-03-04T05:00:00.000Z'
+    control(page,'ChangeCounter').click()
+    expect(base).to_have_value('2026-03-04')
+    control(page,'ResetBase').click();expect(base).to_have_value('2026-03-01')
+    control(page,'NextBase').click();expect(base).to_have_value('2026-03-02')
+    assert control(page,'SizingHeader').evaluate('el=>parseFloat(el.style.width)')==203
+    control(page,'FocusDates').click()
+    assert base.evaluate('el=>el.tabIndex')==-1
+    assert dates.nth(1).evaluate('el=>el.tabIndex')==-1
+    control(page,'FocusDates').click()
+    assert base.evaluate('el=>el.tabIndex')==0
+    expect(dates).to_have_count(3)
+    for index,value in enumerate(['2026-03-01','2026-03-08','2026-03-15']):
+        expect(dates.nth(index)).to_have_value(value)
+        expect(dates.nth(index)).to_have_attribute('aria-label','Target date '+str(index+1))
+    dates.nth(1).fill('2026-03-10');dates.nth(1).press('Tab')
+    assert page.evaluate('state.changedRowDate.toISOString()')=='2026-03-10T04:00:00.000Z'
+    dates.nth(2).fill('');dates.nth(2).press('Tab')
+    assert page.evaluate('state.changedRowDate === null')
+    control(page,'ResetDue').nth(2).click();expect(dates.nth(2)).to_have_value('2026-03-15')
+    dates.nth(2).fill('2026-03-20')
+    dates.nth(1).evaluate('el=>window.__dateNode=el')
+    control(page,'ChangeCounter').click()
+    assert dates.nth(1).evaluate('el=>el===window.__dateNode')
+    expect(dates.nth(1)).to_have_value('2026-03-10')
+    control(page,'LockDates').click();expect(dates.nth(1)).to_be_disabled()
+    control(page,'LockDates').click();expect(dates.nth(1)).to_be_enabled()
+    control(page,'SaveDates').click();page.wait_for_function('state.datesSaved === true')
+    saved=backend({'fn':'api','args':['Schedule','list',{}]})['result']
+    assert [row['due'] for row in saved]==['2026-03-01T05:00:00.000Z','2026-03-10T04:00:00.000Z','2026-03-20T04:00:00.000Z'],saved
+    page.screenshot(path=str(OUT/'fluent-dates/saved.png'))
+    page.reload()
+    for index,value in enumerate(['2026-03-01','2026-03-10','2026-03-20']):
+        expect(dates.nth(index)).to_have_value(value)
+
+
 def check_timers(page, _backend):
     expect(page.locator('[data-screen="LoadingScreen"]')).to_be_visible()
     page.wait_for_function("state.timerStarted === true")
@@ -256,7 +301,9 @@ def check_timers(page, _backend):
     page.screenshot(path=str(OUT / "timer-lifecycle/ready.png"))
 
 
-def run_case(browser, name, source, journey, clock=False, launch_parameters=None, viewport=None, solution=None, setup_backend=None, timezone_id=None, fixed_time=None):
+def run_case(browser, name, source, journey, clock=False, launch_parameters=None, viewport=None, solution=None, setup_backend=None, timezone_id=None, fixed_time=None, running_time=None):
+    if sum(bool(mode) for mode in (clock, fixed_time, running_time)) > 1:
+        raise ValueError('Choose exactly one simulated clock mode')
     ir = analyze(parse(unpack(source)), solution=solution)
     project = synthesize(ir, OUT / name / "project")
     validation = validate_project(project)
@@ -290,6 +337,8 @@ def run_case(browser, name, source, journey, clock=False, launch_parameters=None
         page.clock.pause_at(1)
     if fixed_time:
         page.clock.set_fixed_time(datetime.fromisoformat(fixed_time))
+    if running_time:
+        page.clock.install(time=datetime.fromisoformat(running_time))
     errors = []
     page.on("pageerror", lambda error: errors.append(str(error)))
     page.on("console", lambda msg: errors.append(msg.text) if msg.type == "error" else None)
@@ -298,8 +347,9 @@ def run_case(browser, name, source, journey, clock=False, launch_parameters=None
               "inputSha256": hashlib.sha256(source.read_bytes()).hexdigest(),
               "sourceMetadata": ir.source_metadata,
               "converterSourceSha256": converter_fingerprint(), "browserVersion": browser.version}
-    if fixed_time or timezone_id:
-        result['dateContext'] = {'now':fixed_time,'timeZone':timezone_id}
+    if fixed_time or running_time or timezone_id:
+        result['dateContext'] = {'now':fixed_time or running_time,'timeZone':timezone_id,
+                                 'clock':'running' if running_time else 'fixed' if fixed_time else 'system'}
     try:
         if setup_backend:
             result['dataSetup'] = setup_backend(backend)
@@ -1110,6 +1160,8 @@ def main():
              ("business-charts", REPO / "tests/fixtures/fixtureCharts.msapp", check_charts),
              ("record-scopes", REPO / "tests/fixtures/fixtureScopes.msapp", check_scopes)]
     cases.append(("editable-gallery", REPO / "tests/fixtures/fixtureGallery.msapp", check_gallery))
+    cases.append(('fluent-dates',REPO/'tests/fixtures/fixtureFluentDates.msapp',check_fluent_dates,
+                  False,None,None,None,None,'America/New_York','2026-03-01T16:00:00+00:00'))
     cases.append(("timer-lifecycle", REPO / "tests/fixtures/fixtureTimer.msapp", check_timers, True))
     cases.append(("local-draft-storage", REPO / "tests/fixtures/fixtureStorage.msapp", check_storage))
     cases.append(("dataverse-contract", REPO / "tests/fixtures/fixtureDataverse.msapp", check_dataverse))

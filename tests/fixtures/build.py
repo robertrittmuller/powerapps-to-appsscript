@@ -473,6 +473,56 @@ def _write_msapp(path: Path, files: dict[str, str]) -> None:
             zf.writestr(info, content)
 
 
+def fluent_dates_fixture_files() -> dict[str, str]:
+    """Teams-native date inputs with weekly defaults and per-row persistence."""
+    def control(name, kind, props, children=None):
+        return {'Name':name,'Template':{'Name':kind},'Children':children or [],'Rules':[
+            {'Property':key,'InvariantScript':str(value)} for key,value in props.items()]}
+    children=[
+        control('CalendarBase','Microsoft_CoreControls_DatePicker',{'X':20,'Y':20,'Width':260,'Height':44,
+            'Value':'Date(2026, 3, 1) + shiftDays','AccessibleLabel':'"Base date"',
+            'AcceptsFocus':'allowDateFocus','DisplayMode':'DisplayMode.Edit',
+            'OnChange':'Set(changedDate, Self.Value)'}),
+        control('BasePreview','label',{'X':300,'Y':20,'Width':300,'Height':44,
+            'Text':'Text(CalendarBase.Value, "yyyy-mm-dd")'}),
+        control('ResetBase','button',{'X':20,'Y':80,'Width':140,'Height':40,
+            'Text':'"Reset date"','OnSelect':'Reset(CalendarBase)'}),
+        control('NextBase','button',{'X':180,'Y':80,'Width':140,'Height':40,
+            'Text':'"Next default"','OnSelect':'Set(shiftDays, shiftDays + 1)'}),
+        control('ChangeCounter','button',{'X':340,'Y':80,'Width':140,'Height':40,
+            'Text':'"Update counter"','OnSelect':'Set(counter, counter + 1)'}),
+        control('FocusDates','button',{'X':500,'Y':80,'Width':180,'Height':40,
+            'Text':'"Toggle focus"','OnSelect':'Set(allowDateFocus, !allowDateFocus)'}),
+        control('ScheduleRows','gallery',{'X':20,'Y':150,'Width':660,'Height':270,
+            'Items':'Schedule','TemplateSize':80,'TemplatePadding':0},[
+            control('DatesTemplate','gallerytemplate',{},[
+                control('DueDate','Microsoft_CoreControls_DatePicker',{'X':160,'Y':10,'Width':260,'Height':44,
+                    'Value':'Coalesce(ThisItem.Due, Today() + (ThisItem.Order - 1) * 7)',
+                    'AccessibleLabel':'"Target date " & Text(ThisItem.Order)',
+                    'DisplayMode':'If(lockDates, DisplayMode.Disabled, DisplayMode.Edit)',
+                    'OnChange':'Set(changedRowDate, Self.Value)','AcceptsFocus':'allowDateFocus'}),
+                control('DateTitle','label',{'X':10,'Y':10,'Width':140,'Height':44,'Text':'ThisItem.Name'}),
+                control('ResetDue','button',{'X':450,'Y':10,'Width':140,'Height':44,
+                    'Text':'"Reset row date"','OnSelect':'Reset(DueDate)'})])]),
+        control('SaveDates','button',{'X':20,'Y':440,'Width':160,'Height':44,
+            'Text':'"Save dates"','OnSelect':'ForAll(ScheduleRows.AllItems As loaded, '
+                'Patch(Schedule, LookUp(Schedule, ID = loaded.ID), {Due: DueDate.Value})); Set(datesSaved, true)'}),
+        control('LockDates','button',{'X':200,'Y':440,'Width':160,'Height':44,
+            'Text':'"Lock dates"','OnSelect':'Set(lockDates, !lockDates)'}),
+        control('SizingHeader','label',{'X':20,'Y':500,'Width':'Len(Self.Text) * Self.Size + Self.PaddingLeft + Self.PaddingRight',
+            'Height':40,'Text':'"Milestone dates"','Size':'12 + shiftDays','PaddingLeft':3,'PaddingRight':5}),
+        control('ScreenSizeName','label',{'X':350,'Y':500,'Width':180,'Height':40,
+            'Text':'Switch(Dates.Size, Small, "small", Medium, "medium", Large, "large", ExtraLarge, "extra large")'})]
+    return {'Properties.json':json.dumps({'Name':'FixtureFluentDates'}),
+        'Controls\\1.json':json.dumps({'TopParent':control('App','appinfo',{'OnStart':
+            'Set(shiftDays, 0); Set(allowDateFocus, true); Set(counter, 0); Set(lockDates, false)'})}),
+        'Controls\\2.json':json.dumps({'TopParent':control('Dates','screen',{'Width':800,'Height':600},children)}),
+        'References\\DataSources.json':json.dumps({'DataSources':[{'Name':'Schedule','Type':'StaticDataSourceInfo',
+            'Fields':[{'name':'ID','type':'text'},{'name':'Name','type':'text'},{'name':'Order','type':'number'},{'name':'Due','type':'date'}],
+            'SampleData':[{'ID':str(order),'Name':name,'Order':order,'Due':None}
+                          for order,name in enumerate(['Survey','Install','Review'],1)]}]})}
+
+
 def timer_fixture_files() -> dict[str, str]:
     def control(name, kind, props):
         return {name: {"Control": kind, "Properties": {k: "=" + str(v) for k, v in props.items()}}}
@@ -1259,6 +1309,7 @@ def build_fixtures() -> None:
     )
     _write_msapp(FIXTURE_DIR / "fixtureScopes.msapp", scope_fixture_files())
     _write_msapp(FIXTURE_DIR / "fixtureGallery.msapp", gallery_fixture_files())
+    _write_msapp(FIXTURE_DIR / "fixtureFluentDates.msapp", fluent_dates_fixture_files())
     _write_msapp(FIXTURE_DIR / "fixtureTimer.msapp", timer_fixture_files())
     _write_msapp(FIXTURE_DIR / "fixtureStorage.msapp", storage_fixture_files())
     _write_msapp(FIXTURE_DIR / "fixtureDataverse.msapp", dataverse_fixture_files())

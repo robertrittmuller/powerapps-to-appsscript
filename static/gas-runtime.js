@@ -14,6 +14,7 @@
   var cardLayouts = [], cardGeometry = {}, galleryLayouts = [];
   var handlers = {};     // controlName -> { event: fn }
   var controlValues = {}; // control name -> evaluated properties used by dependents
+  var controlProperties = Object.create(null), resolvingProperties = [];
   var galleryTemplates = Object.create(null), resolvingTemplates = [];
   var forms = {};        // form name -> generated DataCard submit configuration
   var timers = {};       // timer name -> resettable scheduling state
@@ -423,6 +424,27 @@
     return selected;
   }
 
+  function dateInputText(value) {
+    if (value === null || value === undefined || value === '') return '';
+    if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+      dateInputValue({value:value}); return value;
+    }
+    var date = value instanceof Date ? value :
+      typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(value) ? new Date(value) : null;
+    if (!date || !Number.isFinite(date.getTime())) throw new Error('Date picker requires a valid date');
+    return String(date.getFullYear()).padStart(4, '0') + '-' + String(date.getMonth()+1).padStart(2, '0') + '-' + String(date.getDate()).padStart(2, '0');
+  }
+
+  function dateInputValue(el) {
+    if (!el.value) return null;
+    var parts = /^(\d{4})-(\d{2})-(\d{2})$/.exec(el.value);
+    if (!parts) throw new Error('Invalid date picker value');
+    var date = new Date(0); date.setFullYear(Number(parts[1]), Number(parts[2])-1, Number(parts[3]));
+    date.setHours(0,0,0,0);
+    if (dateInputText(date) !== el.value) throw new Error('Invalid date picker value');
+    return date;
+  }
+
   function val(name, element) {
     if (name === 'App') {
       return canvasRef('App');
@@ -448,24 +470,45 @@
     }
     var standard = {
       text: ['INPUT', 'SELECT', 'TEXTAREA'].indexOf(el.tagName) >= 0 ? el.value : (el.textContent || ''),
-      value: el.type === 'checkbox' ? !!el.checked : el.type === 'range' ? Number(el.value)
+      value: el.type === 'date' && el.getAttribute('data-fx-date-value') === 'local' ? dateInputValue(el)
+        : el.type === 'checkbox' ? !!el.checked : el.type === 'range' ? Number(el.value)
         : el.value !== undefined ? el.value : el.textContent,
       checked: !!el.checked,
       selected: selectedRows[0] || null,
       selected_items: selectedRows,
       selected_text: selectedRows[0] ? { value: selectedInfo.label } : null,
-      selected_date: el.value ? el.value : null,
+      selected_date: el.type === 'date' ? dateInputValue(el) : el.value ? el.value : null,
       width: numericStyle('width', bounds && bounds.width),
       height: numericStyle('height', bounds && bounds.height),
       x: numericStyle('left', bounds && bounds.left),
       y: numericStyle('top', bounds && bounds.top),
       fill: el.style && el.style.backgroundColor || '',
       color: el.style && el.style.color || '',
+      accessible_label: typeof el.getAttribute === 'function' ? el.getAttribute('aria-label') || '' : '',
+      tooltip: typeof el.getAttribute === 'function' ? el.getAttribute('title') || '' : '',
       visible: !el.style || el.style.display !== 'none',
       el: el,
     };
+    var liveProperties = new Set(Object.keys(standard));
+    ['template_size','template_width','template_height','template_padding'].forEach(function (key) { liveProperties.add(key); });
     Object.assign(standard, element ? (element.__fxValues || {}) : (controlValues[name] || {}),
       element ? {} : (cardGeometry[name] || {}));
+    var definitions = !element && controlProperties[name];
+    if (definitions) Object.keys(definitions.fns).forEach(function (key) {
+      if (liveProperties.has(key)) return; // DOM input values and geometry retain their live contract.
+      var resolved = false, value;
+      Object.defineProperty(standard, key, {enumerable:true, configurable:true, get:function () {
+        if (resolved) return value;
+        var reference = name + '.' + key;
+        if (resolvingProperties.includes(reference)) throw new Error('Circular control property: ' + reference);
+        resolvingProperties.push(reference);
+        try {
+          value = inControlContext(name, definitions.parent, definitions.fns[key]);
+          resolved = true; return value;
+        }
+        finally { resolvingProperties.pop(); }
+      }});
+    });
     if (el.__fxAllItems) {
       Object.defineProperties(standard, {
         all_items: {enumerable:true, get:el.__fxAllItems},
@@ -687,6 +730,7 @@
   }
 
   function registerControlProps(name, parentName, propertyFns) {
+    controlProperties[name] = {parent:parentName, fns:propertyFns || {}};
     var evaluator = {
       apply: function () {
         var next = Object.assign({}, controlValues[name] || {});
@@ -853,9 +897,7 @@
           var signature = JSON.stringify(value == null ? '' : value);
           if (el.__fxDefaultSignature !== signature) {
             el.__fxDefaultSignature = signature;
-            if (el.type === 'date' && value instanceof Date) {
-              value = value.getFullYear() + '-' + String(value.getMonth() + 1).padStart(2, '0') + '-' + String(value.getDate()).padStart(2, '0');
-            }
+            if (el.type === 'date') value = dateInputText(value);
             el.setAttribute('data-fx-default', value == null ? '' : String(value));
             if (el.type === 'checkbox') el.checked = !!value;
             else if (el.tagName === 'SELECT') applyDefaultSelection(el, value);
@@ -884,6 +926,10 @@
           else if (el.getAttribute('src') !== source) el.setAttribute('src', source);
         } else if (key === 'disabled') {
           el.disabled = /^(disabled|view)$/i.test(String(value));
+        } else if (key === 'acceptsFocus') {
+          el.tabIndex = value ? 0 : -1;
+        } else if (key === 'ariaLabel' || key === 'title') {
+          el.setAttribute(key === 'ariaLabel' ? 'aria-label' : 'title', value == null ? '' : String(value));
         } else if (key === 'reset') {
           var rising = value && !el.__fxReset;
           el.__fxReset = !!value;
@@ -1173,6 +1219,7 @@
     if (el.__fxFormDisabled === undefined) el.__fxFormDisabled = !!el.disabled;
     if (el.__fxFormReadOnly === undefined) el.__fxFormReadOnly = !!el.readOnly;
     if (el.type === 'checkbox') el.checked = !!value;
+    else if (el.type === 'date') el.value = dateInputText(value);
     else el.value = value === null || value === undefined ? '' : String(value);
     el.disabled = mode === 'view' ? true : el.__fxFormDisabled;
     el.readOnly = mode === 'view' ? true : el.__fxFormReadOnly;

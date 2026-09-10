@@ -250,6 +250,17 @@ def test_membership_precedence_case_and_single_column_projection():
     assert evaluate('Sum([1, 2, 3] As number, number.Value)') == 6
 
 
+def test_split_legacy_result_and_value_survive_addcolumns_record_scopes():
+    assert any('legacy Result alias' in note for note in transpile('Split("abc", "")').approximations)
+    formula='Sum(AddColumns(Split("abc", ""), Size, LookUp(Widths, Char = Result).Size), Size)'
+    assert evaluate(formula,{'Widths':[{'char':'a','size':2},{'char':'b','size':3},{'char':'c','size':4}]})==9
+    assert evaluate('Concat(AddColumns(Split("a,b", ","), Extra, Value & Result), Extra, ";")')=='aa;bb'
+    assert evaluate('"b" in Split("a,b", ",")') is True
+    assert evaluate('First(Split("a,b", ",")).Result')=='a'
+    assert evaluate('ShowColumns(Split("a,b", ","), Result)')==[{'result':'a'},{'result':'b'}]
+    assert evaluate('Sum(AddColumns([1, 2, 3], Extra, Value * 2), Extra)')==12
+
+
 def test_groupby_aggregates_nested_rows_and_ungroup_restores_fields():
     state = {"Ideas": [{"campaign": "One", "author": "Ada", "votes": 2},
                        {"campaign": "Two", "author": "Ada", "votes": 3},

@@ -209,8 +209,9 @@ Ratings, attachments, manager workflows and complete app usability remain unasse
 `./pfx2gas browser scripts/assess_milestones_workflow.py` verifies original
 Milestones onboarding and persisted settings across two simulated Google users.
 All 19 checks pass. Its `--project` probe reaches project/member creation through
-native Google People fixtures and saves three distinct edited milestone names.
-It passes 29 checks, then fails because dates are blank; colors still use fallback gray. This remains
+native Google People fixtures and saves three distinct edited milestone names and dates.
+It passes 32 checks, including dates across the daylight-saving change, then fails
+because nested-picker colors still use fallback gray. This remains
 a failed workflow, with source/data hashes and records in `.artifacts/browser/`.
 The normal `./pfx2gas soak` enforces the existing
 required regression corpus, including failed required journeys and missing apps.
@@ -222,7 +223,8 @@ dependency failure instead of returning an empty successful response.
 galleries, timer lifecycles, launch parameters, local drafts, Dataverse record
 contracts, complete source timestamp/URL-validation formulas, responsive and
 scaled canvases, card grids, responsive gallery template sizes and horizontal wrapping, the migrated Planner task board,
-native Google directory assignments, Chat selectors/notifications, typed collection aliases and conditional draft
+native Google directory assignments, Chat selectors/notifications, Fluent date entry/reset/bulk save,
+typed collection aliases and conditional draft
 updates in Chromium, plus HelpDesk
 when its local export is present. It runs
 generated `doGet`/client/server code against a Sheets test double to check save,
@@ -333,6 +335,20 @@ Converted apps aim to match the original visually and behaviorally:
 - **Selectors** — Dropdown, ComboBox, and ListBox options preserve their source
   records for `Selected`/`SelectedItems`; `DisplayFields`, default selections,
   and multi-select are wired into native selects.
+- **Fluent date inputs** — Teams' `Microsoft_CoreControls_DatePicker` becomes a
+  native date input. Its Value is a local-midnight Date; classic SelectedDate
+  follows the same date contract. Defaults, independent gallery edits, Blank,
+  Reset, OnChange, DisplayMode, focus eligibility and accessible labels have
+  generated runtime and Chromium coverage, including persisted bulk saves/reload.
+  Date plus/minus days preserves civil dates across DST, Date subtraction returns
+  days, and DateAdd no longer mutates its input. Browser calendar appearance,
+  source timezone settings, typed Time arithmetic and persisted ISO operand
+  typing remain review items; this does not establish complete date parity.
+- **Self sizing dependencies** — consumed semantic properties such as Size and
+  Padding resolve forward references, with cycle checks and caching within each
+  control snapshot. Legacy bare screen-size Switch cases retain declared variable
+  shadowing. Split exposes Value plus a legacy Result alias through AddColumns;
+  that alias is not preserved through JSON or all table-copy operations, as ledgered.
 - **Input defaults and disabled states** — standalone text, date, checkbox and
   slider defaults react to loaded records while preserving edits through
   unrelated state updates. Reset restores the current default. Native inputs
@@ -573,7 +589,7 @@ operations via the coverage ledger — never silently wrong. Adding functions is
 `src/pfx2gas/fx/function_map.py` plus a JS helper in `static/fx-stdlib.js`.
 
 **Controls:** Label, Button, TextInput, TextArea, Dropdown/ComboBox/ListBox, CheckBox,
-DatePicker, Gallery (row template, per-item handlers), Image, Icon, HtmlText,
+DatePicker, FluentDatePicker, Gallery (row template, per-item handlers), Image, Icon, HtmlText,
 Form, GroupContainer/auto-layout containers (flexbox: direction, align,
 justify, gap, wrap, FillPortions, min sizes), Rectangle, Header, Timer, Slider,
 Chart/Legend, InfoButton, Form/DataCard, DataTable (generic), Badge;

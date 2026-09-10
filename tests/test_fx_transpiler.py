@@ -24,7 +24,7 @@ def test_concat_operator():
 
 
 def test_arithmetic():
-    assert js("1 + 2 * 3") == "(1 + (2 * 3))"
+    assert js("1 + 2 * 3") == "FX.add(1, (2 * 3))"
 
 
 def test_this_item():
@@ -49,7 +49,7 @@ def test_optional_function_arguments_never_leak_template_tokens():
 
 def test_set_behavior():
     assert js("Set(counter, counter + 1)", behavior=True) == (
-        "FXRuntime.setState({counter: (state.counter + 1)});"
+        "FXRuntime.setState({counter: FX.add(state.counter, 1)});"
     )
 
 
@@ -101,7 +101,7 @@ def test_screen_context_shadowing_preserves_global_bypass_and_record_precedence(
         "FX.field(state.selectedRecord, 'first_name')")
     result = transpile("With({count: 4}, count + [@count])", screen_name="Details", control_names=set()).js
     assert "FX.scopeValue([__scope1], 'count', () => FXRuntime.variable('Details', 'count', () => state.count))" in result
-    assert "+ state.count" in result
+    assert ", state.count)))" in result
     result = transpile("UpdateContext({CamelCase: camelcase, 'quoted key': Blank()})", behavior=True,
                       screen_name="Details", control_names=set()).js
     assert result == "FXRuntime.updateContext('Details', {'CamelCase': FXRuntime.variable('Details', 'camelcase', () => state.camelcase), 'quoted key': null});"

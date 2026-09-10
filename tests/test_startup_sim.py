@@ -287,6 +287,31 @@ def test_generated_gallery_edits_second_row_and_queues_parent_once(tmp_path):
         assert controls[name].properties[property_name].emission_status == "emitted"
 
 
+def test_generated_fluent_date_defaults_edits_reset_and_bulk_save(tmp_path):
+    from pfx2gas.analyze import analyze
+    from pfx2gas.parse import parse
+    from pfx2gas.startup_sim import simulate_project
+    from pfx2gas.synth.build import synthesize
+    from pfx2gas.unpack import unpack
+    ir=analyze(parse(unpack(FIXTURES/'fixtureFluentDates.msapp')))
+    project=synthesize(ir,tmp_path/'Dates')
+    verdict=simulate_project(project,[{'id':'fluent-dates','steps':[
+        {'action':'expectValue','control':'CalendarBase','equals':'2026-03-01'},
+        {'action':'setValue','control':'CalendarBase','value':'2026-03-04'},
+        {'action':'expectText','control':'BasePreview','equals':'2026-03-04'},
+        {'action':'click','control':'ResetBase'},
+        {'action':'expectValue','control':'CalendarBase','equals':'2026-03-01'},
+        {'action':'click','control':'NextBase'},
+        {'action':'expectValue','control':'CalendarBase','equals':'2026-03-02'},
+        {'action':'setValue','control':'DueDate','gallery':'ScheduleRows','row':1,'value':'2026-03-10'},
+        {'action':'click','control':'SaveDates'},
+        {'action':'expectState','key':'datesSaved','equals':True},
+        {'action':'expectDataRow','source':'Schedule','where':{'id':'2','due':'2026-03-10T00:00:00.000Z'}},
+    ]}])
+    assert not verdict['consoleErrors'],verdict
+    assert verdict['journeyResults'][0]['status']=='pass',verdict
+
+
 def test_generated_timers_initialize_data_and_leave_loading_screen(tmp_path):
     from pfx2gas.analyze import analyze
     from pfx2gas.parse import parse

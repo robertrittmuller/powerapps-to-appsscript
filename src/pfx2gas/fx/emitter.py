@@ -266,6 +266,9 @@ class Emitter:
         r = self.expr(node.children[1])
         if op == "&":
             return f"FX.concatStr({l}, {r})"
+        if op in {'+', '-'}:
+            helper = 'add' if op == '+' else 'subtract'
+            return f"FX.{helper}({l}, {r})"
         if op == "=":
             return f"FX.eq({l}, {r})"
         if op == "<>":
@@ -571,6 +574,8 @@ class Emitter:
         return f"await Promise.all({call})" if has_await else call
 
     def mapped_call(self, name: str, args: list, spec) -> str:
+        if name == 'Split':
+            self.res.approximations.append('Split exposes Value and a legacy Result alias; Result survives AddColumns but is not retained through JSON, collection normalization or other table-copy operations')
         js_args = [self.expr(a) for a in args]
         return self._fill(spec.js, js_args)
 
@@ -620,13 +625,27 @@ class Emitter:
 
     def switch_call(self, node) -> str:
         subject = self.expr(node.children[0])
+        def reference(node):
+            if node.kind == 'ident':
+                return lx.reference_parts(str(node.value))
+            if node.kind == 'member':
+                return reference(node.children[0]) + lx.reference_parts(str(node.value))
+            return []
+        parts = reference(node.children[0])
+        screen_size = (len(parts) == 2 and parts[0] in (self.screen_names or set()) and parts[1] == 'Size') or parts == ['App','ActiveScreen','Size']
+        size_members = {'Small':1,'Medium':2,'Large':3,'ExtraLarge':4}
         value = self.new_scope()
         rest = node.children[1:]
         pairs = [(rest[i], rest[i + 1]) for i in range(0, len(rest) - 1, 2)]
         default = rest[-1] if len(rest) % 2 == 1 else None
         js = "null" if default is None else self.expr(default)
         for cond, result in reversed(pairs):
-            js = f"((FX.eq({value}, {self.expr(cond)})) ? ({self.expr(result)}) : ({js}))"
+            case = (str(size_members[cond.value]) if screen_size and not self.scopes and cond.kind == 'ident'
+                    and cond.value in size_members and cond.value.lower() not in {name.lower() for name in self.global_names} else self.expr(cond))
+            if case in {'1','2','3','4'} and cond.kind == 'ident' and self.screen_name is not None:
+                # Declared screen locals (including Blank) shadow legacy enums.
+                case = f"FXRuntime.variable({_q(self.screen_name)}, {_q(cond.value)}, () => {case})"
+            js = f"((FX.eq({value}, {case})) ? ({self.expr(result)}) : ({js}))"
         async_prefix = "async " if "await " in js else ""
         call = f"({async_prefix}({value}) => ({js}))({subject})"
         return f"await {call}" if async_prefix else call

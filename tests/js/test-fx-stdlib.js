@@ -165,6 +165,28 @@ test('dateAdd/dateDiff days', () => {
   assert.strictEqual(FX.dateDiff(new Date(2026, 0, 1), new Date(2026, 0, 31), 'days'), 30);
 });
 
+test('date operators preserve civil days, fractional offsets and source dates across DST', () => {
+  const {execFileSync}=require('node:child_process');
+  const output=execFileSync(process.execPath,['-e',`
+    const FX=require('./static/fx-stdlib.js');
+    const start=new Date(2026,2,7,12), next=FX.add(start,1), half=FX.add(start,1.5);
+    const gap=FX.add(new Date(2026,2,7,2,30),1);
+    const earlier=FX.subtract(next,2);
+    const added=FX.dateAdd(start,7);
+    console.log(JSON.stringify({start:start.toISOString(),next:next.toISOString(),half:half.toISOString(),
+      gap:gap.toISOString(),difference:FX.subtract(next,start),earlier:earlier.toISOString(),added:added.toISOString()}));
+  `],{cwd:require('node:path').resolve(__dirname,'../..'),env:{...process.env,TZ:'America/New_York'},encoding:'utf8'});
+  assert.deepStrictEqual(JSON.parse(output),{
+    start:'2026-03-07T17:00:00.000Z',next:'2026-03-08T16:00:00.000Z',half:'2026-03-09T04:00:00.000Z',
+    gap:'2026-03-08T07:00:00.000Z',difference:1,earlier:'2026-03-06T17:00:00.000Z',added:'2026-03-14T16:00:00.000Z'});
+  assert.strictEqual(FX.add('3',2),5);
+  assert.strictEqual(FX.add(undefined,2),2);
+  assert.strictEqual(FX.subtract(null,2),-2);
+  assert.throws(()=>FX.add('invalid',2),/finite number/);
+  assert.throws(()=>FX.subtract(2,new Date()),/subtract a date/);
+  assert.throws(()=>FX.add(new Date(NaN),1),/Invalid date/);
+});
+
 test('trim collapses whitespace like Power Fx Trim', () => {
   assert.strictEqual(FX.trim('  hello   world '), 'hello world');
 });

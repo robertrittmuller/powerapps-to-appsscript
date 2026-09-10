@@ -35,6 +35,44 @@
     x.setHours(0, 0, 0, 0);
     return x;
   }
+  function arithmeticNumber(value) {
+    if (value == null || value === '') return 0;
+    if (!['number', 'string', 'boolean'].includes(typeof value)) throw new Error('Arithmetic requires a number or date');
+    var number = Number(value);
+    if (!Number.isFinite(number)) throw new Error('Arithmetic requires a finite number');
+    return number;
+  }
+  function civilStamp(date) {
+    if (!Number.isFinite(date.getTime())) throw new Error('Invalid date arithmetic operand');
+    var civil = new Date(0);
+    civil.setUTCFullYear(date.getFullYear(), date.getMonth(), date.getDate());
+    civil.setUTCHours(date.getHours(), date.getMinutes(), date.getSeconds(), date.getMilliseconds());
+    return civil.getTime();
+  }
+  function dateFromCivil(stamp) {
+    function local(value) {
+      var civil = new Date(value), result = new Date(0);
+      result.setFullYear(civil.getUTCFullYear(), civil.getUTCMonth(), civil.getUTCDate());
+      result.setHours(civil.getUTCHours(), civil.getUTCMinutes(), civil.getUTCSeconds(), civil.getUTCMilliseconds());
+      return result;
+    }
+    if (!Number.isFinite(new Date(stamp).getTime())) throw new Error('Date arithmetic is out of range');
+    var result = local(stamp), normalized = civilStamp(result);
+    // Power Fx moves a nonexistent civil time to the start of the first
+    // valid interval. JS otherwise preserves its minutes inside the DST gap.
+    if (normalized > stamp) {
+      var low = stamp, high = normalized;
+      while (high-low > 1) {
+        var mid = Math.floor((low+high)/2);
+        if (civilStamp(local(mid)) === mid) high = mid; else low = mid;
+      }
+      result = local(high);
+    }
+    return result;
+  }
+  function addDateDays(date, days) {
+    return dateFromCivil(civilStamp(date) + arithmeticNumber(days)*86400000);
+  }
   // Typed keys avoid collisions between values such as 1/"1", delimiter
   // characters in text, and records whose properties arrived in a new order.
   function valueKey(value, ignoreCase) {
@@ -176,6 +214,20 @@
   }
 
   var FX = {
+    // The overloaded + / - operators use calendar days for dates. Raw JS
+    // concatenates Date + number and subtracts epoch milliseconds instead.
+    add: function (a, b) {
+      if (a instanceof Date && b instanceof Date) throw new Error('Adding two dates requires a typed Time adapter');
+      if (a instanceof Date) return addDateDays(a, b);
+      if (b instanceof Date) return addDateDays(b, a);
+      return arithmeticNumber(a) + arithmeticNumber(b);
+    },
+    subtract: function (a, b) {
+      if (a instanceof Date && b instanceof Date) return (civilStamp(a)-civilStamp(b))/86400000;
+      if (a instanceof Date) return addDateDays(a, -arithmeticNumber(b));
+      if (b instanceof Date) throw new Error('Cannot subtract a date from a number');
+      return arithmeticNumber(a) - arithmeticNumber(b);
+    },
     // --- predicates / equality -------------------------------------------
     eq: function (a, b) { return a instanceof Date && b instanceof Date ? a.getTime() === b.getTime() : a == b; },
     neq: function (a, b) { return !FX.eq(a, b); },
@@ -463,7 +515,12 @@
     addColumns: function (t) {
       // emitter passes [table, name1, fn1, name2, fn2...]
       var args = Array.prototype.slice.call(arguments);
-      var table = rows(args[0]).map(function (r) { return Object.assign({}, r); });
+      var table = rows(args[0]).map(function (r) {
+        // Preserve record aliases/control getters while adding columns; scalar
+        // table entries introduce the single Value field, never string indices.
+        return r !== null && typeof r === 'object'
+          ? Object.defineProperties({}, Object.getOwnPropertyDescriptors(r)) : {value:r};
+      });
       for (var i = 1; i + 1 < args.length; i += 2) {
         var name = args[i], fn = args[i + 1];
         table.forEach(function (r) { r[name] = fn(r); });
@@ -592,7 +649,13 @@
       return out;
     },
     split: function (text, separator) {
-      return String(text == null ? '' : text).split(String(separator == null ? '' : separator));
+      return String(text == null ? '' : text).split(String(separator == null ? '' : separator)).map(function (value) {
+        var record = {value:value};
+        // Older exports call this column Result. Keep it an alias rather than
+        // a second enumerable column, so scalar membership/projection works.
+        Object.defineProperty(record, 'result', {configurable:true, get:function () { return this.value; }});
+        return record;
+      });
     },
     showColumns: function (t, cols) {
       return FX.forAll(t, function (row) {
@@ -675,14 +738,14 @@
     minute: function (d) { return toDate(d).getMinutes(); },
     weekday: function (d) { return toDate(d).getDay() + 1; }, // Sunday=1 like Power Fx
     dateAdd: function (d, n, unit) {
-      var x = toDate(d), k = toNum(n);
+      var x = new Date(toDate(d).getTime()), k = toNum(n);
       switch (String(unit || 'days').toLowerCase()) {
         case 'milliseconds': return new Date(x.getTime() + k);
         case 'seconds': return new Date(x.getTime() + k * 1000);
         case 'minutes': return new Date(x.getTime() + k * 60000);
         case 'hours': return new Date(x.getTime() + k * 3600000);
         case 'days': default:
-          x.setDate(x.getDate() + k); return x;
+          return addDateDays(x, k);
         case 'months':
           x.setMonth(x.getMonth() + k); return x;
         case 'quarters':

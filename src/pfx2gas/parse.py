@@ -22,6 +22,7 @@ def _make_expr(prop_value: str, prop_name: str) -> FxExpr:
 
 # Modern control names normalize onto classic equivalents (case-insensitive).
 _CONTROL_ALIASES = {
+    "microsoft_corecontrols_datepicker": "FluentDatePicker",
     "toggle": "CheckBox",
     "dropdown": "Dropdown",
     "text": "Label",          # modern 'Text' control is a text block

@@ -143,7 +143,7 @@ def test_bindings_transpiled(ir_a, tmp_path):
     out = synthesize(ir_a, tmp_path / "FixtureA")
     app_js = (out / "App.js.html").read_text()
     assert "go('Screen2')" in app_js
-    assert "FXRuntime.setState({counter: (FXRuntime.variable('Screen1', 'counter', () => state.counter) + 1)})" in app_js
+    assert "FXRuntime.setState({counter: FX.add(FXRuntime.variable('Screen1', 'counter', () => state.counter), 1)})" in app_js
     assert "bind('Button1'" in app_js
 
 

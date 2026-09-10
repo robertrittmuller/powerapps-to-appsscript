@@ -475,6 +475,52 @@ test('Dropdown Selected and ComboBox SelectedItems preserve source records', () 
   global.document.querySelector = original;
 });
 
+test('date controls expose local dates and Blank, including pre-100 years and invalid values', () => {
+  const previous=global.document.querySelector;
+  const attrs={'data-fx-date-value':'local'};
+  const el={type:'date',tagName:'INPUT',style:{},value:'2026-03-10',getAttribute:key=>attrs[key]??null};
+  global.document.querySelector=()=>el;
+  try {
+    let value=global.val('Due');
+    assert.ok(value.value instanceof Date);
+    assert.strictEqual(value.value.getFullYear(),2026);
+    assert.strictEqual(value.value.getMonth(),2);
+    assert.strictEqual(value.value.getDate(),10);
+    assert.strictEqual(value.value.getHours(),0);
+    assert.strictEqual(value.selected_date.getTime(),value.value.getTime());
+    el.value='';assert.strictEqual(global.val('Due').value,null);
+    el.value='0099-01-01';assert.strictEqual(global.val('Due').value.getFullYear(),99);
+    el.value='2026-02-30';assert.throws(()=>global.val('Due'),/Invalid date picker/);
+    delete attrs['data-fx-date-value'];el.value='2026-03-10';
+    assert.ok(global.val('Classic').selected_date instanceof Date);
+  } finally {global.document.querySelector=previous;}
+});
+
+test('Self semantic properties resolve forward dependencies and reject cycles', () => {
+  const vm=require('node:vm'),fs=require('node:fs');
+  const el={tagName:'SPAN',textContent:'Header',style:{},getAttribute:()=>null};
+  const ctx=vm.createContext({document:{...global.document,querySelector:()=>el},console:{error:()=>{}}});
+  ctx.window=ctx;
+  vm.runInContext(fs.readFileSync(require.resolve('../../static/gas-runtime.js'),'utf8'),ctx);
+  const rt=ctx.FXRuntime;
+  let fontSize=12, reads=0;
+    rt.registerControlProps('SelfHeader','ParentHeader',{
+      width:()=>ctx.selfRef.size*6+ctx.selfRef.padding_left,
+      size:()=>{reads++;return fontSize;},
+      padding_left:()=>3,
+    });
+    assert.strictEqual(ctx.val('SelfHeader').width,75);
+    reads=0;
+    const snapshot=ctx.val('SelfHeader');
+    assert.strictEqual(snapshot.size+snapshot.size,24);
+    assert.strictEqual(reads,1);
+    fontSize=16;
+    assert.strictEqual(ctx.val('SelfHeader').size,16);
+    rt.updateBindings();assert.strictEqual(ctx.val('SelfHeader').width,99);
+    rt.registerControlProps('CircularHeader','ParentHeader',{size:()=>ctx.selfRef.size});
+    assert.throws(()=>ctx.val('CircularHeader').size,/Circular control property/);
+});
+
 test('gallery row selection exposes Selected and row-specific AllItems control records', () => {
   const original = global.document.querySelector;
   const originalCreate = global.document.createElement;
