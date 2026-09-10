@@ -85,7 +85,9 @@ def _data_table(ir: AppIR) -> str:
                      "Unmatched Unrelate is a no-op; alternate-key relationships and cascade deletes require adapters. "
                      "Lookup fields are stored snapshots. User/team ownership defaults to the migrated Google caller; "
                      "explicit owner assignment updates Owning User/Team. The data contract records this adapter and its limits. "
-                     "Business-unit ownership, audit/status defaults, calculated fields, "
+                     "State/status defaults and dependent values use exported metadata, including source read-only flags. "
+                     "Missing initial states and custom state transitions require an adapter; existing rows are not backfilled. "
+                     "Business-unit ownership, audit and other column defaults, calculated fields, "
                      "Dataverse permissions and implicit localized choice-to-text coercion still require adapters.")
     return "\n".join(lines)
 

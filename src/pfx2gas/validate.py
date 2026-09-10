@@ -70,6 +70,7 @@ def validate_project(out_dir: str | Path) -> dict:
     # cannot prove that aliases, primary keys or non-table kinds survived.
     contract_path = out / "data-contract.json"
     expected_ownership = None
+    expected_states = None
     if contract_path.exists():
         try:
             from .ir import AppIR, DataSource
@@ -82,6 +83,9 @@ def validate_project(out_dir: str | Path) -> dict:
             expected_ownership = {name:spec['ownership'] for name,spec in expected.items() if 'ownership' in spec}
             if contract.get('dataverseOwnership', {}) != expected_ownership:
                 raise ValueError('ownership adapter differs from exported source contract')
+            expected_states = {name:spec['stateModel'] for name,spec in expected.items() if 'stateModel' in spec}
+            if contract.get('dataverseStateModels', {}) != expected_states:
+                raise ValueError('state adapter differs from exported source contract')
             declaration = re.search(r"var DATA_CONTRACTS = (.*?);\n", gs)
             if not declaration or json.loads(declaration.group(1)) != expected:
                 raise ValueError("Code.gs contract differs from exported source contract")
@@ -101,6 +105,8 @@ def validate_project(out_dir: str | Path) -> dict:
             ledger = json.loads(ledger_path.read_text())
             if expected_ownership is not None and ledger.get('dataverseOwnership', {}) != expected_ownership:
                 raise ValueError('ownership adapter differs from exported source contract')
+            if expected_states is not None and ledger.get('dataverseStateModels', {}) != expected_states:
+                raise ValueError('state adapter differs from exported source contract')
             rows = ledger.get("formulas", [])
             if not isinstance(rows, list):
                 raise ValueError("formulas must be a list")

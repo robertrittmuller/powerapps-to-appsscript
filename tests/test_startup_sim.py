@@ -335,6 +335,24 @@ def test_generated_control_blank_checks_keep_source_version_and_row_values(tmp_p
     assert verdict['journeyResults'][0]['status']=='pass',verdict
 
 
+def test_generated_dataverse_state_screen_starts_with_an_empty_active_view(tmp_path):
+    from pfx2gas.analyze import analyze
+    from pfx2gas.parse import parse
+    from pfx2gas.startup_sim import simulate_project
+    from pfx2gas.synth.build import synthesize
+    from pfx2gas.unpack import unpack
+    project=synthesize(analyze(parse(unpack(FIXTURES/'fixtureDataverseState.msapp'))),tmp_path/'States')
+    # The startup API shim does not execute createRow/patchRow. The Chromium
+    # dataverse-state journey exercises defaults and reloads against Code.gs.
+    verdict=simulate_project(project,[{'id':'dataverse-state-startup','steps':[
+        {'action':'expectScreen','screen':'StateScreen'},
+        {'action':'expectText','control':'ActiveCount','equals':'Active: 0'},
+        {'action':'expectValue','control':'NewName','equals':''},
+    ]}])
+    assert not verdict['consoleErrors'],verdict
+    assert verdict['journeyResults'][0]['status']=='pass',verdict['journeyResults']
+
+
 def test_generated_nested_galleries_keep_defaults_selection_reset_and_bulk_saves_per_parent(tmp_path):
     from pfx2gas.analyze import analyze
     from pfx2gas.parse import parse

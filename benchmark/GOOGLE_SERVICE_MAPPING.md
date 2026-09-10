@@ -31,7 +31,7 @@ mapping. Office365Users' Microsoft-directory IDs can differ from Dataverse user
 IDs, so its private Google People mapping remains separate. Import Users before
 creating owned business records. The adapter stores key/name/email snapshots;
 source security roles, assignment privileges, cascading ownership, business units,
-audit timestamps and status defaults remain unimplemented. Workbook permissions
+audit timestamps and other column defaults remain unimplemented. Workbook permissions
 and the generated API do not reproduce Dataverse row security.
 
 The unchanged Milestones app previously created ownerless settings, missed them
@@ -46,12 +46,37 @@ with retained record/relationship IDs, reload and confirmed deletion. Generated
 Code.gs runs against a Sheets test double; People responses remain explicit
 fixtures. Complete exported reference rows now initialize in appropriately sized
 Sheets, preserving the icon and typography lookups used by the source UI.
-The deeper `--settings` probe now saves category/priority/status names through
-the original UI, with blank validation and status captions corrected. Reload
-fails because Sheets-created rows lack Dataverse active-state defaults and the
-source active views omit them. This migration gap remains explicit. Broader
-workflows, complete UI parity and live Google execution remain unverified.
+The deeper `--settings` probe passes 109 checks through original category/priority/
+status creation, active-view reload and the work-item lifecycle with those linked
+settings. New rows retain the exported active state and default status reason.
+The source Save formula omits status Sequence, so reload retains the Active view's
+name ordering; the test does not invent sequence values to preserve entry order.
+Arbitrary completion-status positioning, tenant-side sequence population,
+broader workflows, complete UI parity and live Google execution remain unverified.
 See Microsoft's [default record ownership contract](https://learn.microsoft.com/en-us/dotnet/api/microsoft.xrm.sdk.iorganizationservice.create?view=dataverse-sdk-latest).
+
+## Dataverse state and status reason defaults
+
+Native State/Status fields now retain exported option codes, invariant state
+names, each state's default reason, reason-to-state relationships and write flags.
+The standard two-state Active/Inactive model initializes Active; other models
+need exported initial-state metadata. Defaults can use custom reason codes or
+zero. A state-only update uses its default reason; an ordinary field edit keeps
+the current reason. Explicit incompatible pairs fail before any row write.
+Read-only create/update inputs are ignored according to the source flags.
+
+Generated-server tests cover creation, keyed upserts, changes, invalid pairs,
+read-only fields and incomplete metadata. Chromium creates an active record,
+rejects an invalid reason, deactivates/reactivates it and reloads between changes
+against actual Code.gs with persistent Sheets storage doubles. Both generated
+contracts and the fidelity ledger retain the state model; validation rejects
+drift. Existing blank rows are not backfilled. Supplied custom transition rules
+require a target adapter; plugins, audit timestamps, business rules and other
+column defaults remain separate gaps.
+
+Semantics follow Microsoft's [state/status update contract](https://learn.microsoft.com/en-us/power-apps/developer/data-platform/special-update-operation-behavior),
+[read-only create contract](https://learn.microsoft.com/en-us/dotnet/api/microsoft.xrm.sdk.messages.createrequest.target?view=dataverse-sdk-latest),
+and [table state metadata](https://learn.microsoft.com/en-us/power-apps/developer/data-platform/entity-metadata).
 
 ## Planner implementation scope
 

@@ -57,6 +57,7 @@ def synthesize(ir: AppIR, out_dir: str | Path) -> Path:
     (out / "Screens.html").write_text(screens_html)
     (out / "App.js.html").write_text("<script>\n" + app_js + "\n</script>")
     ownership={name:contract['ownership'] for name,contract in data_contracts(ir).items() if 'ownership' in contract}
+    state_models={name:contract['stateModel'] for name,contract in data_contracts(ir).items() if 'stateModel' in contract}
     (out / "conversion-ledger.json").write_text(
         json.dumps({
             "app": ir.name,
@@ -65,6 +66,7 @@ def synthesize(ir: AppIR, out_dir: str | Path) -> Path:
             "savedViews": ir.view_sets,
             "googleServiceAdapters": service_contracts(ir),
             "dataverseOwnership": ownership,
+            "dataverseStateModels": state_models,
             "deployment": {
                 "access": ir.webapp_access,
                 "executeAs": ir.webapp_execute_as,
@@ -78,8 +80,10 @@ def synthesize(ir: AppIR, out_dir: str | Path) -> Path:
         "relationshipNavigation": relationship_contracts(ir),
         "googleServiceAdapters": service_contracts(ir),
         "dataverseOwnership": ownership,
+        "dataverseStateModels": state_models,
         "limitations": ["Exported one-to-many lookups and many-to-many links refresh related records on the first source only. Many-to-many links use __pfx2gas_links; retries are idempotent and unmatched Unrelate is a no-op. Cascade deletes, alternate-key relationships and permissions require adapters.",
-                        "Dataverse user/team ownership defaults to the migrated Google caller and follows explicit assignment; source privileges, business units, audit/status defaults and calculated fields require adapters. Lookup fields remain stored snapshots.",
+                        "Dataverse user/team ownership defaults to the migrated Google caller and follows explicit assignment; source privileges, business units, audit defaults and calculated fields require adapters. Lookup fields remain stored snapshots.",
+                        "Dataverse state/status defaults and pairs use exported metadata; missing initial states and custom transition rules fail explicitly. Other column defaults and existing-row backfills are not implemented.",
                         "Choice codes and boolean values are retained; implicit localized choice-to-text coercion is not yet implemented."],
     }, indent=2) + "\n")
     for static_name in ("gas-runtime.js", "fx-stdlib.js", "fx-charts.js"):

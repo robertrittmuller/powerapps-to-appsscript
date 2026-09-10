@@ -115,6 +115,10 @@ def main(project=False,workitem=False,settings=False):
                         rows=backend({'fn':'api','args':[source,'list',{}]})['result']
                         records[source]=rows
                         assert [row['msft_name'] for row in rows]==names,{'source':source,'names':[row['msft_name'] for row in rows]}
+                        assert all(row['statecode']==0 and row['statuscode']==1 for row in rows)
+                        if plural=='Statuses':
+                            # The unchanged Save formula supplies no Sequence.
+                            assert all(row['msft_sequence'] is None for row in rows)
                     (OUT/name/'configured-settings.json').write_text(json.dumps(records,indent=2)+'\n')
                 check('configured-settings-persist',settings_records)
                 check('return-after-settings',lambda:control(page,'btnCancel_GlobalSettings').click())
@@ -127,7 +131,13 @@ def main(project=False,workitem=False,settings=False):
                     def restored_settings(kind=kind,plural=plural,names=names):
                         inputs=control(page,'gal'+plural).locator('[data-control="txt'+kind+'Name"]')
                         expect(inputs).to_have_count(len(names))
-                        for index,label in enumerate(names):
+                        # Active Project Work Item Statuses orders by Name in
+                        # the exported savedquery b478c817-ce45-459c-85a7-5da2bdbc9c5a.
+                        # OnVisible's subsequent Sort(Sequence) ties because Save
+                        # never writes that field. Input order was not a source
+                        # contract; do not invent sequence values to retain it.
+                        restored_names=sorted(names) if kind=='Status' else names
+                        for index,label in enumerate(restored_names):
                             expect(inputs.nth(index)).to_have_value(label)
                     check('restored-'+plural.lower(),restored_settings)
                 page.screenshot(path=str(OUT/name/'settings-reloaded.png'),full_page=True)
@@ -384,6 +394,9 @@ def main(project=False,workitem=False,settings=False):
         browser.close()
     result.update(sourceAppId='milestones',steps=steps,assessmentScope='first-run onboarding and persisted settings across two simulated Google users'+('; source global category/priority/status setup and reload' if settings else '')+('; project creation probe' if project else '')+('; work-item create/edit/delete and preserved assignment/milestone links' if workitem else ''),
                   completeUsability='unassessed')
+    if settings:
+        result['sourceSettingsLimitations']=['The exported Save formula omits Sequence; blank status sequences retain the Active view Name ordering on reload, not entry order. Arbitrary completion-status positioning and tenant-side sequence population remain unverified.',
+            'Audit timestamps and other server defaults are not populated by this adapter.']
     (OUT/name/'result.json').write_text(json.dumps(result,indent=2)+'\n')
     print(json.dumps({'status':result['status'],'steps':steps},indent=2))
     return int(result['status']!='pass')

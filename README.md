@@ -36,6 +36,15 @@ retained and Owning User/Team follows the owner. Missing or ambiguous identities
 fail before writing. Ownership is stored record data; Dataverse security roles,
 business units, audit timestamps and other defaults remain separate gaps.
 
+Dataverse state and status reason fields use their exported option relationships
+and per-state defaults. The standard Active/Inactive model creates active rows;
+other models need an exported initial state. State changes choose the matching
+default reason, explicit reasons must belong to the selected state, and source
+read-only flags are honored. Missing metadata and custom transition rules fail
+explicitly. Both the ledger and data contract retain the adapter. Existing rows
+are not backfilled, and audit timestamps, plugins and other column defaults
+remain unsupported.
+
 MicrosoftTeams team/channel selectors and notifications now use native Google
 Chat. `ChatMigration.gs` and `chat-migration.md` map original IDs to named Google
 spaces, with an anchor space representing each logical team. The accessing user
@@ -222,8 +231,11 @@ conversion, and the milestone label measures the source formula's 115 pixels.
 Adding `--settings` tests original category/priority/status creation before the
 work-item lifecycle. Empty names now disable Save using the source control's
 exported primary output, and status captions preserve arithmetic precedence.
-The probe still fails on reload: saved rows have no active-state defaults and
-the source's active views exclude them. This remains a failed workflow.
+All 109 checks now pass: five settings remain active after reload, and the
+work-item lifecycle retains the selected status/category/priority identities.
+The unchanged Save formula omits status Sequence; reload follows the exported
+Active view's name ordering. Arbitrary completion-status positioning and
+tenant-side sequence population remain unverified.
 Broader workflows, source-imposed column clipping and
 complete app usability remain open. Source/data hashes,
 records and screenshots are in `.artifacts/browser/`.
@@ -235,7 +247,8 @@ dependency failure instead of returning an empty successful response.
 
 `./pfx2gas browser` tests generated forms, charts, record scopes, editable
 galleries, timer lifecycles, launch parameters, local drafts, Dataverse record
-contracts, complete source timestamp/URL-validation formulas, responsive and
+contracts and state/status defaults with activation/deactivation and reload,
+complete source timestamp/URL-validation formulas, responsive and
 scaled canvases, card grids, responsive gallery template sizes and horizontal wrapping, the migrated Planner task board,
 native Google directory assignments, Chat selectors/notifications, record-valued
 selector defaults/reset in both standalone and row controls, independent nested

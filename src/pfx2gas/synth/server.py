@@ -291,6 +291,7 @@ function createRow(ds, record) {{
   var sh = sheetFor(ds);
   var headers = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
   record = applyDataverseOwnership_(ds, normalizeRecord(ds, record), true);
+  record = applyDataverseState_(ds, record, true);
   var primary = DATA_CONTRACTS[ds].primaryKey;
   var cells = headers.map(function (h) {{
     var value = record[h] !== undefined ? record[h] : '';
@@ -322,6 +323,9 @@ function patchRow(ds, base, record) {{
     return createRow(ds, record);
   }}
   record = applyDataverseOwnership_(ds, normalizeRecord(ds, record), false);
+  record = applyDataverseState_(ds, record, false, function () {{
+    return recordFromCells(ds, headers, values[targetRow - 1]);
+  }});
   if (record[primary] !== undefined && String(record[primary]) !== String(identity))
     throw new Error('patch cannot change the primary key in ' + ds);
   // Validate every changed value before writing any cell. An invalid choice
@@ -463,6 +467,7 @@ def data_sources_with_fields(ir: AppIR) -> list:
 def data_contracts(ir: AppIR) -> dict:
     from ..fx.naming import snake
     from .ownership import ownership_contract
+    from .dataverse_state import state_contract
 
     contracts = {}
     tables = data_sources_with_fields(ir)
@@ -498,6 +503,9 @@ def data_contracts(ir: AppIR) -> dict:
         ownership=ownership_contract(ds,tables)
         if ownership:
             contracts[ds.name]['ownership']=ownership
+        state_model=state_contract(ds)
+        if state_model:
+            contracts[ds.name]['stateModel']=state_model
     return contracts
 
 
@@ -509,6 +517,7 @@ def render_code_gs(ir: AppIR) -> str:
     from .directory import SERVER as DIRECTORY_SERVER
     from .chat import SERVER as CHAT_SERVER
     from .ownership import SERVER as OWNERSHIP_SERVER
+    from .dataverse_state import SERVER as STATE_SERVER
     from ..services import service_contracts
 
     allowed = [ds.name for ds in data_sources_with_fields(ir)]
@@ -517,7 +526,7 @@ def render_code_gs(ir: AppIR) -> str:
     return CODE_GS.format(app_name=ir.name, data_sources_json=json.dumps(allowed),
                           contracts_json=json.dumps(data_contracts(ir)),
                           relationships_json=json.dumps(relationship_contracts(ir)),
-                          services_json=json.dumps(service_contracts(ir))) + SERVER + PLANNER_SERVER + DIRECTORY_SERVER + CHAT_SERVER + OWNERSHIP_SERVER
+                          services_json=json.dumps(service_contracts(ir))) + SERVER + PLANNER_SERVER + DIRECTORY_SERVER + CHAT_SERVER + OWNERSHIP_SERVER + STATE_SERVER
 
 
 def render_data_init(ir: AppIR) -> str:

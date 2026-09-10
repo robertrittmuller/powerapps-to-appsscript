@@ -83,11 +83,22 @@ def apply_source_contract(source: DataSource, raw: dict) -> None:
     mapping = _document(raw.get("NativeCDSDataSourceInfoNameMapping", {}), "Dataverse field name mapping")
     source.logical_name = entity.get("LogicalName") or raw.get("LogicalName")
     choices = {}
+    state_model = {"defaultState": None, "states": [], "statuses": [],
+                   "enforceTransitions": entity.get("EnforceStateTransitions")}
     for category in ("Boolean", "Picklist", "MultiSelectPicklist", "State", "Status"):
         option_attributes = _document(definition.get(category + "OptionSetAttribute", {}), category + " options")
         for attr in option_attributes.get("value", []):
             if attr.get("LogicalName") and isinstance(attr.get("OptionSet"), dict):
                 choices[attr["LogicalName"]] = _options(attr["OptionSet"], category == "Boolean")
+                options = attr["OptionSet"].get("Options", [])
+                if category == "State" and attr["LogicalName"] == "statecode":
+                    state_model["defaultState"] = attr.get("DefaultFormValue")
+                    state_model["states"] = [{"value": option.get("Value"),
+                        "defaultStatus": option.get("DefaultStatus"), "invariantName": option.get("InvariantName")}
+                        for option in options]
+                elif category == "Status" and attr["LogicalName"] == "statuscode":
+                    state_model["statuses"] = [{"value": option.get("Value"), "state": option.get("State"),
+                        "transitionData": option.get("TransitionData")} for option in options]
     types = {"String": "text", "Memo": "text", "Uniqueidentifier": "text", "EntityName": "text",
              "Integer": "number", "BigInt": "number", "Decimal": "number", "Double": "number", "Money": "number",
              "DateTime": "date", "Boolean": "bool", "Picklist": "choice", "State": "choice", "Status": "choice",
@@ -131,6 +142,8 @@ def apply_source_contract(source: DataSource, raw: dict) -> None:
                         for key in ('ReferencedEntityNavigationPropertyName', 'ReferencingEntityNavigationPropertyName',
                                     'Entity1NavigationPropertyName', 'Entity2NavigationPropertyName') if r.get(key)}
     source.metadata['relationshipNames'] = {key: value for key, value in mapping.items() if key in navigation_names}
+    if any(field.source_type in {"State", "Status"} for field in source.fields):
+        source.metadata['stateModel'] = state_model
 
 
 def field_aliases(field):

@@ -1305,6 +1305,45 @@ def responsive_gallery_fixture_files() -> dict[str,str]:
     }
 
 
+def state_fixture_files() -> dict[str,str]:
+    def label(text): return {'UserLocalizedLabel':{'Label':text,'LanguageCode':1033}}
+    definitions=[('new_workid','Work item','Uniqueidentifier'),('new_name','Name','String'),
+                 ('statecode','Status','State'),('statuscode','Status Reason','Status')]
+    attrs=[{'LogicalName':logical,'AttributeType':kind,'DisplayName':label(name),
+            'IsValidForCreate':logical!='statecode','IsValidForUpdate':logical!='new_workid',
+            'RequiredLevel':{'Value':'SystemRequired' if kind in {'State','Status'} else 'None'}}
+           for logical,name,kind in definitions]
+    states=[{'Value':0,'DefaultStatus':101,'InvariantName':'Active','Label':label('Enabled')},
+            {'Value':1,'DefaultStatus':202,'InvariantName':'Inactive','Label':label('Archived')}]
+    statuses=[{'Value':101,'State':0,'Label':label('Ready'),'TransitionData':None},
+              {'Value':202,'State':1,'Label':label('Closed'),'TransitionData':None},
+              {'Value':303,'State':0,'Label':label('Review'),'TransitionData':None}]
+    definition={'EntityMetadata':json.dumps({'LogicalName':'new_work','PrimaryIdAttribute':'new_workid',
+        'PrimaryNameAttribute':'new_name','Attributes':attrs}),
+        'StateOptionSetAttribute':json.dumps({'value':[{'LogicalName':'statecode','DefaultFormValue':None,'OptionSet':{'Options':states}}]}),
+        'StatusOptionSetAttribute':json.dumps({'value':[{'LogicalName':'statuscode','DefaultFormValue':-1,'OptionSet':{'Options':statuses}}]})}
+    source={'Name':'Work','Type':'NativeCDSDataSourceInfo','TableDefinition':json.dumps(definition),
+            'NativeCDSDataSourceInfoNameMapping':{logical:name for logical,name,_kind in definitions}}
+    def node(name,kind,props,children=None):
+        return {'Name':name,'Template':{'Name':kind},'Children':children or [],
+                'Rules':[{'Property':key,'InvariantScript':str(value)} for key,value in props.items()]}
+    controls=[node('NewName','text',{'X':20,'Y':20,'Width':280,'Height':44,'Default':'""'}),
+        node('CreateWork','button',{'X':320,'Y':20,'Width':220,'Height':44,'Text':'"Create work item"',
+            'OnSelect':'Patch(Work,Defaults(Work),{Name:NewName.Text})'}),
+        node('ActiveCount','label',{'X':20,'Y':85,'Width':600,'Height':44,'Text':'"Active: " & CountRows(Filter(Work,Status=0))'}),
+        node('AllWork','gallery',{'X':20,'Y':150,'Width':700,'Height':250,'TemplateSize':70,'Items':'Work'},[
+            node('WorkTitle','label',{'X':5,'Y':5,'Width':410,'Height':44,'Text':'ThisItem.Name & ": " & Text(ThisItem.Status) & "/" & Text(ThisItem.\'Status Reason\')'}),
+            node('ToggleState','button',{'X':440,'Y':5,'Width':220,'Height':44,'Text':'If(ThisItem.Status=0,"Deactivate","Activate")',
+                'OnSelect':'Patch(Work,ThisItem,{Status:If(ThisItem.Status=0,1,0)})'})]),
+        node('InvalidPair','button',{'X':20,'Y':420,'Width':240,'Height':44,'Text':'"Try invalid status pair"',
+            'OnSelect':'IfError(Patch(Work,First(Work),{Name:"Must not persist",\'Status Reason\':202}),Set(resultMessage,"Invalid pair rejected"))'}),
+        node('PairResult','label',{'X':280,'Y':420,'Width':420,'Height':44,'Text':'resultMessage'})]
+    return {'Properties.json':json.dumps({'Name':'Dataverse state migration'}),
+        'Controls/1.json':json.dumps({'TopParent':node('App','app',{'OnStart':'Set(resultMessage,"")'})}),
+        'Controls/2.json':json.dumps({'TopParent':node('StateScreen','screen',{'Width':800,'Height':600},controls)}),
+        'References/DataSources.json':json.dumps({'DataSources':[source]})}
+
+
 def control_coercion_fixture_files(v1=False) -> dict[str,str]:
     def node(name,kind,props,children=None):
         return {'Name':name,'Template':{'Name':kind,'Version':'1.0'},
@@ -1332,6 +1371,7 @@ def control_coercion_fixture_files(v1=False) -> dict[str,str]:
 
 
 def build_fixtures() -> None:
+    _write_msapp(FIXTURE_DIR/'fixtureDataverseState.msapp',state_fixture_files())
     _write_msapp(FIXTURE_DIR/'fixtureControlCoercion.msapp',control_coercion_fixture_files())
     _write_msapp(FIXTURE_DIR/'fixtureControlCoercionV1.msapp',control_coercion_fixture_files(True))
     # Fixture A: navigation + globals, all rule-transpilable

@@ -607,6 +607,34 @@ def check_storage(page, backend):
     expect(count).to_have_text("0")
 
 
+def check_dataverse_state(page, backend):
+    expect(control(page,'ActiveCount')).to_have_text('Active: 0')
+    control(page,'NewName').fill('Settings example')
+    control(page,'CreateWork').click()
+    expect(control(page,'ActiveCount')).to_have_text('Active: 1')
+    expect(control(page,'WorkTitle')).to_have_text('Settings example: 0/101')
+    rows=backend({'fn':'api','args':['Work','list',{}]})['result']
+    assert len(rows)==1 and rows[0]['statecode']==0 and rows[0]['statuscode']==101
+    identity=rows[0]['id']
+    page.reload()
+    expect(control(page,'ActiveCount')).to_have_text('Active: 1')
+    control(page,'InvalidPair').click()
+    expect(control(page,'PairResult')).to_have_text('Invalid pair rejected')
+    expect(control(page,'WorkTitle')).to_have_text('Settings example: 0/101')
+    control(page,'ToggleState').click()
+    expect(control(page,'ActiveCount')).to_have_text('Active: 0')
+    expect(control(page,'WorkTitle')).to_have_text('Settings example: 1/202')
+    page.reload()
+    expect(control(page,'ActiveCount')).to_have_text('Active: 0')
+    expect(control(page,'ToggleState')).to_have_text('Activate')
+    control(page,'ToggleState').click()
+    expect(control(page,'ActiveCount')).to_have_text('Active: 1')
+    page.reload()
+    expect(control(page,'WorkTitle')).to_have_text('Settings example: 0/101')
+    rows=backend({'fn':'api','args':['Work','list',{}]})['result']
+    assert len(rows)==1 and rows[0]['id']==identity and rows[0]['statuscode']==101
+
+
 def check_dataverse(page, backend):
     name, status, count = (control(page, key) for key in ("ContractName", "ContractResult", "ContractCount"))
     expect(name).to_have_value("Second project")
@@ -1307,6 +1335,7 @@ def main():
     cases.append(("timer-lifecycle", REPO / "tests/fixtures/fixtureTimer.msapp", check_timers, True))
     cases.append(("local-draft-storage", REPO / "tests/fixtures/fixtureStorage.msapp", check_storage))
     cases.append(("dataverse-contract", REPO / "tests/fixtures/fixtureDataverse.msapp", check_dataverse))
+    cases.append(('dataverse-state',REPO/'tests/fixtures/fixtureDataverseState.msapp',check_dataverse_state))
     cases.append(('many-to-many-relationships', REPO / 'tests/fixtures/fixtureRelationships.msapp', check_relationships))
     cases.append(("source-formulas", REPO / "tests/fixtures/fixtureSourceFormulas.msapp", check_source_formulas))
     cases.append(("responsive-canvas", REPO / "tests/fixtures/fixtureCanvas.msapp", check_canvas))
