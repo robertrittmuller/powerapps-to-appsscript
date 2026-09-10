@@ -217,7 +217,7 @@ def _sanitize_static_html(content: str) -> str:
 
 DIRECTION_MAP = {"Horizontal": "row", "Vertical": "column"}
 ALIGN_MAP = {"Start": "flex-start", "Center": "center", "End": "flex-end",
-             "Stretch": "stretch"}
+             "Stretch": "stretch", "SetByContainer": "auto"}
 JUSTIFY_MAP = {"Start": "flex-start", "Center": "center", "End": "flex-end",
                "SpaceBetween": "space-between"}
 WRAP_MAP = {"Wrap": "wrap", "Single": "nowrap"}
@@ -299,7 +299,26 @@ def _is_flex_container(ctrl: ControlNode) -> bool:
     return bool(expr and expr.js)
 
 
-def _static_style(ctrl: ControlNode, in_flex: bool, rules: list[str]) -> str:
+def _container_controlled_dimensions(ctrl: ControlNode, parent: ControlNode | None) -> set[str]:
+    if parent is None or not _is_flex_container(parent):
+        return set()
+    direction = _static_raw(parent.properties.get('LayoutDirection'))
+    if direction not in {'Horizontal','Vertical'}:
+        return set()
+    main,cross = ('Width','Height') if direction == 'Horizontal' else ('Height','Width')
+    controlled = set()
+    portions = _static_scalar(ctrl.properties.get('FillPortions'))
+    if portions is not None and _NUM_RE.fullmatch(portions) and float(portions) > 0:
+        controlled.add(main)
+    align = _static_raw(ctrl.properties.get('AlignInContainer'))
+    if align in {None,'SetByContainer'}:
+        align = _static_raw(parent.properties.get('LayoutAlignItems'))
+    if align == 'Stretch':
+        controlled.add(cross)
+    return controlled
+
+
+def _static_style(ctrl: ControlNode, in_flex: bool, rules: list[str], parent: ControlNode | None = None) -> str:
     """Full static inline style: position/size, layout, cosmetics, colors."""
     props = ctrl.properties
     css: list[str] = []
@@ -343,10 +362,10 @@ def _static_style(ctrl: ControlNode, in_flex: bool, rules: list[str]) -> str:
     # --- position / size ----------------------------------------------------
     if in_flex:
         fp = props.get("FillPortions")
-        if fp and fp.js and _NUM_RE.match(fp.js.strip()) and fp.js.strip() != "0":
-            css.append(f"flex:{fp.js.strip()} 1 0%")
+        if fp and fp.js and _NUM_RE.fullmatch(fp.js.strip()):
+            css.append(f"flex:{fp.js.strip()} 1 0%" if float(fp.js) > 0 else 'flex:0 0 auto')
             mark_emission(fp)
-        align = mapped("Align", ALIGN_MAP)
+        align = mapped("AlignInContainer", ALIGN_MAP)
         if align:
             css.append(f"align-self:{align}")
     else:
@@ -358,7 +377,11 @@ def _static_style(ctrl: ControlNode, in_flex: bool, rules: list[str]) -> str:
         z = px("ZIndex")
         if z:
             css.append(f"z-index:{z[:-2]}")
-    w, h = px("Width"), px("Height")
+    controlled = _container_controlled_dimensions(ctrl,parent)
+    for dimension in controlled:
+        mark_emission(props.get(dimension), 'approximated', 'size follows its source container fill/stretch setting')
+    w = px('Width') if 'Width' not in controlled else None
+    h = px('Height') if 'Height' not in controlled else None
     if w:
         css.append(f"width:{w}")
     auto_h = boolean("AutoHeight")
@@ -654,13 +677,14 @@ def _render_control(
     in_flex: bool,
     rules: list[str],
     media_resources: dict[str, str],
+    parent: ControlNode | None = None,
 ) -> str:
     tag = ELEMENT_MAP.get(ctrl.type, "div")
     input_mode = _static_raw(ctrl.properties.get('Mode')) if ctrl.type in {'TextInput', 'TextArea'} else None
     if input_mode in {'SingleLine', 'MultiLine', 'Password'}:
         tag = 'textarea' if input_mode == 'MultiLine' else 'input'
     indent = "  " * (depth + 1)
-    style = _static_style(ctrl, in_flex, rules)
+    style = _static_style(ctrl, in_flex, rules, parent)
     style_attr = f' style="{style}"' if style else ""
     if ctrl.primary_output:
         style_attr += f' data-fx-primary-output="{html.escape(_snake(ctrl.primary_output), quote=True)}"'
@@ -719,7 +743,7 @@ def _render_control(
     if ctrl.type == "Gallery" or ctrl.type == "GalleryTemplate":
         row_controls = _gallery_row_controls(ctrl)
         inner_row = "\n".join(
-            _render_control(c, depth + 2, flex, rules, media_resources)
+            _render_control(c, depth + 2, flex, rules, media_resources, ctrl)
             for c in row_controls
         )
         row_size = _static_scalar(ctrl.properties.get("TemplateSize"))
@@ -769,7 +793,7 @@ def _render_control(
     close = f"</{tag}>" if tag not in {"input", "img", "br", "hr"} else ""
     if ctrl.children and ctrl.type not in VOID_CONTENT_TYPES:
         child_html = "\n".join(
-            _render_control(c, depth + 1, flex, rules, media_resources)
+            _render_control(c, depth + 1, flex, rules, media_resources, ctrl)
             for c in ctrl.children
         )
         inner = "\n" + child_html + "\n" + indent
@@ -998,12 +1022,15 @@ def _emit_gallery(lines: list[str], ctrl: ControlNode, parent_names: dict[str, s
             handlers[ctrl.name] = (parent_names.get(selection_owner.name), {"OnSelect": _behavior_js(gallery_select, f"{selection_owner.name}.OnSelect")})
             mark_emission(gallery_select)
         row_controls = list(_row_descendants(ctrl))
+        row_nodes = {node.name:node for node in ctrl.walk()}
         referenced_expressions = []
         # Register all row-owned property definitions before any visual formula
         # reads Self/another row control, including later siblings.
         for child in row_controls:
+            controlled = _container_controlled_dimensions(child,row_nodes.get(parent_names.get(child.name)))
             registered = [(prop, expr) for prop, expr in child.properties.items()
                           if prop in referenced_props.get(child.name, set()) and expr.js
+                          and prop not in controlled
                           and 'await ' not in expr.js
                           and not (child.type == 'FluentDatePicker' and prop == 'Value')]
             if registered:
@@ -1055,6 +1082,11 @@ def _emit_gallery(lines: list[str], ctrl: ControlNode, parent_names: dict[str, s
                 ("FontSize", "fontSize"), ("Visible", "display"),
             ]
             for prop_name, runtime_key in row_reactive:
+                parent_node = row_nodes.get(parent_names.get(child.name))
+                if prop_name in _container_controlled_dimensions(child,parent_node):
+                    continue
+                if prop_name in {'X','Y'} and parent_node and _is_flex_container(parent_node):
+                    continue
                 prop_expr = child.properties.get(prop_name)
                 if not prop_expr or not prop_expr.js:
                     continue
@@ -1160,6 +1192,7 @@ def render_app_js(ir: AppIR) -> str:
             mark_emission(expr, 'approximated', 'Immutable named value reevaluated on demand; dependency caching and source scheduling are not reproduced')
         lines.append('  });')
     parent_names = _control_parents(ir)
+    control_nodes = {ctrl.name:ctrl for screen in ir.screens for ctrl in screen.walk_controls()}
     referenced_props = _referenced_control_properties(ir, parent_names)
     contexts = {screen.name: screen.context_vars for screen in ir.screens}
     lines.append(f"  FXRuntime.configureContexts({json.dumps(contexts)});")
@@ -1280,6 +1313,7 @@ def render_app_js(ir: AppIR) -> str:
                     lines.append("  });")
             wanted_props = set(referenced_props.get(ctrl.name, set()))
             wanted_props.update(ctrl.component_inputs)
+            wanted_props.difference_update(_container_controlled_dimensions(ctrl,control_nodes.get(parent_names.get(ctrl.name))))
             if wanted_props:
                 registered = []
                 for prop_name in ctrl.properties:
@@ -1484,8 +1518,14 @@ def render_app_js(ir: AppIR) -> str:
                 ("FontColor", "color", "lower"),
                 ("Size", "fontSize", "pt"), ("FontSize", "fontSize", "pt"),
                 ("Visible", "display", None),
+                ('LayoutMinWidth','minWidth','px'), ('LayoutMinHeight','minHeight','px'),
             ]
             for prop, css_prop, unit in reactive:
+                parent_node = control_nodes.get(parent_names.get(ctrl.name))
+                if prop in _container_controlled_dimensions(ctrl,parent_node):
+                    continue
+                if prop in {'X','Y'} and parent_node and _is_flex_container(parent_node):
+                    continue
                 expr = ctrl.properties.get(prop)
                 if not expr or not expr.js or expr.js.strip().isdigit():
                     continue

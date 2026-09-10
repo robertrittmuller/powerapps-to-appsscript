@@ -37,7 +37,7 @@ LAMBDA_FNS = {"Filter", "ForAll", "LookUp", "CountIf", "Concat", "Distinct",
 ENUM_TYPES = {"Color", "Icon", "Font", "FontWeight", "Align", "Image",
               "LayoutSize", "DisplayMode", "FormMode", "FormStatus", "SortOrder",
               "LayoutDirection", "LayoutAlignItems", "LayoutJustifyContent",
-              "LayoutWrap", "VerticalAlign", "FillPortions", "Overflow",
+              "LayoutWrap", "VerticalAlign", "FillPortions", "Overflow", "AlignInContainer",
               "ImagePosition", "ImageRotation", "TextPosition", "FontWeight2",
               "BorderStyle", "TextRole", "TextMode", "Live", "DateTimeFormat", "Layout"}
 

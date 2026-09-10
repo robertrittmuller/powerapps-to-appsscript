@@ -157,8 +157,9 @@ are checked. Native API responses and the photo image are authored test fixtures
 live Google authorization, visibility, URL lifetime and quotas remain unverified.
 No full real-app workflow is inferred from this fixture.
 The unchanged public navigation sample displays its MyProfileV2 mail field using
-an explicit Google People response fixture. Its subsequent navigation click
-still fails due to clipped layout; this is partial service evidence only.
+an explicit Google People response fixture and passes Work → Home navigation.
+Menu expansion and every destination still require verification; this remains
+partial workflow and service evidence.
 
 Contracts: Microsoft's [Office 365 Users connector](https://learn.microsoft.com/en-us/connectors/office365users/),
 Google's [directory guide](https://developers.google.com/people/v1/directory),

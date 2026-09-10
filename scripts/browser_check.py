@@ -644,6 +644,47 @@ def check_modern_components(page, _backend):
     expect(control(page,'Second__Counts')).to_have_text('0/0')
 
 
+def check_native_layout(page, _backend):
+    def geometry():
+        return page.evaluate('''() => {
+          const get=name => {const ref=val(name), r=ref.el.getBoundingClientRect();
+            return {x:r.x,y:r.y,width:r.width,height:r.height,logicalWidth:ref.width,logicalHeight:ref.height};};
+          return Object.fromEntries(['Stack','Header','Body','Left','Left__Press','Right','Next'].map(name=>[name,get(name)]));
+        }''')
+    def verify():
+        boxes=geometry()
+        header,body,left,right,press=(boxes[key] for key in ['Header','Body','Left','Right','Left__Press'])
+        assert abs(header['logicalHeight']-48)<1,boxes
+        assert abs(header['logicalWidth']-150)<1,boxes
+        assert abs(left['logicalHeight']-body['logicalHeight'])<1,boxes
+        assert abs(right['logicalHeight']-body['logicalHeight'])<1,boxes
+        assert abs(right['logicalWidth']-2*left['logicalWidth'])<1,boxes
+        assert abs(press['logicalHeight']-32)<1,boxes
+        assert abs(press['logicalWidth']-left['logicalWidth'])<1,boxes
+        assert body['y']>=header['y']+header['height'],boxes
+        assert right['x']>=left['x']+left['width'],boxes
+        assert left['logicalHeight']>400,boxes
+        width,height=map(float,control(page,'Left__Extent').inner_text().split('/'))
+        assert abs(width-left['logicalWidth'])<1 and abs(height-left['logicalHeight'])<1,boxes
+        assert control(page,'Left__Extent').evaluate('el=>el.scrollWidth<=el.clientWidth+1')
+    verify()
+    control(page,'Left__Press').click()
+    expect(control(page,'Header')).to_have_text('Count 1')
+    control(page,'Next').click()
+    expect(page.locator('[data-screen="Other"]')).to_be_visible()
+    control(page,'Back').click()
+    expect(control(page,'Header')).to_have_text('Count 1')
+    page.set_viewport_size({'width':1000,'height':700})
+    page.wait_for_function('innerWidth===1000 && innerHeight===700')
+    page.wait_for_timeout(100)
+    verify()
+    control(page,'Left__Press').click()
+    expect(control(page,'Header')).to_have_text('Count 2')
+    page.reload()
+    expect(control(page,'Header')).to_have_text('Count 0')
+    verify()
+
+
 def check_named_formulas(page, backend):
     caption = control(page, 'TotalCaption')
     expect(caption).to_have_text('Total: 10')
@@ -1423,6 +1464,8 @@ def main():
     cases.append(('checkbox-events',REPO/'tests/fixtures/fixtureCheckboxEvents.msapp',check_checkbox_events))
     cases.append(('named-formulas',REPO/'tests/fixtures/fixtureNamedFormulas.msapp',check_named_formulas))
     cases.append(('modern-components',REPO/'tests/fixtures/fixtureModernComponents.msapp',check_modern_components))
+    cases.append(('native-layout',REPO/'tests/fixtures/fixtureNativeLayout.msapp',check_native_layout))
+    cases.append(('scaled-native-layout',REPO/'tests/fixtures/fixtureScaledNativeLayout.msapp',check_native_layout))
     cases.append(('many-to-many-relationships', REPO / 'tests/fixtures/fixtureRelationships.msapp', check_relationships))
     cases.append(("source-formulas", REPO / "tests/fixtures/fixtureSourceFormulas.msapp", check_source_formulas))
     cases.append(("responsive-canvas", REPO / "tests/fixtures/fixtureCanvas.msapp", check_canvas))

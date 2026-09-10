@@ -1479,7 +1479,50 @@ def modern_component_fixture_files() -> dict[str, str]:
         'Src/Combined.pa.yaml':json.dumps({'Screens':{'Home':home,'Other':{'Properties':{}}}})}
 
 
+def native_layout_fixture_files(scale_to_fit=False) -> dict[str,str]:
+    def ctrl(name,kind,props=None,children=None,**extra):
+        return {name:{'Control':kind,'Properties':props or {},'Children':children or [],**extra}}
+    panel = {'DefinitionType':'CanvasComponent','AccessAppScope':True,
+             'Children':[ctrl('Press','Button@0.0.45',{'Text':'="Add"','OnSelect':'=Set(count,count+1)'}),
+                         ctrl('Extent','Label',{'Text':'=Text(Round(Parent.Width,1)) & "/" & Text(Round(Parent.Height,1))'})]}
+    home = {'Children':[ctrl('Stack','GroupContainer@1.4.0',{'Width':'=Parent.Width','Height':'=Parent.Height'},[
+        ctrl('Header','Button',{'Text':'="Count " & count','Height':'=48'}),
+        ctrl('Body','GroupContainer@1.4.0',{},[
+            ctrl('Left','CanvasComponent',ComponentName='Panel'),
+            ctrl('Right','GroupContainer@1.4.0',{},[
+                ctrl('Next','Button',{'Text':'="Next"','OnSelect':'=Navigate(Other)'})],Variant='ManualLayout')
+        ],Variant='AutoLayout')],Variant='AutoLayout')]}
+    other = {'Children':[ctrl('Back','Button',{'Text':'="Back"','OnSelect':'=Back()','X':'=20','Y':'=20','Width':'=120','Height':'=40'})]}
+    def native(name,template,rules=None,dynamic=None,children=None,version='1.4.0'):
+        return {'Name':name,'Template':{'Name':template,'Version':version},
+                'Rules':[{'Property':key,'InvariantScript':value} for key,value in (rules or {}).items()],
+                'DynamicProperties':[{'PropertyName':key,'Rule':{'Property':key,'InvariantScript':value}}
+                                     for key,value in (dynamic or {}).items()], 'Children':children or []}
+    flex={'LayoutMode':'LayoutMode.Auto','LayoutAlignItems':'LayoutAlignItems.Stretch',
+          'LayoutGap':'12','Width':'500','Height':'200'}
+    grow=lambda portion: {'FillPortions':str(portion),'AlignInContainer':'AlignInContainer.Stretch',
+                         'LayoutMinWidth':'16','LayoutMinHeight':'16'}
+    tree=native('Home','screen',children=[native('Stack','groupContainer',dict(flex,LayoutDirection='LayoutDirection.Vertical',
+        Width='900',Height='600',PaddingLeft='10',PaddingRight='10',PaddingTop='10',PaddingBottom='10'),children=[
+        native('Header','button',{'Width':'150','Height':'22'},dict(grow(0.0),AlignInContainer='AlignInContainer.End')),
+        native('Body','groupContainer',dict(flex,LayoutDirection='LayoutDirection.Horizontal'),grow(1),[
+            native('Left','panel-guid',{'Width':'40','Height':'40'},grow(1),version='1.0'),
+            native('Right','groupContainer',{'LayoutMode':'LayoutMode.Manual','Width':'100','Height':'60'},grow(2),[
+                native('Next','button',{'X':'10','Y':'20','Width':'130','Height':'32'})])])])])
+    definition=native('Panel','panel-guid',{'Width':'150','Height':'100'},children=[
+        native('Press','PowerApps_CoreControls_ButtonCanvas',{'X':'0','Y':'0','Width':'Parent.Width','Height':'32','OnSelect':'Exit()'},version='0.0.45'),
+        native('Extent','label',{'X':'0','Y':'42','Width':'Parent.Width','Height':'40'})],version='1.0')
+    return {'CanvasManifest.json':json.dumps({'Name':'NativeLayout','DocumentLayoutWidth':900,'DocumentLayoutHeight':600,
+                'DocumentLayoutScaleToFit':scale_to_fit,'DocumentLayoutMaintainAspectRatio':True}),
+            'Src/App.pa.yaml':json.dumps({'App':{'Properties':{'OnStart':'=Set(count,0)'}}}),
+            'Src/Screens.pa.yaml':json.dumps({'Screens':{'Home':home,'Other':other},'ComponentDefinitions':{'Panel':panel}}),
+            'Controls/Home.json':json.dumps({'TopParent':tree}),
+            'Components/Panel.json':json.dumps({'TopParent':definition})}
+
+
 def build_fixtures() -> None:
+    _write_msapp(FIXTURE_DIR / 'fixtureNativeLayout.msapp', native_layout_fixture_files())
+    _write_msapp(FIXTURE_DIR / 'fixtureScaledNativeLayout.msapp', native_layout_fixture_files(True))
     _write_msapp(FIXTURE_DIR / 'fixtureModernComponents.msapp', modern_component_fixture_files())
     _write_msapp(FIXTURE_DIR / 'fixtureNamedFormulas.msapp', named_formula_fixture_files())
     _write_msapp(FIXTURE_DIR/'fixtureCheckboxEvents.msapp',checkbox_event_fixture_files())

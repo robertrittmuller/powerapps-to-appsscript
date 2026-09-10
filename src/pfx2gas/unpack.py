@@ -36,6 +36,7 @@ class UnpackedApp:
     # Legacy: TopParent.Index; modern: archive entry order / ScreenOrder.
     screen_order: list[str] = field(default_factory=list)
     power_fx_v1: bool = False
+    source_metadata: dict = field(default_factory=dict)
 
 
 _IMAGE_MIME_TYPES = {
@@ -248,6 +249,9 @@ def unpack(msapp_path: str | Path) -> UnpackedApp:
         elif not any(key in data for key in ('App', 'ComponentDefinitions', 'EditorState', 'DataSources')) and base.lower() != 'app.pa.yaml':
             out.screens[base.removesuffix(".pa.yaml")] = data
             source_screen_names[name] = [base.removesuffix('.pa.yaml')]
+
+    from .native_defaults import restore_layout_defaults
+    restore_layout_defaults(out, entries)
 
     # --- data sources + connection warnings ---
     for name, content in entries.items():

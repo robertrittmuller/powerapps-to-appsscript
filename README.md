@@ -191,6 +191,11 @@ per-app; everything else is derived from your app.
 
 ## Business-app acceptance testing
 
+The current ten-app target and required critical workflows are listed in
+[benchmark/ACCEPTANCE.md](benchmark/ACCEPTANCE.md). Acceptance requires working
+critical behavior and UI, with passing code and usability tests. Exact visual
+parity is tracked separately as High fidelity.
+
 The acceptance targets are Microsoft's **Milestones, Employee Ideas and
 Inspection** templates (six canvas exports including their manager/review apps).
 Their pinned source packages, feature distribution and evidence limitations are
@@ -436,9 +441,18 @@ Converted apps aim to match the original visually and behaviorally:
   variables and collections have generated Node and Chromium evidence. Explicit
   AccessAppScope retains shared app globals. Missing, recursive, colliding or
   unsupported definitions render an error and fail runtime checks. Custom
-  actions/events/functions, OnReset and omitted native layout defaults remain
-  gaps. The public navigation sample now exposes its original menu and Google
-  profile data, but clipped container geometry still prevents a navigation click.
+  actions/events/functions and OnReset remain gaps. The public navigation sample
+  now exposes its menu and Google profile data and passes Work → Home navigation;
+  expansion controls and the complete destination workflow still need testing.
+- **Omitted modern layout defaults** — native Rules and DynamicProperties from
+  the same export supplement missing YAML layout formulas, with property-level
+  provenance. Explicit YAML values win; conflicting native values fail and
+  mismatched versions are skipped with a warning. Container fill/stretch settings
+  control dimensions without stale component defaults replacing measured sizes.
+  Native and scaled-canvas fixtures verify dimensions, readable controls,
+  navigation, resize and reload. Dynamic container orientation/fill settings,
+  factory defaults absent from both representations and flexible gallery row
+  heights remain separate gaps.
 - **Charts** — legacy pie/bar/line families render as SVG, including visible
   single-value pies; generated series labels/color sets feed separate Legend
   controls instead of rendering `No data`.

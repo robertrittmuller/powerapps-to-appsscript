@@ -530,6 +530,14 @@
         measured = true;
       }
       var fallback = bounds && bounds[dimension];
+      // A container-sized control has no inline extent. Its measured box is
+      // in browser pixels; Power Fx reads design pixels inside a scaled canvas.
+      if ((dimension === 'width' || dimension === 'height') && canvas.layout.scaleToFit === true) {
+        var app = canvasRef('App'), sx = (Number(global.innerWidth) || app.design_width) / app.design_width;
+        var sy = (Number(global.innerHeight) || app.design_height) / app.design_height;
+        if (canvas.layout.lockAspectRatio === true) sx = sy = Math.min(sx,sy);
+        fallback /= dimension === 'width' ? sx : sy;
+      }
       return Number.isFinite(fallback) ? fallback : 0;
     }
     var standard = {

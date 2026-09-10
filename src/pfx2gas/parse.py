@@ -132,6 +132,7 @@ def parse(unpacked: UnpackedApp) -> AppIR:
         media_resources=dict(unpacked.media_resources),
         layout=dict(unpacked.layout),
         power_fx_v1=unpacked.power_fx_v1,
+        source_metadata=dict(unpacked.source_metadata),
     )
 
     # App-level OnStart
