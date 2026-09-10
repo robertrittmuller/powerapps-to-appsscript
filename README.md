@@ -231,8 +231,10 @@ conversion, and the milestone label measures the source formula's 115 pixels.
 Adding `--settings` tests original category/priority/status creation before the
 work-item lifecycle. Empty names now disable Save using the source control's
 exported primary output, and status captions preserve arithmetic precedence.
-All 109 checks now pass: five settings remain active after reload, and the
+All 116 checks now pass: five settings remain active after reload, and the
 work-item lifecycle retains the selected status/category/priority identities.
+Select-all and deselect-all change the loaded row and update the source's
+assertive live announcement text.
 The unchanged Save formula omits status Sequence; reload follows the exported
 Active view's name ordering. Arbitrary completion-status positioning and
 tenant-side sequence population remain unverified.
@@ -402,6 +404,13 @@ Converted apps aim to match the original visually and behaviorally:
   and buttons reevaluate source DisplayMode formulas as the user types.
   Toggle/checkbox `Value` is boolean; slider `Value` is numeric and button
   `Text` reads its visible caption.
+- **Checkbox and toggle actions** — OnCheck/OnUncheck run for the corresponding
+  Boolean transition, including changes from Default and Reset after mounting.
+  Gallery handlers retain their own row and awaited Self value. Duplicate change
+  notifications do not repeat actions; programmatic changes do not invent clicks
+  or OnChange events. Mounting establishes the initial value without replaying
+  check/uncheck actions. Source initialization timing, ordering between different
+  event types and actual screen-reader speech remain unverified.
 - **Legacy canvas components** — definitions in `Components/*.json` are inlined
   per instance with namespaced children and reactive custom inputs. This covers
   the corpus's MENU, TILES/BUSCADOR, and progress-bar components; static

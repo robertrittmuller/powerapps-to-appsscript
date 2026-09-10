@@ -369,19 +369,49 @@
   function bind(name, event, fn, parentName) {
     var el = controlElement(name);
     if (!el) { console.warn('control not found for binding:', name); return; }
-    listen(el, event === 'OnSelect' ? 'click' : 'change', function () {
+    function run(checkedValue) {
       var previousSelf = global.selfRef;
       var previousParent = global.parentRef;
-      global.selfRef = val(name);
-      global.parentRef = val(parentName);
-      Promise.resolve().then(fn).then(updateBindings).catch(function (e) {
+      var self = val(name), parent = val(parentName);
+      if (typeof checkedValue === 'boolean') self.value = self.checked = checkedValue;
+      global.selfRef = self;
+      global.parentRef = parent;
+      Promise.resolve().then(function () { return fn(val, self, parent); }).then(updateBindings).catch(function (e) {
         console.error(e);
         toast('Error: ' + (e && e.message ? e.message : e), true);
       }).then(function () {
         global.selfRef = previousSelf;
         global.parentRef = previousParent;
       });
-    });
+    }
+    if (event === 'OnCheck' || event === 'OnUncheck') {
+      watchChecked(el, function (value) { if (value === (event === 'OnCheck')) run(value); });
+    } else listen(el, event === 'OnSelect' ? 'click' : 'change', function () { run(); });
+  }
+
+  function notifyChecked(el, userChange) {
+    var value = !!el.checked;
+    if (value === el.__fxCheckedValue) return;
+    el.__fxCheckedValue = value;
+    (el.__fxCheckedHandlers || []).forEach(function (handler) { handler(value, userChange); });
+  }
+
+  function watchChecked(el, handler) {
+    if (el.type !== 'checkbox') throw new Error('OnCheck/OnUncheck require a checkbox or toggle');
+    if (!el.__fxCheckedHandlers) {
+      el.__fxCheckedHandlers = [];
+      el.__fxCheckedValue = !!el.checked;
+      listen(el, 'change', function () { if (!el.disabled) notifyChecked(el, true); });
+    }
+    el.__fxCheckedHandlers.push(handler);
+  }
+
+  function setChecked(el, value, initializing) {
+    el.checked = !!value;
+    // Mounting establishes an initial value; later Default/Reset/form changes
+    // use the same transition path as user changes, without a synthetic click.
+    if (initializing) el.__fxCheckedValue = !!value;
+    else notifyChecked(el, false);
   }
 
   function selectionRecord(row) {
@@ -940,10 +970,11 @@
           if (el.tagName === 'SELECT') el.__fxDefaultSelection = value;
           var signature = JSON.stringify(value == null ? '' : value);
           if (el.__fxDefaultSignature !== signature) {
+            var initializing = el.__fxDefaultSignature === undefined;
             el.__fxDefaultSignature = signature;
             if (el.type === 'date') value = dateInputText(value);
             el.setAttribute('data-fx-default', value == null ? '' : String(value));
-            if (el.type === 'checkbox') el.checked = !!value;
+            if (el.type === 'checkbox') setChecked(el, value, initializing);
             else if (el.tagName === 'SELECT') applyDefaultSelection(el, value);
             else el.value = value == null ? '' : String(value);
           }
@@ -1057,7 +1088,7 @@
         selected: row.__fxItem, selected_items: [row.__fxItem],
       });
     }
-    function invoke(row, control, event) {
+    function invoke(row, control, event, checkedValue) {
       var descriptor = (handlers || {})[control];
       var fn = descriptor && (typeof descriptor === 'function' ? descriptor : descriptor[event]);
       if (!fn) return Promise.resolve();
@@ -1065,7 +1096,7 @@
       return Promise.resolve().then(function () {
         return fn(row.__fxScope, row, function (target) {
           queued.push(target === 'Parent' ? descriptor.parent : target === 'Self' ? control : target);
-        });
+        }, checkedValue);
       }).then(function () {
         updateBindings();
         return queued.reduce(function (previous, target) {
@@ -1164,9 +1195,17 @@
               if (control === name) return;
               var el = row.querySelector('[data-control="' + control + '"]');
               if (!el) return;
-              ['OnSelect', 'OnChange'].forEach(function (event) {
+              ['OnSelect', 'OnChange', 'OnCheck', 'OnUncheck'].forEach(function (event) {
                 var descriptor = handlers[control];
                 if (!(typeof descriptor === 'function' && event === 'OnSelect') && !descriptor[event]) return;
+                if (event === 'OnCheck' || event === 'OnUncheck') {
+                  watchChecked(el, function (value, userChange) {
+                    if (value !== (event === 'OnCheck')) return;
+                    if (userChange) choose(row);
+                    invoke(row, control, event, value);
+                  });
+                  return;
+                }
                 listen(el, event === 'OnSelect' ? 'click' : 'change', function (domEvent) {
                   if (domEvent) domEvent.stopPropagation();
                   choose(row);
@@ -1339,7 +1378,7 @@
     if (!el) return;
     if (el.__fxFormDisabled === undefined) el.__fxFormDisabled = !!el.disabled;
     if (el.__fxFormReadOnly === undefined) el.__fxFormReadOnly = !!el.readOnly;
-    if (el.type === 'checkbox') el.checked = !!value;
+    if (el.type === 'checkbox') setChecked(el, value);
     else if (el.type === 'date') el.value = dateInputText(value);
     else el.value = value === null || value === undefined ? '' : String(value);
     el.disabled = mode === 'view' ? true : el.__fxFormDisabled;
@@ -1592,7 +1631,7 @@
     var value = el.getAttribute('data-fx-default');
     if (el.tagName === 'SELECT' && Object.prototype.hasOwnProperty.call(el, '__fxDefaultSelection'))
       applyDefaultSelection(el, el.__fxDefaultSelection);
-    else if (el.type === 'checkbox') el.checked = value === 'true';
+    else if (el.type === 'checkbox') setChecked(el, value === 'true');
     else el.value = value === null ? '' : value;
     updateBindings();
     return value;

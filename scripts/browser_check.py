@@ -607,6 +607,27 @@ def check_storage(page, backend):
     expect(count).to_have_text("0")
 
 
+def check_checkbox_events(page, backend):
+    counts=control(page,'EventCounts');toggle=control(page,'EventToggle')
+    expect(counts).to_have_text('0/0/0')
+    toggle.check();expect(counts).to_have_text('1/0/1')
+    toggle.uncheck();expect(counts).to_have_text('1/1/2')
+    toggle.focus();toggle.press('Space');expect(counts).to_have_text('2/1/3')
+    control(page,'ResetEventToggle').click();expect(counts).to_have_text('2/2/3')
+    control(page,'ChangeEventDefault').click();expect(counts).to_have_text('3/2/3')
+    expect(toggle).to_be_checked()
+    rows=control(page,'RowEnabled');announcement=control(page,'EventAnnouncement')
+    rows.nth(1).check();expect(announcement).to_have_text('two:on')
+    expect(announcement).to_have_attribute('aria-live','assertive')
+    assert [(r['id'],r['enabled']) for r in backend({'fn':'api','args':['Flags','list',{}]})['result']]==[('one',False),('two',True)]
+    assert page.evaluate('state.parentSelections')==0
+    page.reload();expect(rows.nth(1)).to_be_checked();expect(rows.nth(0)).not_to_be_checked()
+    expect(announcement).to_have_text('')
+    rows.nth(1).uncheck();expect(announcement).to_have_text('two:off')
+    page.reload();expect(rows.nth(1)).not_to_be_checked()
+    assert all(r['enabled'] is False for r in backend({'fn':'api','args':['Flags','list',{}]})['result'])
+
+
 def check_dataverse_state(page, backend):
     expect(control(page,'ActiveCount')).to_have_text('Active: 0')
     control(page,'NewName').fill('Settings example')
@@ -1336,6 +1357,7 @@ def main():
     cases.append(("local-draft-storage", REPO / "tests/fixtures/fixtureStorage.msapp", check_storage))
     cases.append(("dataverse-contract", REPO / "tests/fixtures/fixtureDataverse.msapp", check_dataverse))
     cases.append(('dataverse-state',REPO/'tests/fixtures/fixtureDataverseState.msapp',check_dataverse_state))
+    cases.append(('checkbox-events',REPO/'tests/fixtures/fixtureCheckboxEvents.msapp',check_checkbox_events))
     cases.append(('many-to-many-relationships', REPO / 'tests/fixtures/fixtureRelationships.msapp', check_relationships))
     cases.append(("source-formulas", REPO / "tests/fixtures/fixtureSourceFormulas.msapp", check_source_formulas))
     cases.append(("responsive-canvas", REPO / "tests/fixtures/fixtureCanvas.msapp", check_canvas))

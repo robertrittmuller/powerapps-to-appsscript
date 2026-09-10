@@ -46,9 +46,10 @@ with retained record/relationship IDs, reload and confirmed deletion. Generated
 Code.gs runs against a Sheets test double; People responses remain explicit
 fixtures. Complete exported reference rows now initialize in appropriately sized
 Sheets, preserving the icon and typography lookups used by the source UI.
-The deeper `--settings` probe passes 109 checks through original category/priority/
+The deeper `--settings` probe passes 116 checks through original category/priority/
 status creation, active-view reload and the work-item lifecycle with those linked
-settings. New rows retain the exported active state and default status reason.
+settings, including select-all/deselect-all and source live announcement text.
+New rows retain the exported active state and default status reason.
 The source Save formula omits status Sequence, so reload retains the Active view's
 name ordering; the test does not invent sequence values to preserve entry order.
 Arbitrary completion-status positioning, tenant-side sequence population,

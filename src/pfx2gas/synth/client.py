@@ -1067,7 +1067,7 @@ def _emit_gallery(lines: list[str], ctrl: ControlNode, parent_names: dict[str, s
             if child.type == 'Gallery':
                 continue  # Its events belong to its own selected child row.
             events = {}
-            for event in ("OnSelect", "OnChange"):
+            for event in (("OnSelect", "OnChange", "OnCheck", "OnUncheck") if child.type == 'CheckBox' else ("OnSelect", "OnChange")):
                 expr = child.properties.get(event)
                 if expr and expr.raw:
                     events[event] = _behavior_js(expr, f"{child.name}.{event}")
@@ -1090,9 +1090,11 @@ def _emit_gallery(lines: list[str], ctrl: ControlNode, parent_names: dict[str, s
             for cname, (parent, events) in handlers.items():
                 lines.append(f"      {cname!r}: {{ parent: {parent!r},")
                 for event, js in events.items():
-                    lines.append(f"        {event!r}: async function (item, row, selectControl) {{")
+                    lines.append(f"        {event!r}: async function (item, row, selectControl, checkedValue) {{")
                     lines.append("          var val = function (name) { return FXRuntime.rowValue(row, name); };")
                     lines.append(f"          var selfRef = val({cname!r}), parentRef = val({parent!r});")
+                    if event in {'OnCheck', 'OnUncheck'}:
+                        lines.append("          selfRef.value = selfRef.checked = checkedValue;")
                     lines.append(f"          var resetControl = function (name) {{ return FXRuntime.resetRowControl(row, name === 'Self' ? {cname!r} : name === 'Parent' ? {parent!r} : name); }};")
                     for stmt in js.splitlines():
                         lines.append(f"          {stmt}")
@@ -1273,13 +1275,13 @@ def render_app_js(ir: AppIR) -> str:
                         else:
                             mark_emission(expr, "emitted", "exposed to dependent control formulas")
                     lines.append("  });")
-            for event in ("OnSelect", "OnChange"):
+            for event in (("OnSelect", "OnChange", "OnCheck", "OnUncheck") if ctrl.type == 'CheckBox' else ("OnSelect", "OnChange")):
                 if ctrl.type == "Gallery":
                     continue  # Invoked with the selected row, never by DOM bubbling.
                 expr = ctrl.properties.get(event)
                 if expr and expr.raw:
                     lines.append(f"  // {ctrl.name}.{event}")
-                    lines.append(f"  bind({ctrl.name!r}, {event!r}, async function () {{")
+                    lines.append(f"  bind({ctrl.name!r}, {event!r}, async function (val, selfRef, parentRef) {{")
                     for stmt in _behavior_js(expr, f"{ctrl.name}.{event}").splitlines():
                         lines.append(f"    {stmt}")
                     lines.append(f"  }}, {parent_names.get(ctrl.name)!r});")

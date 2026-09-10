@@ -5,7 +5,7 @@ from .fx.naming import snake as _snake
 from .ir import AppIR, ControlNode, DataSource, FieldDef, FxExpr, ScreenNode
 from .unpack import UnpackedApp
 
-BEHAVIOR_PROPS = {"OnSelect", "OnChange", "OnVisible", "OnHidden", "OnStart", "OnSuccess", "OnFailure",
+BEHAVIOR_PROPS = {"OnSelect", "OnChange", "OnCheck", "OnUncheck", "OnVisible", "OnHidden", "OnStart", "OnSuccess", "OnFailure",
                   "OnTimerStart", "OnTimerEnd"}
 
 # Control types that can hold child item templates in a gallery.

@@ -1305,6 +1305,34 @@ def responsive_gallery_fixture_files() -> dict[str,str]:
     }
 
 
+def checkbox_event_fixture_files() -> dict[str,str]:
+    def control(name,kind,props,children=None):
+        node={'Control':kind,'Properties':{key:'='+str(value) for key,value in props.items()}}
+        if children: node['Children']=children
+        return {name:node}
+    controls=[control('EventToggle','Toggle',{'X':20,'Y':20,'Width':40,'Height':40,'Default':'defaultFlag',
+        'OnCheck':'Set(checkedCalls,checkedCalls+1); Set(lastSelf,Self.Value)',
+        'OnUncheck':'Set(uncheckedCalls,uncheckedCalls+1); Set(lastSelf,Self.Value)',
+        'OnChange':'Set(changedCalls,changedCalls+1)'}),
+        control('EventCounts','Label',{'X':80,'Y':20,'Width':500,'Height':40,
+            'Text':'Text(checkedCalls) & "/" & Text(uncheckedCalls) & "/" & Text(changedCalls)'}),
+        control('ResetEventToggle','Button',{'X':20,'Y':80,'Width':220,'Height':40,'Text':'"Reset toggle"','OnSelect':'Reset(EventToggle)'}),
+        control('ChangeEventDefault','Button',{'X':270,'Y':80,'Width':220,'Height':40,'Text':'"Change default"','OnSelect':'Set(defaultFlag,Not(defaultFlag))'}),
+        control('EventRows','Gallery',{'X':20,'Y':160,'Width':700,'Height':220,'TemplateSize':70,'Items':'Flags','OnSelect':'Set(parentSelections,parentSelections+1)'},[
+            control('RowEnabled','CheckBox',{'X':10,'Y':10,'Width':40,'Height':40,'Default':'ThisItem.Enabled',
+                'OnCheck':'Patch(Flags,ThisItem,{Enabled:Self.Value}); Set(rowEvent,ThisItem.ID & ":on"); Set(lastSelf,Self.Value)',
+                'OnUncheck':'Patch(Flags,ThisItem,{Enabled:Self.Value}); Set(rowEvent,ThisItem.ID & ":off"); Set(lastSelf,Self.Value)'}),
+            control('RowFlagName','Label',{'X':70,'Y':10,'Width':350,'Height':40,'Text':'ThisItem.Name'}),
+            control('RowFlagReset','Button',{'X':450,'Y':10,'Width':200,'Height':40,'Text':'"Reset row"','OnSelect':'Reset(RowEnabled)'})]),
+        control('EventAnnouncement','Label',{'X':20,'Y':400,'Width':650,'Height':40,'Text':'rowEvent','Live':'Live.Assertive'})]
+    return {'CanvasManifest.json':json.dumps({'Name':'Checkbox transitions','ScreenOrder':['Events']}),
+        'src/App.pa.yaml':json.dumps({'App':{'Control':'AppHost','Properties':{'OnStart':
+            '=Set(defaultFlag,false); Set(checkedCalls,0); Set(uncheckedCalls,0); Set(changedCalls,0); Set(parentSelections,0); Set(rowEvent,"")'}}}),
+        'src/Events.pa.yaml':json.dumps({'Events':{'Control':'Screen','Children':controls}}),
+        'DataSources/Flags.json':json.dumps({'Name':'Flags','Type':'StaticDataSourceInfo','Fields':[],
+            'SampleData':[{'ID':'one','Name':'First flag','Enabled':False},{'ID':'two','Name':'Second flag','Enabled':False}]})}
+
+
 def state_fixture_files() -> dict[str,str]:
     def label(text): return {'UserLocalizedLabel':{'Label':text,'LanguageCode':1033}}
     definitions=[('new_workid','Work item','Uniqueidentifier'),('new_name','Name','String'),
@@ -1371,6 +1399,7 @@ def control_coercion_fixture_files(v1=False) -> dict[str,str]:
 
 
 def build_fixtures() -> None:
+    _write_msapp(FIXTURE_DIR/'fixtureCheckboxEvents.msapp',checkbox_event_fixture_files())
     _write_msapp(FIXTURE_DIR/'fixtureDataverseState.msapp',state_fixture_files())
     _write_msapp(FIXTURE_DIR/'fixtureControlCoercion.msapp',control_coercion_fixture_files())
     _write_msapp(FIXTURE_DIR/'fixtureControlCoercionV1.msapp',control_coercion_fixture_files(True))

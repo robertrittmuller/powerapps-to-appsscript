@@ -335,6 +335,36 @@ def test_generated_control_blank_checks_keep_source_version_and_row_values(tmp_p
     assert verdict['journeyResults'][0]['status']=='pass',verdict
 
 
+def test_generated_checkbox_events_react_to_user_changes_defaults_and_reset(tmp_path):
+    from pfx2gas.analyze import analyze
+    from pfx2gas.parse import parse
+    from pfx2gas.startup_sim import simulate_project
+    from pfx2gas.synth.build import synthesize
+    from pfx2gas.unpack import unpack
+    project=synthesize(analyze(parse(unpack(FIXTURES/'fixtureCheckboxEvents.msapp'))),tmp_path/'Events')
+    verdict=simulate_project(project,[{'id':'checkbox-transitions','steps':[
+        {'action':'expectText','control':'EventCounts','equals':'0/0/0'},
+        {'action':'setValue','control':'EventToggle','value':True},
+        {'action':'expectText','control':'EventCounts','equals':'1/0/1'},
+        {'action':'click','control':'ResetEventToggle'},
+        {'action':'expectText','control':'EventCounts','equals':'1/1/1'},
+        {'action':'click','control':'ChangeEventDefault'},
+        {'action':'expectText','control':'EventCounts','equals':'2/1/1'},
+        {'action':'setValue','control':'RowEnabled','value':True,'gallery':'EventRows','row':1},
+        {'action':'expectText','control':'EventAnnouncement','equals':'two:on'},
+        {'action':'expectDataRow','source':'Flags','where':{'id':'two','enabled':True}},
+        {'action':'expectDataRow','source':'Flags','where':{'id':'one','enabled':False}},
+        {'action':'setValue','control':'RowEnabled','value':False,'gallery':'EventRows','row':1},
+        {'action':'expectText','control':'EventAnnouncement','equals':'two:off'},
+        {'action':'expectState','key':'parentSelections','equals':0},
+    ]}])
+    assert not verdict['consoleErrors'],verdict
+    assert verdict['journeyResults'][0]['status']=='pass',verdict['journeyResults']
+    ledger=json.loads((project/'conversion-ledger.json').read_text())
+    handlers=[row for row in ledger['formulas'] if row['property'] in {'OnCheck','OnUncheck'}]
+    assert len(handlers)==4 and all(row['emission']=='emitted' for row in handlers)
+
+
 def test_generated_dataverse_state_screen_starts_with_an_empty_active_view(tmp_path):
     from pfx2gas.analyze import analyze
     from pfx2gas.parse import parse
@@ -415,7 +445,7 @@ def test_generated_timers_initialize_data_and_leave_loading_screen(tmp_path):
     assert verdict["journeyResults"][0]["status"] == "pass", verdict
 
 
-@pytest.mark.parametrize("target", ["startup", "screen", "hidden", "button", "timer"])
+@pytest.mark.parametrize("target", ["startup", "screen", "hidden", "button", "timer", "check", "uncheck"])
 def test_untranslatable_behavior_cannot_silently_pass_runtime_checks(tmp_path, target):
     from pfx2gas.analyze import analyze
     from pfx2gas.ir import AppIR, ControlNode, ScreenNode, FxExpr
@@ -436,6 +466,11 @@ def test_untranslatable_behavior_cannot_silently_pass_runtime_checks(tmp_path, t
         screen.controls = [ControlNode(name='LeaveScreen', type='Button', properties={
             'OnSelect': FxExpr(raw='Navigate(Other)', kind='behavior')})]
         steps = [{'action': 'click', 'control': 'LeaveScreen'}]
+    elif target in {'check','uncheck'}:
+        screen.controls = [ControlNode(name='BrokenCheck',type='CheckBox',properties={
+            'OnCheck' if target=='check' else 'OnUncheck':broken,
+            'Default':FxExpr(raw='false' if target=='check' else 'true')})]
+        steps=[{'action':'setValue','control':'BrokenCheck','value':target=='check'}]
     elif target == "button":
         screen.controls = [ControlNode(name="BrokenButton", type="Button", properties={"OnSelect": broken})]
         steps = [{"action": "click", "control": "BrokenButton"}]
@@ -445,7 +480,7 @@ def test_untranslatable_behavior_cannot_silently_pass_runtime_checks(tmp_path, t
         steps = [{"action": "wait", "milliseconds": 250}]
     verdict = simulate_project(synthesize(analyze(ir), tmp_path / "Broken"), [{"id": "observe-failure", "steps": steps}])
     assert any("formula could not be translated" in error for error in verdict["allConsoleErrors"]), verdict
-    if target in {"button", "timer", "hidden"}:
+    if target in {"button", "timer", "hidden", "check", "uncheck"}:
         assert verdict["journeyResults"][0]["status"] == "fail", verdict
 
 
