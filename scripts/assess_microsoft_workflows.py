@@ -7,7 +7,7 @@ Run with ./pfx2gas browser scripts/assess_microsoft_workflows.py.
 """
 import json
 
-from browser_check import OUT, REPO, control, run_case
+from browser_check import OUT, REPO, control, run_case, setup_planner
 from playwright.sync_api import expect, sync_playwright
 
 # These destinations/actions are taken from the release-44 source formulas.
@@ -17,6 +17,7 @@ CASES = [
     ('milestones', 'Projects Screen', 'btnNewProject', 'Add Project Screen'),
     ('employee-ideas', 'Mobile Landing Screen', 'btnMobileBrowseCampaigns', 'Mobile Campaign Summary Screen'),
     ('inspection', 'Welcome Screen', 'btnInspect', 'Items Screen'),
+    ('inspection-planner-migrated', 'Welcome Screen', 'btnInspect', 'Items Screen'),
 ]
 
 
@@ -24,8 +25,9 @@ def main():
     results = []
     with sync_playwright() as p:
         browser = p.chromium.launch()
-        for app, loaded_screen, primary, destination in CASES:
-            name = 'microsoft-first-action-' + app
+        for scenario, loaded_screen, primary, destination in CASES:
+            app = scenario.removesuffix('-planner-migrated')
+            name = 'microsoft-first-action-' + scenario
             steps = []
             def check(step, action):
                 try:
@@ -75,9 +77,11 @@ def main():
 
             template = {'milestones': 'Milestones', 'employee-ideas': 'EmployeeIdeas', 'inspection': 'Inspection'}[app]
             result = run_case(browser, name, REPO / 'samples/microsoft' / (app + '.msapp'), journey,
-                              solution=REPO / 'samples/microsoft' / (template + '.solution.zip'))
+                              solution=REPO / 'samples/microsoft' / (template + '.solution.zip'),
+                              setup_backend=setup_planner if scenario.endswith('-planner-migrated') else None)
             result.update(sourceAppId=app, assessmentScope='source loading and first action only',
-                          completeUsability='unassessed', steps=steps)
+                          completeUsability='unassessed', steps=steps,
+                          scenario='planner-migrated' if scenario.endswith('-planner-migrated') else 'default')
             (OUT / name / 'result.json').write_text(json.dumps(result, indent=2) + '\n')
             results.append(result)
         browser.close()

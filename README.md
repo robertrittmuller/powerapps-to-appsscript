@@ -6,6 +6,19 @@ runnable **Google Apps Script web app**: an HtmlService single-page UI, a
 honest, per-formula **conversion report** of what was converted, what was
 approximated, and what needs human attention.
 
+Microsoft service dependencies should migrate to Google services where possible.
+For capabilities without a faithful native equivalent, preserve their behavior
+through an Apps Script adapter and record the differences. The
+[Google service mapping](benchmark/GOOGLE_SERVICE_MAPPING.md) tracks this work;
+unimplemented adapters remain explicit conversion gaps.
+
+The Planner adapter maps eight exported operations to a shared Sheets task board.
+Apps declaring Planner include `PlannerMigration.gs` and `planner-migration.md`:
+run `setup()`, supply reviewed source records and Google-user mappings, then run
+the private migration function in the Apps Script editor. Missing migration is
+an error. Membership, dates, assignments, creation and description updates have
+generated-server and Chromium evidence; live Google deployment remains unverified.
+
 It is a deterministic transpiler pipeline (unpack → parse → analyze →
 synthesize → validate) with an optional LLM fallback for formulas the rule
 engine can't map. The LLM never writes files; it can only propose a
@@ -166,11 +179,14 @@ arrive during capture before assigning a verdict.
 Ratings, attachments, manager workflows and complete app usability remain unassessed.
 The normal `./pfx2gas soak` enforces the existing
 required regression corpus, including failed required journeys and missing apps.
+It currently fails Editable Grid because its choice formulas reference the
+unexported Student Tracker source. The startup simulator now retains that
+dependency failure instead of returning an empty successful response.
 
 `./pfx2gas browser` tests generated forms, charts, record scopes, editable
 galleries, timer lifecycles, launch parameters, local drafts, Dataverse record
 contracts, complete source timestamp/URL-validation formulas, responsive and
-scaled canvases, card grids, typed collection aliases and conditional draft
+scaled canvases, card grids, the migrated Planner task board, typed collection aliases and conditional draft
 updates in Chromium, plus HelpDesk
 when its local export is present. It runs
 generated `doGet`/client/server code against a Sheets test double to check save,

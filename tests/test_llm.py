@@ -38,6 +38,10 @@ def test_js_acceptable_value_expression():
     "FX.concurrent([() => 1, () => 2])", "FX['concurrent']([() => 1, () => 2])",
     "apiPatchRecord('Projects', {Project: 'one'})", "window.apiPatchRecord('Projects', {Project: 'one'})",
     "apiRelate([], {}, false)", "window.apiRelate([], {}, true)",
+    "FXRuntime.connectorCall('Planner', 'CreateTaskV3', ['g','p','t'])",
+    "window.FXRuntime.connectorCall('Planner', 'CreateTaskV3', ['g','p','t'])",
+    "FXRuntime.configureServices({})", "FXRuntime.refreshConnector('Planner')",
+    "FXRuntime.connectorRead('Planner', 'ListMyPlansV2', [])",
 ])
 def test_value_fallback_rejects_statement_escape_mutation_and_unknown_helpers(js):
     assert not _js_acceptable(js, behavior=False)

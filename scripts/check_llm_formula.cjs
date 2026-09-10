@@ -18,6 +18,7 @@ function check({js, behavior}) {
   // helper call must not save records, navigate, or reset runtime configuration.
   const readRuntime = new Set(['variable', 'param', 'language', 'state']);
   const behaviorGlobals = new Set(['go', 'goBack', 'toast', 'exitApp', 'bind',
+    'connectorCall', 'connectorRead', 'refreshConnector', 'configureServices',
     'refreshData', 'submitForm', 'resetForm', 'setFormMode', 'resetControl',
     'selectControl', 'apiCreate', 'apiPatch', 'apiPatchRecord', 'apiRelate', 'apiRemove', 'apiRemoveIf',
     'apiClearCollect', 'powerapps_collect', 'powerapps_clearCollect',

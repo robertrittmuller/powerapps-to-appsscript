@@ -79,7 +79,8 @@ const runner = new Proxy({}, {
       handlers = {};
       setTimeout(() => {
         if (String(prop) === 'whoami') { if (ok) ok({ email: '', fullName: '', pictureUrl: '' }); return; }
-        if (ok) ok([]);
+        if (['api','apiChoices'].includes(String(prop))) { if (ok) ok([]); return; }
+        if (err) err(new Error('unknown simulated server endpoint: ' + String(prop)));
       }, 0);
     };
   },
@@ -183,6 +184,30 @@ def test_fixture_b_startup_clean():
     assert verdict["refErrors"] == [], f"ReferenceErrors at startup: {verdict['refErrors']}"
     assert verdict["visible"] == ["Screen1"], verdict
     assert verdict["totalConsoleErrors"] == 0, verdict
+
+
+@pytest.mark.parametrize('endpoint', ['connector', 'mistypedEndpoint', 'importPlanner_'])
+def test_unknown_or_unmigrated_server_cannot_pass_startup(tmp_path, endpoint):
+    from pfx2gas.ir import AppIR, ScreenNode, FxExpr
+    from pfx2gas.startup_sim import simulate_project
+    from pfx2gas.synth.build import synthesize
+    ir=AppIR(name='MissingService',start_screen='Main',screens=[ScreenNode(name='Main')],
+        on_start=FxExpr(raw='server dependency',kind='behavior',
+                        js=f"await FXRuntime.serverRun('{endpoint}');"))
+    verdict=simulate_project(synthesize(ir,tmp_path/'MissingService'))
+    expected='migration is not configured' if endpoint=='connector' else 'unknown simulated server endpoint'
+    assert any(expected in error for error in verdict['allConsoleErrors']),verdict
+
+
+def test_unexported_choices_cannot_be_simulated_as_empty_success(tmp_path):
+    from pfx2gas.analyze import analyze
+    from pfx2gas.ir import AppIR, ScreenNode, FxExpr
+    from pfx2gas.startup_sim import simulate_project
+    from pfx2gas.synth.build import synthesize
+    ir=AppIR(name='MissingChoices',start_screen='Main',screens=[ScreenNode(name='Main')],
+             on_start=FxExpr(raw="Set(options, Choices('Missing List'.Status))",kind='behavior'))
+    verdict=simulate_project(synthesize(analyze(ir),tmp_path/'MissingChoices'))
+    assert any('data source is not part of this generated app: Missing List' in error for error in verdict['allConsoleErrors']),verdict
 
 
 def test_generated_business_charts_startup_clean():

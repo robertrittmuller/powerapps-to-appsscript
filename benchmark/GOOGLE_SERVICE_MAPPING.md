@@ -1,0 +1,71 @@
+# Microsoft service migration to Google
+
+The user requires Microsoft dependencies to move to Google services where
+possible. Keeping Microsoft Graph as the target backend is not the default.
+An adapter must preserve the source workflow, report differences, and fail
+explicitly when configuration, migration data, authorization or an operation
+is missing. Empty successful responses cannot stand in for an unmigrated service.
+
+| Source capability | Google target | Contract |
+|---|---|---|
+| Dataverse/SharePoint structured records | Google Sheets and Apps Script | Existing typed storage, source keys, relationships and migration ledger. |
+| Planner shared plans, buckets and assigned tasks | Google Sheets and Apps Script task-board adapter | Implemented for eight operations below. Explicit Google-user mapping and plan/task migration are required. Generated-server and Chromium tests preserve IDs, membership checks, buckets, assignments, progress, dates and description writes. |
+| Personal task lists and tasks that fit the native API | Google Tasks | Candidate native adapter; shared assignments, bucket semantics and due-time fidelity must not be claimed. |
+| Teams spaces/channels/messages | Google Chat | Candidate space/channel mapping and message adapter; membership and authorization must be explicit. |
+| Office365 profiles | Google Workspace directory/People plus migrated user mapping | Candidate adapter; unavailable profile fields must stay explicit. |
+| Files and attachments | Google Drive | Candidate storage and access adapter with upload/download evidence. |
+
+## Planner implementation scope
+
+The pinned Inspection, Inspection Manager and Review Inspections exports use
+eight Planner operations: `ListMyPlansV2`, `ListGroupPlans`, `ListBucketsV3`,
+`ListTasksV3`, `ListTasks`, `ListMyTasks`, `CreateTaskV3` and `UpdateTaskDetails`.
+Inspection creates a task with a bucket, due date and semicolon-separated
+assignee emails, then saves its description. These are the first adapter
+acceptance cases. Source formulas and export bytes must remain unchanged.
+
+Google Tasks has no API for creating tasks assigned from Chat/Docs. Assignment
+metadata is read-only, and the due field discards the time of day. A native
+Tasks-only replacement would therefore lose required source functionality.
+The shared-board adapter uses Google Sheets as its authoritative store and
+the converted Apps Script UI as its task interface. This does not imply that
+the board appears in the native Google Tasks UI.
+
+Every supported operation needs generated-server execution and a browser
+journey with actual persisted records. Missing migration, unknown IDs, denied
+membership and failed writes must remain errors. A private migration entry
+point must not allow browser callers to grant themselves plan access.
+
+The Planner subset now passes generated-server and Chromium tests. The fixture
+creates an assigned task, preserves due time and description, selects the saved
+row, edits its description, reloads, rejects a nonmember assignee and recovers
+from injected write failures. It checks input labels and visible/readable controls.
+Inspection's unchanged source passes all five first-action checks with an
+explicitly authored migrated board. That proves only its loading/first action;
+the complete inspection/task-creation workflow is still unassessed.
+
+Generated projects include an operator-edited, private `PlannerMigration.gs`
+entry point and `planner-migration.md` with the import schema. Existing migration
+files survive reconversion. Reads use a cache for synchronous value bindings;
+pending results are Blank, failures propagate, and app writes invalidate older
+snapshots. This does not implement push updates for other users' changes.
+
+Planner roles, assignment audit metadata, ordering hints, categories and external
+notifications are not reproduced. The canonical service name must be `Planner`;
+connector aliases and additional operations remain gaps. Live Google deployment,
+authorization, contention and quota behavior have not been verified.
+Plan checks apply to the server API; users with workbook access can bypass those
+checks by editing storage directly. An app executing as its owner may lack the
+active user's email, particularly across domains; missing identity is denied.
+An app executing as the accessing user requires their workbook permissions.
+Deployment must establish both usable identity and the intended storage access
+boundary. See Google's [Session identity contract](https://developers.google.com/apps-script/reference/base/session)
+and [web-app execution modes](https://developers.google.com/apps-script/guides/web).
+
+The other candidate adapters above remain planned. No real app has complete
+conversion acceptance; current evidence is in
+[the progress report](PROGRESS_2026-09-09.md).
+
+Sources: Google's [Tasks resource](https://developers.google.com/tasks/reference/rest/v1/tasks)
+and [task creation contract](https://developers.google.com/workspace/tasks/reference/rest/v1/tasks/insert);
+Microsoft's [Planner connector contract](https://learn.microsoft.com/en-us/connectors/planner/).

@@ -109,6 +109,56 @@ test('serverRun rejects when the failure handler fires', async () => {
   await assert.rejects(RT.serverRun('api', 'Tasks', 'list', {}), /boom/);
 });
 
+test('connector bindings coalesce reads, surface failures, and discard snapshots invalidated by writes', async () => {
+  const requests=[];
+  global.google={script:{get run() {
+    const handlers={};
+    const runner={withSuccessHandler(fn){handlers.ok=fn;return runner;},
+      withFailureHandler(fn){handlers.fail=fn;return runner;},
+      connector(...args){requests.push({...handlers,args});}};
+    return runner;
+  }}};
+  RT.configureServices({Planner:{operations:{ListTasks:{arity:[1],write:false},CreateTaskV3:{arity:[3],write:true}}}});
+  assert.strictEqual(RT.connectorCall.length,3);
+  assert.strictEqual(RT.connectorRead.length,3);
+  assert.strictEqual(RT.connectorRead('Planner','ListTasks',['p']),null);
+  assert.strictEqual(RT.connectorRead('Planner','ListTasks',['p']),null);
+  assert.strictEqual(requests.length,1);
+  const pendingWrite=RT.connectorCall('Planner','CreateTaskV3',['g','p','new']);
+  requests[1].ok({id:'new'});
+  assert.deepStrictEqual(await pendingWrite,{id:'new'});
+  requests[0].ok({value:[{id:'stale'}]});
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.strictEqual(RT.connectorRead('Planner','ListTasks',['p']),null);
+  requests[2].ok({value:[{id:'new'}]});
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.deepStrictEqual(RT.connectorRead('Planner','ListTasks',['p']),{value:[{id:'new'}]});
+  assert.throws(()=>RT.connectorRead('Planner','CreateTaskV3',['g','p','bad']),/behavior/);
+  assert.throws(()=>RT.connectorRead('Planner','ListTasks',[]),/number/);
+  RT.refreshConnector('Planner');
+  const oldError=console.error;
+  try {
+    console.error=()=>{};
+    RT.connectorRead('Planner','ListTasks',['p']);
+    requests[3].fail(new Error('migration missing'));
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.throws(()=>RT.connectorRead('Planner','ListTasks',['p']),/migration missing/);
+    assert.strictEqual(requests.length,4);
+    RT.refreshConnector('Planner');
+    RT.connectorRead('Planner','ListTasks',['p']);
+    requests[4].ok({value:[]});
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.deepStrictEqual(RT.connectorRead('Planner','ListTasks',['p']),{value:[]});
+    const failedWrite=RT.connectorCall('Planner','CreateTaskV3',['g','p','uncertain']);
+    requests[5].fail(new Error('uncertain write'));
+    await assert.rejects(failedWrite,/uncertain write/);
+    assert.strictEqual(requests.length,6); // No automatic mutation retry.
+    assert.strictEqual(RT.connectorRead('Planner','ListTasks',['p']),null);
+    requests[6].ok({value:[{id:'saved-before-timeout'}]});
+    await new Promise(resolve=>setImmediate(resolve));
+  } finally {console.error=oldError; RT.configureServices({});}
+});
+
 test('apiPatchRecord sends the keyed overload and does not refresh state on failure', async () => {
   assert.strictEqual(global.apiPatchRecord.length,2);
   installGoogleMock('ok');

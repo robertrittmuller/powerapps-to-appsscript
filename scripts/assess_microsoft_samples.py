@@ -26,9 +26,13 @@ def merge_first_actions(scorecard, probes):
         if probe['status'] not in {'pass', 'fail'}:
             raise ValueError('browser probe must report pass or fail')
         journeys = app['evidence'].setdefault('journeys', [])
-        journeys[:] = [journey for journey in journeys if journey['id'] != 'browser-first-action']
+        scenario = probe.get('scenario', 'default')
+        if scenario not in {'default', 'planner-migrated'}:
+            raise ValueError('unknown first-action scenario')
+        journey_id = 'browser-first-action' + ('-planner-migrated' if scenario == 'planner-migrated' else '')
+        journeys[:] = [journey for journey in journeys if journey['id'] != journey_id]
         journeys.append({
-            'id': 'browser-first-action', 'description': probe['assessmentScope'],
+            'id': journey_id, 'description': probe['assessmentScope'],
             'required': True, 'status': 'fail' if probe.get('consoleErrors') else probe['status'],
             'error': probe.get('error'), 'steps': probe['steps'],
             'consoleErrors': probe.get('consoleErrors', []),
@@ -36,6 +40,7 @@ def merge_first_actions(scorecard, probes):
             'inputSha256': probe['inputSha256'],
             'converterSourceSha256': probe['converterSourceSha256'],
             'sourceMetadata': probe.get('sourceMetadata', {}),
+            'dataSetup': probe.get('dataSetup'),
             'artifact': '.artifacts/browser/' + probe['app'] + '/result.json',
         })
     for app in scorecard['apps']:
@@ -63,7 +68,8 @@ if __name__ == "__main__":
     ).returncode
     scorecard_dir = REPO / '.artifacts/microsoft/benchmark'
     probes = json.loads(probes_path.read_text())
-    if {probe['sourceAppId'] for probe in probes} != {'milestones', 'employee-ideas', 'inspection'} or len(probes) != 3:
+    expected = {('milestones','default'),('employee-ideas','default'),('inspection','default'),('inspection','planner-migrated')}
+    if {(probe['sourceAppId'],probe.get('scenario','default')) for probe in probes} != expected or len(probes) != 4:
         raise ValueError('Microsoft first-action assessment did not report every required probe')
     scorecard = merge_first_actions(json.loads((scorecard_dir / 'benchmark-scorecard.json').read_text()), probes)
     write_scorecard(scorecard, scorecard_dir)

@@ -321,6 +321,8 @@ def analyze(ir: AppIR, uncovered: list[dict] | None = None, solution=None) -> Ap
     collections = {ds.name for ds in ir.data_sources if ds.origin == "collection"}
     from .relationships import relationship_contracts
     relationship_keys = {key for contract in relationship_contracts(ir).values() for key in contract['navigation']}
+    from .services import service_contracts
+    adapters = service_contracts(ir)
 
     def convert_formula(expr: FxExpr, row_alias: str | None = None, screen_name: str | None = None) -> None:
         if not expr.raw:
@@ -332,7 +334,8 @@ def analyze(ir: AppIR, uncovered: list[dict] | None = None, solution=None) -> Ap
                             global_names=set(ir.global_vars) | {ds.name for ds in ir.data_sources},
                             media_resources=ir.media_resources, row_alias=row_alias,
                             screen_name=screen_name, control_screens=control_screens, view_sets=ir.view_sets,
-                            relationship_keys=relationship_keys)
+                            relationship_keys=relationship_keys,
+                            service_adapters=adapters)
             expr.js = res.js
             expr.translation_status = "stubbed" if res.unmapped else "rule"
             expr.blocked_dependencies = [name for name in res.unmapped if name.startswith('Dataverse view')]

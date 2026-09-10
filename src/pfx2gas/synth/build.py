@@ -22,6 +22,7 @@ def assess_fidelity(ir: AppIR) -> AppIR:
 def synthesize(ir: AppIR, out_dir: str | Path) -> Path:
     import json
     from ..relationships import relationship_contracts
+    from ..services import service_contracts
 
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
@@ -31,6 +32,14 @@ def synthesize(ir: AppIR, out_dir: str | Path) -> Path:
     finalize_fidelity(ir)
     (out / "Code.gs").write_text(render_code_gs(ir))
     (out / "DataInit.gs").write_text(render_data_init(ir))
+    if 'Planner' in service_contracts(ir):
+        from .planner import MIGRATION_TEMPLATE, MIGRATION_GUIDE
+        # This is an operator-edited import entry point; keep reviewed data
+        # across a repeated conversion to the same output directory.
+        migration = out / 'PlannerMigration.gs'
+        if not migration.exists():
+            migration.write_text(MIGRATION_TEMPLATE)
+        (out / 'planner-migration.md').write_text(MIGRATION_GUIDE)
     (out / "appsscript.json").write_text(render_manifest(ir))
     (out / "Index.html").write_text(render_index_html(ir, screens_html))
     (out / "Screens.html").write_text(screens_html)
@@ -41,6 +50,7 @@ def synthesize(ir: AppIR, out_dir: str | Path) -> Path:
             "sourceLayout": ir.layout,
             "sourceMetadata": ir.source_metadata,
             "savedViews": ir.view_sets,
+            "googleServiceAdapters": service_contracts(ir),
             "deployment": {
                 "access": ir.webapp_access,
                 "executeAs": ir.webapp_execute_as,
@@ -52,6 +62,7 @@ def synthesize(ir: AppIR, out_dir: str | Path) -> Path:
     (out / "data-contract.json").write_text(json.dumps({
         "version": 1, "sources": [ds.model_dump() for ds in ir.data_sources],
         "relationshipNavigation": relationship_contracts(ir),
+        "googleServiceAdapters": service_contracts(ir),
         "limitations": ["Exported one-to-many lookups and many-to-many links refresh related records on the first source only. Many-to-many links use __pfx2gas_links; retries are idempotent and unmatched Unrelate is a no-op. Cascade deletes, alternate-key relationships and permissions require adapters.",
                         "Lookup fields remain stored snapshots; source defaults, calculated fields and unsupported saved views require adapters.",
                         "Choice codes and boolean values are retained; implicit localized choice-to-text coercion is not yet implemented."],

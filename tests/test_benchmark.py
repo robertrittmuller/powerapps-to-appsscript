@@ -95,6 +95,11 @@ def test_first_action_failure_is_attached_without_promoting_partial_success(monk
     assert len(app['evidence']['journeys']) == 2
     probe['consoleErrors'] = ['delayed connector error']
     assert merge_first_actions(scorecard, [probe])['summary']['grades']['usable'][FAIL] == 1
+    migrated = {**probe, 'scenario':'planner-migrated','status':PASS,'consoleErrors':[],
+                'dataSetup':{'source':'authored migration fixture'}}
+    assert merge_first_actions(scorecard, [migrated])['summary']['grades']['usable'][FAIL] == 1
+    assert len(app['evidence']['journeys']) == 3
+    assert app['evidence']['journeys'][-1]['dataSetup'] == migrated['dataSetup']
 
 
 @pytest.mark.parametrize('mismatch', ['inputSha256', 'converterSourceSha256', 'sourceMetadata'])

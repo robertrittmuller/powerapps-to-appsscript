@@ -72,11 +72,12 @@ class Emitter:
                  media_resources: dict[str, str] | None = None,
                  row_alias: str | None = None, screen_name: str | None = None,
                  control_screens: dict[str, str] | None = None, view_sets: dict | None = None,
-                 relationship_keys: set[str] | None = None):
+                 relationship_keys: set[str] | None = None, service_adapters: dict | None = None):
         self.res = res
         self.behavior = behavior
         self.view_sets = view_sets or {}
         self.relationship_keys = relationship_keys or set()
+        self.service_adapters = service_adapters or {}
         self.row_fields = row_fields or set()
         self.control_names = control_names or set()
         self.known_controls = control_names is not None
@@ -279,6 +280,21 @@ class Emitter:
     def call(self, node) -> str:
         name = str(node.value)
         args = node.children
+        service, _, operation = name.partition('.')
+        adapter = self.service_adapters.get(service)
+        contract = adapter and adapter['operations'].get(operation)
+        if contract:
+            if len(args) not in contract['arity']:
+                raise lx.FxSyntaxError(f'{name} has the wrong number of connector arguments')
+            if contract['write'] and not self.behavior:
+                raise lx.FxSyntaxError(f'{name} requires a behavior formula')
+            self.res.approximations.extend(adapter['limitations'])
+            if not self.behavior:
+                self.res.approximations.append('Connector value bindings return Blank while loading; read results are cached until an app write, explicit refresh or page reload')
+            helper = 'connectorCall' if self.behavior else 'connectorRead'
+            prefix = 'await ' if self.behavior else ''
+            values = ', '.join(self.expr(arg) for arg in args)
+            return f'{prefix}FXRuntime.{helper}({_q(service)}, {_q(operation)}, [{values}])'
         if name in {"IsMatch", "Match", "MatchAll"}:
             if len(args) not in {2, 3}:
                 raise lx.FxSyntaxError(f"{name} requires text, a constant pattern, and optional match options")

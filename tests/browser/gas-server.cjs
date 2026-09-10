@@ -125,8 +125,13 @@ readline.createInterface({input: process.stdin}).on('line', line => {
       [storageAppId, storageUser] = request.args;
       process.stdout.write('{"result":true}\n'); return;
     }
-    if (!['api', 'apiChoices', 'whoami', 'doGet'].includes(request.fn)) throw new Error('unknown test endpoint');
-    mutationRequest = request.fn === 'api' && !['list', 'links', 'relationshipSnapshot'].includes(request.args[1]);
+    // Test-only administrative hooks; private Apps Script functions are never RPC endpoints.
+    const administrative = {__importPlanner:'importPlanner_', __plannerSnapshot:'plannerDocument_', __setup:'setup'};
+    const admin = Object.prototype.hasOwnProperty.call(administrative, request.fn) && administrative[request.fn];
+    if (!admin && !['api', 'apiChoices', 'whoami', 'doGet', 'connector'].includes(request.fn)) throw new Error('unknown test endpoint');
+    mutationRequest = request.fn === '__importPlanner' || request.fn === 'connector' ||
+      (request.fn === 'api' && !['list', 'links', 'relationshipSnapshot'].includes(request.args[1]));
+    if (admin) request.fn = admin;
     context.requestJSON = JSON.stringify(request);
     const result = vm.runInContext(
       '(function(){var r=JSON.parse(requestJSON); return globalThis[r.fn].apply(null,r.args);})()',

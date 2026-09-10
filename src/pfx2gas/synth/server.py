@@ -10,6 +10,7 @@ CODE_GS = """/**
 var ALLOWED_DATA_SOURCES = {data_sources_json};
 var DATA_CONTRACTS = {contracts_json};
 var RELATIONSHIP_CONTRACTS = {relationships_json};
+var GOOGLE_SERVICE_ADAPTERS = {services_json};
 
 function assertDataSource(ds) {{
   if (ALLOWED_DATA_SOURCES.indexOf(ds) < 0) {{
@@ -385,7 +386,7 @@ DATA_INIT_GS = """/**
 function setup() {{
   var props = PropertiesService.getScriptProperties();
   if (props.getProperty('DATA_SPREADSHEET_ID')) {{
-    withDataWriteLock_(function () {{ setupRelationships_(ss()); }});
+    withDataWriteLock_(function () {{ setupRelationships_(ss()); setupPlanner_(ss()); }});
     return 'already initialized';
   }}
   var workbook = SpreadsheetApp.create({app_name!r} + ' — data');
@@ -418,6 +419,7 @@ function setup() {{
   }}
   var defaultSheet = workbook.getSheetByName('Sheet1');
   setupRelationships_(workbook);
+  setupPlanner_(workbook);
   if (defaultSheet && workbook.getSheets().length > 1) workbook.deleteSheet(defaultSheet);
   props.setProperty('DATA_SPREADSHEET_ID', workbook.getId());
   return 'created ' + workbook.getUrl() + choiceNote;
@@ -487,13 +489,16 @@ def render_code_gs(ir: AppIR) -> str:
     import json
     from ..relationships import relationship_contracts
     from .relationships import SERVER
+    from .planner import SERVER as PLANNER_SERVER
+    from ..services import service_contracts
 
     allowed = [ds.name for ds in data_sources_with_fields(ir)]
-    if '__pfx2gas_links' in allowed:
-        raise ValueError('source table collides with reserved relationship storage: __pfx2gas_links')
+    if {'__pfx2gas_links', '__pfx2gas_planner'} & set(allowed):
+        raise ValueError('source table collides with reserved relationship/connector storage')
     return CODE_GS.format(app_name=ir.name, data_sources_json=json.dumps(allowed),
                           contracts_json=json.dumps(data_contracts(ir)),
-                          relationships_json=json.dumps(relationship_contracts(ir))) + SERVER
+                          relationships_json=json.dumps(relationship_contracts(ir)),
+                          services_json=json.dumps(service_contracts(ir))) + SERVER + PLANNER_SERVER
 
 
 def render_data_init(ir: AppIR) -> str:

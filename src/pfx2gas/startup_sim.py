@@ -132,6 +132,13 @@ const runner = new Proxy({}, {
           if (ok) ok({ email: '', fullName: '', pictureUrl: '' });
           return;
         }
+        if (String(prop) === 'connector') {
+          throw new Error('Connector migration is not configured in the startup simulator; use generated-server browser evidence');
+        }
+        if (String(prop) === 'apiChoices') {
+          if (ok) ok(JSON.parse(JSON.stringify(serverModel.apiChoices(args[0], args[1]))));
+          return;
+        }
         if (String(prop) === 'api') {
           const ds = args[0], op = args[1], payload = args[2] || {};
           const rows = serverData[ds] || (serverData[ds] = []);
@@ -186,7 +193,7 @@ const runner = new Proxy({}, {
           }
           throw new Error('unknown simulated api operation: ' + op);
         }
-        if (ok) ok([]);
+        throw new Error('unknown simulated server endpoint: ' + String(prop));
         } catch (error) { if (fail) fail(error); else console.error('simulated server error',error); }
       }, 0);
     };

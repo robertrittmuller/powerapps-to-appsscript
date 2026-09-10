@@ -184,6 +184,55 @@
     });
   }
 
+  var serviceAdapters = Object.create(null), connectorCache = new Map();
+  function configureServices(contracts) {
+    serviceAdapters = contracts || Object.create(null);
+    connectorCache.clear();
+  }
+  function connectorContract(service, operation, args) {
+    var adapter = Object.prototype.hasOwnProperty.call(serviceAdapters, service) && serviceAdapters[service];
+    var contract = adapter && Object.prototype.hasOwnProperty.call(adapter.operations, operation) && adapter.operations[operation];
+    if (!contract) throw new Error('Google adapter operation is not configured: ' + service + '.' + operation);
+    if (!Array.isArray(args) || contract.arity.indexOf(args.length) < 0) throw new Error('Wrong number of connector arguments: ' + operation);
+    return contract;
+  }
+  function refreshConnector(service) {
+    connectorCache.forEach(function (entry, key) { if (entry.service === service) connectorCache.delete(key); });
+    updateBindings();
+    return null;
+  }
+  async function connectorCall(service, operation, args) {
+    var contract = connectorContract(service, operation, args);
+    try { return await serverRun('connector', service, operation, args); }
+    finally {
+      // A failed transport/flush can follow a successful write. Invalidate,
+      // but never retry a mutation implicitly and risk duplicate task creation.
+      if (contract.write) refreshConnector(service);
+    }
+  }
+  function connectorRead(service, operation, args) {
+    if (connectorContract(service, operation, args).write) throw new Error('Connector writes require a behavior formula');
+    var wire = wireValue(args, []), key = JSON.stringify([service, operation, wire]);
+    var entry = connectorCache.get(key);
+    if (!entry) {
+      entry = {service:service, value:null, error:null};
+      connectorCache.set(key, entry);
+      serverRun('connector', service, operation, wire).then(function (value) {
+        if (connectorCache.get(key) !== entry) return; // Discard stale in-flight snapshots.
+        entry.value = value;
+        updateBindings();
+      }, function (error) {
+        if (connectorCache.get(key) !== entry) return;
+        entry.error = error instanceof Error ? error : new Error(error && error.message || String(error));
+        // Re-evaluation throws into the source's IfError (when present).
+        // Unhandled failures reach the ordinary binding-error reporting path.
+        updateBindings();
+      });
+    }
+    if (entry.error) throw entry.error;
+    return entry.value;
+  }
+
   function toast(msg, isError) {
     var el = document.getElementById('fx-toast');
     if (!el) {
@@ -1473,6 +1522,10 @@
   };
 
   global.FXRuntime = {
+    configureServices: configureServices,
+    connectorCall: connectorCall,
+    connectorRead: connectorRead,
+    refreshConnector: refreshConnector,
     configureRelationships: configureRelationships,
     relationshipField: relationshipField,
     param: param,

@@ -1009,6 +1009,45 @@ def relative_view_fixture_files() -> dict[str, str]:
     return files
 
 
+def planner_fixture_files() -> dict[str, str]:
+    def control(name, kind, y, props):
+        return {'Name':name,'Template':{'Name':kind},'Rules':[
+            {'Property':key,'InvariantScript':str(value)} for key,value in
+            {'X':20,'Y':y,'Width':420,'Height':44,**props}.items()]}
+    controls = [
+        control('BoardPlans','label',20,{'Text':'Concat(boardPlans, title, ", ")'}),
+        control('BoardBuckets','label',80,{'Text':'Concat(Planner.ListBucketsV3("plan-a", "group-a").value, name, ", ")'}),
+        control('BoardTitle','text',140,{'Default':'""','HintText':'"Task title"','AccessibleLabel':'"Task title"'}),
+        control('BoardAssignee','text',200,{'Default':'"second@example.test"','AccessibleLabel':'"Assignee email"'}),
+        control('BoardDescription','text',260,{'Default':'""','Mode':'TextMode.MultiLine','Height':80,'AccessibleLabel':'"Task description"'}),
+        control('BoardCreate','button',360,{'Text':'"Create assigned task"','OnSelect':
+            'IfError(Set(boardTask, Planner.CreateTaskV3("group-a", "plan-a", BoardTitle.Text, '
+            '{bucketId: "bucket-a", dueDateTime: Date(2026,9,12), assignments: BoardAssignee.Text})); '
+            'Planner.UpdateTaskDetails(boardTask.id, {description: BoardDescription.Text}); Set(boardStatus, "created"), '
+            'Set(boardStatus, "create failed"))'}),
+        control('BoardUpdate','button',420,{'Text':'"Save description"','OnSelect':
+            'IfError(Planner.UpdateTaskDetails(boardTask.id, {description: BoardDescription.Text}); '
+            'Set(boardStatus, "updated"), Set(boardStatus, "update failed"))'}),
+        control('BoardStatus','label',480,{'Text':'boardStatus'}),
+        control('BoardCount','label',540,{'Text':'Text(CountRows(Planner.ListTasks("plan-a").value))'}),
+        control('BoardAssigned','label',600,{'Text':'Text(CountRows(Planner.ListMyTasks().value))'}),
+        control('BoardGroup','label',660,{'Text':'Concat(Planner.ListGroupPlans("group-a").value, title, ", ")'}),
+    ]
+    gallery=control('BoardTasks','gallery',20,{'X':480,'Width':650,'Height':500,'TemplateSize':65,'TemplatePadding':0,
+        'Items':'Planner.ListTasksV3("plan-a", "group-a").value'})
+    template=control('BoardTemplate','gallerytemplate',0,{'OnSelect':'Set(boardTask, ThisItem)'})
+    template['Children']=[control('BoardSelect','button',0,{'X':0,'Width':620,'Text':
+        'ThisItem.title & " / " & Text(ThisItem.percentComplete) & "% / " & Text(CountRows(ThisItem._assignments)) & " assigned"',
+        'OnSelect':'Select(Parent)'})]
+    gallery['Children']=[template]
+    controls.append(gallery)
+    return {'Properties.json':json.dumps({'Name':'FixturePlanner'}),
+        'Controls\\1.json':json.dumps({'TopParent':control('App','appinfo',0,{'OnStart':
+            'Set(boardPlans, Planner.ListMyPlansV2().value); Set(boardTask, First(Planner.ListTasks("plan-a").value)); Set(boardStatus, "ready")'})}),
+        'Controls\\2.json':json.dumps({'TopParent':{**control('TaskBoard','screen',0,{'Width':1200,'Height':760}),'Children':controls}}),
+        'References\\DataSources.json':json.dumps({'DataSources':[{'Name':'Planner','Type':'ServiceInfo'}]})}
+
+
 def build_fixtures() -> None:
     # Fixture A: navigation + globals, all rule-transpilable
     _write_msapp(
@@ -1091,6 +1130,7 @@ def build_fixtures() -> None:
     _write_msapp(FIXTURE_DIR / "fixtureNavigation.msapp", navigation_fixture_files())
     _write_msapp(FIXTURE_DIR / 'fixtureCardLayout.msapp', card_layout_fixture_files())
     _write_msapp(FIXTURE_DIR / 'fixtureCollectionAliases.msapp', collection_alias_fixture_files())
+    _write_msapp(FIXTURE_DIR / 'fixturePlanner.msapp', planner_fixture_files())
     _write_msapp(FIXTURE_DIR / 'fixtureViews.msapp', view_fixture_files())
     _write_msapp(FIXTURE_DIR / 'fixtureViews.solution.zip', {'customizations.xml':
         f'<ImportExportXml><Entities><Entity><savedqueries><savedquery><savedqueryid>{{{VIEW_ID}}}</savedqueryid><fetchxml>{VIEW_QUERY}</fetchxml></savedquery></savedqueries></Entity></Entities></ImportExportXml>'})

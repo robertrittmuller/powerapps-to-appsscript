@@ -159,10 +159,14 @@ a nonempty error list. Deliberate pending-callback and late-capture errors now
 fail their regression probes, alongside the existing screenshot-failure gate.
 
 Eleven pinned source exports are available here: five public regression apps
-and six Microsoft business apps. **All eleven generate valid code; seven pass
+and six Microsoft business apps. **All eleven generate valid code; six pass
 the short startup check. None has complete usability acceptance evidence.**
 Inspection's recent-date views now pass startup; its primary action reaches
-Items Screen, but the source's Planner.ListMyPlansV2 call still fails. Missing
+Items Screen. Its Planner calls now use an explicit Google Sheets task-board
+adapter; all five first-action checks pass with an authored imported board and
+zero runtime errors. Missing migration still fails. Editable Grid's unexported
+Student Tracker choice source is now correctly rejected by the startup simulator,
+which previously returned an empty success for unknown RPCs. Missing
 identity mappings, layout errors and connector dependencies leave four Microsoft
 apps failing short startup, and all three default first-action probes still fail.
 With one explicitly authored
@@ -235,17 +239,18 @@ the implementation order.
 
 | Evidence | Latest result | What remains unproven |
 |---|---|---|
-| Unit/runtime tests | 340 Python pass, 3 skip; 92 JS pass; bare globals, FX, FXRuntime and FX.collections emitter/runtime consistency passes | Complete deployed workflows and broader control semantics |
-| Current real-app soak | 5/5 Bootable; 1,145 formulas, including previously dropped App/screen properties | Usability unassessed; the other five historical local exports are absent |
+| Unit/runtime tests | 372 Python pass, 3 skip; 93 JS pass; bare globals, FX, FXRuntime and FX.collections emitter/runtime consistency passes | Complete deployed workflows and broader control semantics |
+| Current real-app soak | 5/5 valid code and generated-server initialization; 4/5 Bootable; 1,145 formulas | Editable Grid requests choices from unexported Student Tracker; the former empty-success simulator hid this dependency. Usability unassessed; five historical local exports are absent |
 | Current regression translation/wiring | 1,140 translated; 970 emitted, 14 approximated, 161 ignored/unsupported | Translation does not establish runtime behavior |
 | Historical ten-app corpus | Previously 10/10 Bootable; 23,746 formulas | Not reproduced in this workspace; those results did not establish usability |
 | HelpDesk generated-app journeys | HOME → NEW → HOME; dashboard row text, logo URI, pie and legend output pass | All-screen interactions, image decoding/layout in CI, persistence |
 | HelpDesk @14 live browser | Ticket cards, decoded 64×64 logos, pie/bar/legend SVGs, readable fonts/labels, HOME → NEW → HOME | Same-state original comparison, user name/avatar, complete workflow coverage |
 | Chromium: business form | Actual generated client + Code.gs: edit/create, required validation, write failure, delete and page reload pass against a persistent Sheets test double | Real Google authorization/Sheets writes and another user/session |
-| Chromium regression suite | 16/16 fixtures pass, including persisted relationships and relative-date view save/reload across a day boundary; three intentional failure gates preserve their failed verdicts | Real Google services, real-app critical workflows and original visual comparisons; HelpDesk is absent here |
+| Chromium regression suite | 17/17 fixtures pass, including imported Planner tasks, persisted relationships and relative-date view save/reload; three intentional failure gates preserve failed verdicts | Real Google services, real-app critical workflows and original visual comparisons; HelpDesk is absent here |
+| Planner to Google adapter | Eight operations use generated Code.gs and a reserved Sheets task-board store. Chromium lists plans/buckets/tasks, creates and assigns, writes descriptions, selects/updates, reloads and recovers from failed writes. Labels and geometry pass. Missing migration, unknown/unmapped identity, denied membership, invalid dates and oversized records fail explicitly | Native Tasks UI, Planner roles/audit metadata, ordering hints, categories, notifications, aliases/additional operations and complete real-app workflows. Workbook editors bypass API membership checks; live identity and storage access require deployment verification |
 | Microsoft generated-server initialization | Six exports: setup and reads across 124 tables and 302 choice fields pass in the Sheets test double | Tenant data migration, real Google writes, source defaults, calculations, relationships and permissions |
 | Microsoft business baseline | 6/6 convert and validate; 2/6 pass short startup (Employee Ideas, Inspection) | Migrated identities, layout errors and Teams/Planner dependencies still fail prerequisites |
-| Microsoft first actions | All three default probes fail with source views now enforced. Populated Employee Ideas passes 29 checks through mobile validation, custom text questions, submission, persistence, reload, reopening and campaign idea counts, plus the source posting-warning path. Optional voting persists its count but the exported Concurrent removes the voter link, failing membership | Source voting ordering, alternate-key relationships, ratings, attachments, complete workflows, real Google persistence, target identities and UI parity; partial success never promotes an app to Usable |
+| Microsoft first actions | All three default probes fail. A separate Inspection probe with an authored imported Google task board passes all five checks and has zero runtime errors; it cannot overwrite the default missing-migration failure. Populated Employee Ideas passes 29 checks through mobile submission and reload. Optional voting persists its count but source Concurrent removes the voter link | Complete inspection/task creation, voting ordering, ratings, attachments, real Google persistence, identities and UI parity; partial success never promotes an app to Usable |
 | CI configuration | Existing tests plus required-app/journey gates and new Chromium artifact job | Browser job configured and locally tested, not yet verified in remote CI; local HelpDesk remains optional |
 
 Evidence: `.artifacts/benchmark/benchmark-scorecard.json`,
@@ -374,7 +379,7 @@ full dependency list:
 |---|---|---|
 | Employee Ideas | Leaves loading and opens campaigns, but Browse campaigns has only 16 px of content width and clips its text | Typed toggle values, viewport/layout semantics, Teams posting and Dataverse campaign/idea data |
 | Employee Ideas Manager | `MicrosoftTeams.GetAllTeams` | Loading/focus timers; team/channel lookup and posting |
-| Inspection | Leaves Landing for Welcome/Items; delayed `Planner.ListMyPlansV2` fails in Chromium | Local draft helpers are tested independently; full submission, Planner tasks, Office365 identity and Teams posting remain |
+| Inspection | Leaves Landing for Welcome/Items; all five first-action checks pass with an explicitly imported Sheets task board. Unmigrated Planner fails | Local draft helpers and the shared task-board fixture pass independently; full real inspection/task submission, Office365-to-Google identity and Teams-to-Chat posting remain |
 | Inspection Manager | Teams lookup and `Planner.ListMyPlansV2` | Loading/focus timers; plan/bucket/task/group-plan lookups; complete URL validation formula now tested |
 | Milestones | Leaves Loading for Projects; New project fails on `Office365Users.UserProfileV2` | Typed toggle/theme values, Office365 user/profile/photo and relational project/task data |
 | Review Inspections | `Planner.ListMyPlansV2` | Loading/focus timers and inspection data |

@@ -827,6 +827,66 @@ def check_relationships(page, backend):
     page.screenshot(path=str(OUT / 'many-to-many-relationships/reloaded-memberships.png'))
 
 
+def setup_planner(backend):
+    migration=json.loads((REPO/'tests/fixtures/planner-board.json').read_text())
+    result=backend({'fn':'__importPlanner','args':[migration]})
+    assert result.get('result')=={'ok':True,'plans':2,'tasks':2}, result
+    return {'source':'authored Planner migration fixture','plans':2,'tasks':2}
+
+
+def check_planner(page, backend):
+    for name,label in [('BoardTitle','Task title'),('BoardAssignee','Assignee email'),('BoardDescription','Task description')]:
+        expect(control(page,name)).to_have_attribute('aria-label',label)
+    for name in ['BoardTitle','BoardAssignee','BoardDescription','BoardCreate','BoardUpdate','BoardTasks']:
+        expect(control(page,name)).to_be_visible()
+        geometry=control(page,name).bounding_box()
+        assert geometry['x'] >= 0 and geometry['x']+geometry['width'] <= page.viewport_size['width'],geometry
+    for name in ['BoardCreate','BoardUpdate']:
+        assert control(page,name).evaluate('el => el.scrollWidth <= el.clientWidth && el.scrollHeight <= el.clientHeight')
+    expect(control(page,'BoardPlans')).to_have_text('Shared inspections')
+    expect(control(page,'BoardGroup')).to_have_text('Shared inspections')
+    expect(control(page,'BoardBuckets')).to_have_text('Repairs')
+    expect(control(page,'BoardCount')).to_have_text('1')
+    expect(control(page,'BoardAssigned')).to_have_text('1')
+    rows=control(page,'BoardTasks').locator('[data-control="BoardSelect"]')
+    expect(rows).to_have_text(['Repair door / 50% / 2 assigned'])
+    control(page,'BoardTitle').fill('Repair window')
+    control(page,'BoardDescription').fill('Inspection notes\nReplace damaged hinge')
+    backend({'fn':'__failNextMutation','args':[]})
+    control(page,'BoardCreate').click()
+    expect(control(page,'BoardStatus')).to_have_text('create failed')
+    expect(control(page,'BoardCount')).to_have_text('1')
+    control(page,'BoardCreate').click()
+    expect(control(page,'BoardStatus')).to_have_text('created')
+    expect(rows).to_have_text(['Repair door / 50% / 2 assigned','Repair window / 0% / 1 assigned'])
+    expect(control(page,'BoardCount')).to_have_text('2')
+    expect(control(page,'BoardAssigned')).to_have_text('1')
+    saved=backend({'fn':'__plannerSnapshot','args':[]})['result']['tasks'][-1]
+    assert saved['title']=='Repair window' and saved['assignees']==['user-b']
+    assert saved['bucket_id']=='bucket-a' and saved['due_date_time']=='2026-09-12T00:00:00.000Z'
+    assert saved['description']=='Inspection notes\nReplace damaged hinge'
+    page.reload()
+    expect(rows).to_have_count(2)
+    rows.nth(1).click()
+    control(page,'BoardDescription').fill('Revised details')
+    backend({'fn':'__failNextMutation','args':[]})
+    control(page,'BoardUpdate').click()
+    expect(control(page,'BoardStatus')).to_have_text('update failed')
+    assert backend({'fn':'__plannerSnapshot','args':[]})['result']['tasks'][-1]==saved
+    control(page,'BoardUpdate').click()
+    expect(control(page,'BoardStatus')).to_have_text('updated')
+    control(page,'BoardAssignee').fill('outside@example.test')
+    control(page,'BoardCreate').click()
+    expect(control(page,'BoardStatus')).to_have_text('create failed')
+    expect(rows).to_have_count(2)
+    page.reload()
+    expect(rows).to_have_count(2)
+    final=backend({'fn':'__plannerSnapshot','args':[]})['result']['tasks']
+    assert len(final)==3 and final[-1]=={**saved,'description':'Revised details'}
+    assert final[0]['description']=='Existing notes' and final[1]['title']=='Private task'
+    page.screenshot(path=str(OUT/'google-planner/persisted-board.png'))
+
+
 def main():
     subprocess.run([sys.executable, str(REPO / "tests/fixtures/build.py")], check=True, capture_output=True)
     cases = [("business-form", REPO / "tests/fixtures/fixtureForm.msapp", check_form),
@@ -843,6 +903,8 @@ def main():
     cases.append(("navigation-context", REPO / "tests/fixtures/fixtureNavigation.msapp", check_navigation))
     cases.append(('card-layout', REPO / 'tests/fixtures/fixtureCardLayout.msapp', check_card_layout))
     cases.append(('collection-aliases', REPO / 'tests/fixtures/fixtureCollectionAliases.msapp', check_collection_aliases))
+    cases.append(('google-planner', REPO/'tests/fixtures/fixturePlanner.msapp', check_planner,
+                  False,None,None,None,setup_planner,'UTC'))
     cases.append(("saved-views", REPO / "tests/fixtures/fixtureViews.msapp", check_views,
                   False, None, None, REPO / 'tests/fixtures/fixtureViews.solution.zip'))
     cases.append(('relative-saved-views', REPO/'tests/fixtures/fixtureRelativeViews.msapp', check_relative_views,
