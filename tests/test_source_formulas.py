@@ -23,6 +23,17 @@ def execute(formula, setup, **kwargs):
     return json.loads(run.stdout)
 
 
+def test_canvas_font_values_match_source_character_width_reference_records():
+    setup = '''const state = {Widths:[
+      {char:'W',char_font:"'Segoe UI', 'Open Sans', sans-serif",char_weight:'normal',size:'1.2'},
+      {char:'W',char_font:"'Segoe UI', 'Open Sans', sans-serif",char_weight:'600',size:'1.4'}]};'''
+    for weight, expected in [('Normal',1.2),('Semibold',1.4)]:
+        formula = 'Value(LookUp(Widths, Char = "W" && CharFont = Font.\'Segoe UI\' && CharWeight = FontWeight.' + weight + ').Size, "en-US")'
+        assert execute(formula,setup)==expected
+    for weight,expected in [('Normal','normal'),('Semibold','600'),('Bold','bold'),('Lighter','lighter')]:
+        assert execute('Text(FontWeight.'+weight+')','const state={};')==expected
+
+
 def test_inspection_complete_source_validation_and_original_boundary():
     raw = next(f['raw'] for f in FORMULAS if f['app'] == 'inspection-manager')
     cases = [

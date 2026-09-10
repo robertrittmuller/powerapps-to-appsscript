@@ -316,6 +316,7 @@ def check_fluent_dates(page, backend):
 
 
 def check_nested_gallery(page, backend):
+    source_font="'Segoe UI', 'Open Sans', sans-serif"
     rows=control(page,'OuterRows').locator(':scope > .fx-rows > .fx-row')
     def child(index,name): return rows.nth(index).locator('[data-control="'+name+'"]')
     expect(rows).to_have_count(2)
@@ -324,12 +325,13 @@ def check_nested_gallery(page, backend):
         expect(child(index,'ChosenPreview')).to_have_text(color)
         expect(child(index,'ColorSelected').locator('visible=true')).to_have_count(1)
     expect(child(0,'CurrentRow')).to_have_text('current')
-    expect(child(0,'OuterMetrics')).to_have_text('Segoe UI:9:18')
-    expect(child(1,'OuterMetrics')).to_have_text('Segoe UI:12:24')
+    expect(child(0,'OuterMetrics')).to_have_text(source_font+':9:18')
+    expect(child(1,'OuterMetrics')).to_have_text(source_font+':12:24')
+    assert child(0,'OuterMetrics').evaluate('el=>el.style.fontFamily')=='"Segoe UI", "Open Sans", sans-serif'
     expect(child(0,'OuterMetrics')).to_have_css('width','42px')
     expect(child(1,'OuterMetrics')).to_have_css('width','54px')
-    expect(child(0,'ColorMetric').nth(0)).to_have_text('Segoe UI:9:18:2')
-    expect(child(1,'ColorMetric').nth(2)).to_have_text('Segoe UI:12:24:6')
+    expect(child(0,'ColorMetric').nth(0)).to_have_text(source_font+':9:18:2')
+    expect(child(1,'ColorMetric').nth(2)).to_have_text(source_font+':12:24:6')
     control(page,'ToggleColors').click()
     expect(child(1,'ChooseColor')).to_have_count(0)
     control(page,'ToggleColors').click()
@@ -354,8 +356,8 @@ def check_nested_gallery(page, backend):
     assert note.evaluate('el=>el===window.__nestedNote')
     control(page,'SortParents').click()
     expect(child(0,'OuterName')).to_have_value('Install')
-    expect(child(0,'OuterMetrics')).to_have_text('Segoe UI:12:24')
-    expect(child(0,'ColorMetric').nth(2)).to_have_text('Segoe UI:12:24:6')
+    expect(child(0,'OuterMetrics')).to_have_text(source_font+':12:24')
+    expect(child(0,'ColorMetric').nth(2)).to_have_text(source_font+':12:24:6')
     expect(child(0,'ChosenPreview')).to_have_text('green')
     expect(child(0,'ColorNote').nth(1)).to_have_value('green draft')
     assert child(0,'ColorNote').nth(1).evaluate('el=>el===window.__nestedNote')

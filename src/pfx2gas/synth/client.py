@@ -226,11 +226,19 @@ SHADOW_MAP = {
     "Light": "0 2px 4px rgba(0,0,0,.25)", "Regular": "0 3px 8px rgba(0,0,0,.30)",
     "Heavy": "0 6px 14px rgba(0,0,0,.34)", "Bold": "0 10px 24px rgba(0,0,0,.40)",
 }
-WEIGHT_MAP = {"Bold": "bold", "Semibold": "600", "Light": "300", "Regular": "400"}
+WEIGHT_MAP = {"Bold": "bold", "Semibold": "600", "Normal": "normal", "Lighter": "lighter",
+              "Light": "300", "Regular": "400", "bold": "bold", "600": "600",
+              "normal": "normal", "lighter": "lighter"}
 
 
 def _font_stack(font: str) -> str:
     """Keep the requested Power Apps face with a platform-safe fallback."""
+    if ',' in font:
+        # Canvas enum values can already contain an ordered CSS fallback list.
+        # Sanitizing the whole string as one face silently creates a bogus font.
+        faces = [re.sub(r'[^\w .-]', '', face).strip() for face in font.split(',')]
+        generic = {'serif', 'sans-serif', 'monospace', 'cursive', 'fantasy', 'system-ui'}
+        return ', '.join(face if face.lower() in generic else f"'{face}'" for face in faces if face) or 'system-ui'
     safe = re.sub(r"[^A-Za-z0-9 ._-]", "", font) or "system-ui"
     lower = safe.lower()
     if lower in {"georgia", "times new roman", "times"}:

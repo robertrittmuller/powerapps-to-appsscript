@@ -226,6 +226,31 @@ def main(project=False,workitem=False):
                     check('saved-work-item-visible',lambda:expect(title).to_have_text(['Survey the north entrance']))
                     check('saved-work-item-milestone-label',lambda:expect(items.locator('[data-control="lblWorkItemMilestone"]')).to_have_text(['Replace equipment']))
                     check('saved-work-item-assignee-label',lambda:expect(items.locator('[data-control="lblWorkItemAssignedTo"]')).to_have_text(['Ada Lovelace']))
+                    def reference_data():
+                        counts={source:len(backend({'fn':'api','args':[source,'list',{}]})['result'])
+                                for source in ['staticIcons','staticLocalizations','staticCharWidths']}
+                        assert counts=={'staticIcons':129,'staticLocalizations':573,'staticCharWidths':194},counts
+                    check('complete-exported-reference-tables',reference_data)
+                    def milestone_width():
+                        metrics=page.evaluate('''() => {
+                          const value=val('lblWorkItemMilestone'),gallery=val('galWorkItems');
+                          const chars=Array.from(value.text).map(char=>{
+                            const match=state.colCharsWidth.find(row=>row.char===char && row.char_font===value.font && row.char_weight===value.font_weight);
+                            return {char,size:match?Number(match.size):null};
+                          });
+                          const expected=Math.min(chars.reduce((sum,char)=>sum+(char.size||0),0)*value.size+value.padding_left+value.padding_right+2,
+                            Math.max(gallery.width/10,90));
+                          return {font:value.font,weight:value.font_weight,characters:chars,width:value.width,expected,
+                            family:value.el.style.fontFamily};
+                        }''')
+                        (OUT/name/'milestone-label-metrics.json').write_text(json.dumps(metrics,indent=2)+'\n')
+                        assert metrics['font']=="'Segoe UI', 'Open Sans', sans-serif"
+                        assert metrics['weight']=='normal'
+                        assert all(char['size'] is not None for char in metrics['characters']),metrics
+                        assert metrics['expected']>=90,metrics
+                        assert abs(metrics['width']-metrics['expected'])<0.1,metrics
+                        assert metrics['family']=='"Segoe UI", "Open Sans", sans-serif',metrics
+                    check('milestone-label-uses-source-character-widths',milestone_width)
                     backend({'fn':'__peopleResponses','args':[[response,response]]})
                     page.reload()
                     expect(page.locator('[data-screen="Projects Screen"]')).to_be_visible(timeout=10000)

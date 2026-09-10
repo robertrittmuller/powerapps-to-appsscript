@@ -18,11 +18,32 @@ function checkWriteLock() {
 }
 
 class Sheet {
-  constructor(name) { this.name = name; this.rows = []; }
+  constructor(name) { this.name = name; this.rows = []; this.maxRows = 1000; this.maxColumns = 26; }
   clear() { checkWriteLock(); this.rows = []; }
+  getMaxRows() { return this.maxRows; }
+  getMaxColumns() { return this.maxColumns; }
+  insertRowsAfter(position, count) {
+    checkWriteLock();
+    if (!Number.isInteger(position) || position < 1 || position > this.maxRows || !Number.isInteger(count) || count < 1)
+      throw new Error('invalid row insertion');
+    if (position < this.rows.length) this.rows.splice(position, 0, ...Array.from({length:count},()=>[]));
+    this.maxRows += count;
+    return this;
+  }
+  insertColumnsAfter(position, count) {
+    checkWriteLock();
+    if (!Number.isInteger(position) || position < 1 || position > this.maxColumns || !Number.isInteger(count) || count < 1)
+      throw new Error('invalid column insertion');
+    this.rows.forEach(row => { if (position < row.length) row.splice(position,0,...Array(count).fill('')); });
+    this.maxColumns += count;
+    return this;
+  }
   getLastColumn() { return Math.max(0, ...this.rows.map(row => row.length)); }
   getDataRange() { return this.getRange(1, 1, Math.max(1, this.rows.length), Math.max(1, this.getLastColumn())); }
   getRange(row, col, height = 1, width = 1) {
+    if (![row,col,height,width].every(value=>Number.isInteger(value) && value>0)
+        || row+height-1>this.maxRows || col+width-1>this.maxColumns)
+      throw new Error('Range exceeds sheet grid');
     const sheet = this;
     return {
       getValues() { checkReadLock(); return Array.from({length: height}, (_, y) =>
@@ -40,8 +61,12 @@ class Sheet {
       setValue(value) { this.setValues([[value]]); },
     };
   }
-  appendRow(row) { this.getRange(this.rows.length + 1, 1, 1, row.length).setValues([row]); }
-  deleteRow(row) { checkWriteLock(); this.rows.splice(row - 1, 1); }
+  appendRow(row) {
+    if (this.rows.length+1>this.maxRows) this.insertRowsAfter(this.maxRows,1);
+    if (row.length>this.maxColumns) this.insertColumnsAfter(this.maxColumns,row.length-this.maxColumns);
+    this.getRange(this.rows.length + 1, 1, 1, row.length).setValues([row]);
+  }
+  deleteRow(row) { checkWriteLock(); this.rows.splice(row - 1, 1); this.maxRows--; }
   setFrozenRows() {}
 }
 

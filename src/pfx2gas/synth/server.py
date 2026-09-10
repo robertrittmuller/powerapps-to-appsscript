@@ -12,6 +12,12 @@ var DATA_CONTRACTS = {contracts_json};
 var RELATIONSHIP_CONTRACTS = {relationships_json};
 var GOOGLE_SERVICE_ADAPTERS = {services_json};
 
+function ensureSheetCapacity_(sheet, rows, columns) {{
+  var currentRows = sheet.getMaxRows(), currentColumns = sheet.getMaxColumns();
+  if (rows > currentRows) sheet.insertRowsAfter(currentRows, rows - currentRows);
+  if (columns > currentColumns) sheet.insertColumnsAfter(currentColumns, columns - currentColumns);
+}}
+
 function assertDataSource(ds) {{
   if (ALLOWED_DATA_SOURCES.indexOf(ds) < 0) {{
     throw new Error('data source is not part of this generated app: ' + ds);
@@ -324,6 +330,7 @@ function patchRow(ds, base, record) {{
     var value = record[h] !== undefined ? record[h] : values[targetRow - 1][c];
     return record[h] !== undefined ? encodeCell(ds, h, value) : value;
   }});
+  ensureSheetCapacity_(sh, targetRow, headers.length);
   sh.getRange(targetRow, 1, 1, headers.length).setValues([cells]);
   return recordFromCells(ds, headers, cells);
 }}
@@ -395,6 +402,7 @@ function setup() {{
     var sh = workbook.getSheetByName(spec.name) || workbook.insertSheet(spec.name);
     sh.clear();
     var headers = spec.fields.map(function (f) {{ return f[0]; }});
+    ensureSheetCapacity_(sh, 1 + spec.rows.length, headers.length);
     sh.getRange(1, 1, 1, headers.length).setValues([headers]);
     if (spec.rows && spec.rows.length) {{
       var body = spec.rows.map(function (row) {{
@@ -413,6 +421,7 @@ function setup() {{
   var choiceNote = '';
   if (choiceFields.length) {{
     var ch = workbook.insertSheet('__Choices');
+    ensureSheetCapacity_(ch, 1, choiceFields.length);
     ch.getRange(1, 1, 1, choiceFields.length).setValues([choiceFields]);
     ch.setFrozenRows(1);
     choiceNote = ' Populate the __Choices tab, then reload the app.';
@@ -521,7 +530,7 @@ def render_data_init(ir: AppIR) -> str:
         headers = [_snake(f.name) for f in ds.fields]
         tabs.append({"name": ds.name, "fields": [[h, f.type]
                                                  for f, h in zip(ds.fields, headers)],
-                     "rows": ds.sample_data[:100]})
+                     "rows": ds.sample_data})
     return DATA_INIT_GS.format(app_name=ir.name, tabs_json=json.dumps(tabs),
                                choices_json=json.dumps(ir.choice_fields))
 

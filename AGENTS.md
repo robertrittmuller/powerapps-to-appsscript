@@ -74,7 +74,8 @@ Pipeline (deterministic; `pfx2gas convert` = all stages):
 - **Generated project** (per app, in `output/<App>/`): `Code.gs` (doGet +
   `api(ds, op, payload)` dispatcher: `list|patch|create|remove|removeIf`,
   plus `apiChoices`, `whoami`, and the `include(name)` templating helper),
-  `DataInit.gs` (`setup()` creates the workbook, ≤100 sample rows/tab),
+  `DataInit.gs` (`setup()` creates the workbook, preserves every exported seed row,
+  and expands sheet rows/columns before writes),
   `appsscript.json` (webapp config + Sheets scopes), `Index.html`,
   `Screens.html`, `App.js.html`, and the static `gas-runtime/fx-stdlib/
   fx-charts.js.html` copies + `conversion-report.md`.

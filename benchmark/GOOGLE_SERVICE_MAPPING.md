@@ -40,12 +40,14 @@ It now passes 19 checks covering first-run dismissal, reload, a second simulated
 Google user and return to the first user, with separate persisted settings and
 zero runtime errors. Its project-creation probe now passes 39 checks with native
 Google People response fixtures, including separate edited milestone names,
-dates and nested color selections. The deeper work-item probe passes 75 checks,
+dates and nested color selections. The deeper work-item probe passes 77 checks,
 including creation with that Google assignee and a milestone, reopening, edits
 with retained record/relationship IDs, reload and confirmed deletion. Generated
 Code.gs runs against a Sheets test double; People responses remain explicit
-fixtures. Status/category/priority setup, clipped labels, broader workflows and
-live Google execution remain unverified.
+fixtures. Complete exported reference rows now initialize in appropriately sized
+Sheets, preserving the icon and typography lookups used by the source UI.
+Status/category/priority setup, broader workflows, complete UI parity and live
+Google execution remain unverified.
 See Microsoft's [default record ownership contract](https://learn.microsoft.com/en-us/dotnet/api/microsoft.xrm.sdk.iorganizationservice.create?view=dataverse-sdk-latest).
 
 ## Planner implementation scope

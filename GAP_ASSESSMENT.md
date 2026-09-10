@@ -274,7 +274,7 @@ All 39 populated project-creation
 checks pass with Google API fixtures. Eager loading, cross-level record aliases,
 other nested controls and complete visual/workflow parity remain review items.
 
-The populated Milestones work-item lifecycle now passes 75 checks: creation with
+The populated Milestones work-item lifecycle now passes 77 checks: creation with
 a migrated Google assignee and milestone, reload/reopening, edited text/date with
 the same record and linked identities, and confirmed deletion without removing
 its project or milestones. Row-dependent Font/Size/Padding and sibling properties
@@ -285,11 +285,14 @@ DOM bubbling. Runtime guards cover scoped cycles, replaced/reordered DOM nodes
 and deferred layout measurement. These are workflow checks against generated
 Code.gs and native API fixtures, not complete usability acceptance.
 
-Visual review still finds clipped headings and a narrow milestone chip. The
-exported `staticCharWidths` contains 194 rows, while DataInit seeds only 100;
-its stored font/weight representations also differ from emitted enum values.
-Reference-data completeness and enum comparison fidelity are the next sizing
-investigation. Status/category/priority setup and Dataverse status defaults,
+The lost reference data and collapsed text widths are repaired. DataInit preserves
+all exported seed records, with sheet-capacity checks before writes. Milestones
+retains its 129 icons, 573 localization rows and 194 character widths. Segoe UI's
+source fallback stack and the four supported font-weight values match reference
+lookups; its milestone chip measures the source formula's 115 pixels, and headings
+are readable in the reviewed screenshot. Other font values, font availability,
+source-imposed column clipping and original UI comparison remain open.
+Status/category/priority setup and Dataverse status defaults,
 OnCheck/OnUncheck behavior, broader work-item variants and original UI comparisons
 remain open.
 
@@ -297,7 +300,7 @@ remain open.
 
 | Evidence | Latest result | What remains unproven |
 |---|---|---|
-| Unit/runtime tests | 459 Python pass, 3 skip; 103 JS pass; bare globals, FX, FXRuntime and FX.collections emitter/runtime consistency passes | Complete deployed workflows and broader control semantics |
+| Unit/runtime tests | 461 Python pass, 3 skip; 103 JS pass; bare globals, FX, FXRuntime and FX.collections emitter/runtime consistency passes | Complete deployed workflows and broader control semantics |
 | Current real-app soak | 5/5 valid code and generated-server initialization; 4/5 Bootable; 1,145 formulas | Editable Grid requests choices from unexported Student Tracker; the former empty-success simulator hid this dependency. Usability unassessed; five historical local exports are absent |
 | Current regression translation/wiring | 1,140 translated; 976 emitted, 14 approximated, 155 ignored/unsupported | Translation does not establish runtime behavior |
 | Historical ten-app corpus | Previously 10/10 Bootable; 23,746 formulas | Not reproduced in this workspace; those results did not establish usability |
@@ -313,7 +316,8 @@ remain open.
 | Gallery template dimensions | Static orientation and reactive TemplateSize determine template dimensions before row mounting. Chromium verifies the original loading formula stays 224 × 88, wrapping/selection, responsive 72/84-pixel vertical rows and 48/64-pixel horizontal rows, empty-card heights and retained input nodes/text. The unchanged Milestones settings card is 316 pixels without layout errors | Dynamic orientation/padding/WrapCount, nested galleries, exact native cross-axis sizing and original visual comparison remain gaps |
 | Dataverse ownership | Exported Owner fields default to a migrated Google caller on create; explicit user/team assignments update derived ownership columns while ordinary edits retain ownership. Generated-server tests cover source keys/aliases, two users, team assignment, ambiguous/missing identities and failure without partial writes. Validation checks source/ledger ownership contracts | Ownership is record data; source row security, privileges, cascading assignment, business units, audit/status defaults and live Google execution remain open |
 | Gallery AllItems controls | Loaded records include their own current control values. Generated Node and Chromium tests cover distinct bulk edits, sorting, aliases, nested record scopes, awaited writes and reload. Data records remain unchanged and control values omit DOM nodes from JSON | Gallery loading remains eager; nested galleries and full control-object semantics need further work |
-| Milestones populated workflow | 75 checks pass with zero runtime errors, including the 19 onboarding and 39 project-creation checks, work-item creation with a Google assignee/milestone, restored dropdown defaults, edit/reload with retained IDs and confirmed deletion preserving the project/milestones | Clipped headings/narrow milestone chip, status/category/priority setup, broader task variants, complete workflows and original UI comparison remain open |
+| Milestones populated workflow | 77 checks pass with zero runtime errors, including onboarding/project creation, work-item creation with a Google assignee/milestone, restored dropdown defaults, edit/reload with retained IDs, confirmed deletion, complete reference tables and a measured 115-pixel milestone label | Status/category/priority setup, broader task variants, complete workflows, source column clipping and original UI comparison remain open |
+| Exported seed data and sheet capacity | All exported rows are retained. Generated-server tests initialize 1,005 rows and 29 fields in static and external tables, append another record, initialize 30 choice columns and retain data on repeated setup. The Sheets double rejects ranges outside its current grid. The rebuilt CLI preserves every source seed count across Milestones' 18 tables | Exported snapshots do not replace tenant data migration. Existing workbooks are not backfilled, and large-workbook quotas/live Google capacity behavior need deployment evidence |
 | Microsoft generated-server initialization | Six exports: setup and reads across 124 tables and 302 choice fields pass in the Sheets test double | Tenant data migration, real Google writes, source defaults, calculations, relationships and permissions |
 | Microsoft business baseline | 6/6 convert and validate; 2/6 pass short startup (Employee Ideas, Inspection) | Migrated identities and Teams/Planner dependencies still fail prerequisites |
 | Microsoft first actions | All three default probes fail. A separate Inspection probe with an authored imported Google task board passes all five checks and has zero runtime errors; it cannot overwrite the default missing-migration failure. Populated Employee Ideas passes 29 checks through mobile submission and reload. Optional voting persists its count but source Concurrent removes the voter link | Complete inspection/task creation, voting ordering, ratings, attachments, real Google persistence, identities and UI parity; partial success never promotes an app to Usable |
@@ -447,7 +451,7 @@ full dependency list:
 | Employee Ideas Manager | GetAllTeams requires explicit Chat migration and native authorization | Complete team/channel setup, campaign editing and notifications with migrated data |
 | Inspection | Leaves Landing for Welcome/Items; all five first-action checks pass with an explicitly imported Sheets task board. Unmigrated Planner fails | Local drafts, shared tasks and native Google directory assignment pass in fixtures; full real inspection/task submission, migrated identities and Teams-to-Chat posting remain |
 | Inspection Manager | Current-user identity and required Chat/Planner migrations | Plan/bucket/task/group-plan setup and complete inspection management; URL validation formula has executed evidence |
-| Milestones | Default initialization needs user/directory migration. With migrated users, 75 checks pass through project creation and a work-item create/edit/delete lifecycle, including assignment and retained relationships | Status/category/priority setup, broader task variants, complete workflows and readable layout |
+| Milestones | Default initialization needs user/directory migration. With migrated users, 77 checks pass through project/work-item lifecycle, assignment/relationships, complete reference data and label dimensions | Status/category/priority setup, broader task variants, complete workflows and source UI comparison |
 | Review Inspections | Current-user identity; Planner migration is also required | Complete review workflow, inspection data, task associations and live authorization |
 
 Typed toggle values, source canvas dimensions, OnHidden initialization and

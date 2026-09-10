@@ -62,6 +62,26 @@ def run_backend(ir, tmp_path):
         server.wait(timeout=10)
 
 
+def test_exported_seed_rows_and_wide_schemas_survive_sheet_initialization_and_growth(tmp_path):
+    from pfx2gas.ir import AppIR, DataSource, FieldDef
+    fields=[FieldDef(name='id')]+[FieldDef(name=f'column_{index}') for index in range(28)]
+    rows=[{'id':f'source-{index}','column_27':f'original-{index}'} for index in range(1005)]
+    ir=AppIR(name='CompleteSeed',data_sources=[
+        DataSource(name='Reference',origin='static',fields=fields,sample_data=rows),
+        DataSource(name='ExportedRecords',origin='excel',fields=fields,sample_data=rows)],
+        choice_fields=[f'Reference.field{index}' for index in range(30)])
+    for call in run_backend(ir,tmp_path):
+        for source in ['Reference','ExportedRecords']:
+            loaded=call('api',source,'list',{})['result']
+            assert len(loaded)==1005
+            assert [(row['id'],row['column_27']) for row in loaded]==[(row['id'],row['column_27']) for row in rows]
+            added=call('api',source,'create',{'record':{'column_27':'new after import'}})
+            assert 'error' not in added,added
+            assert len(call('api',source,'list',{})['result'])==1006
+        assert call('__setup')['result']=='already initialized'
+        assert call('api','Reference','list',{})['result'][-1]['column_27']=='new after import'
+
+
 @pytest.fixture
 def lookup_ir(native_ir):
     from pfx2gas.ir import DataSource, FieldDef

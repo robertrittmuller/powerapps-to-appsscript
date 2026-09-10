@@ -323,9 +323,9 @@ def test_generated_nested_galleries_keep_defaults_selection_reset_and_bulk_saves
     colors=next(ctrl for screen in ir.screens for ctrl in screen.walk_controls() if ctrl.name=='Colors')
     assert colors.properties['TemplatePadding'].emission_status=='approximated', 'reading row properties cannot upgrade approximate layout fidelity'
     verdict=simulate_project(project,[{'id':'independent-nested-galleries','steps':[
-        {'action':'expectText','control':'OuterMetrics','gallery':'OuterRows','row':0,'equals':'Segoe UI:9:18'},
-        {'action':'expectText','control':'OuterMetrics','gallery':'OuterRows','row':1,'equals':'Segoe UI:12:24'},
-        {'action':'expectText','control':'ColorMetric','gallery':'OuterRows','row':1,'equals':'Segoe UI:12:24:2'},
+        {'action':'expectText','control':'OuterMetrics','gallery':'OuterRows','row':0,'equals':"'Segoe UI', 'Open Sans', sans-serif:9:18"},
+        {'action':'expectText','control':'OuterMetrics','gallery':'OuterRows','row':1,'equals':"'Segoe UI', 'Open Sans', sans-serif:12:24"},
+        {'action':'expectText','control':'ColorMetric','gallery':'OuterRows','row':1,'equals':"'Segoe UI', 'Open Sans', sans-serif:12:24:2"},
         {'action':'expectText','control':'ChosenPreview','gallery':'OuterRows','row':0,'equals':'red'},
         {'action':'expectText','control':'ChosenPreview','gallery':'OuterRows','row':1,'equals':'blue'},
         {'action':'click','control':'ChooseColor','gallery':'OuterRows','row':1},

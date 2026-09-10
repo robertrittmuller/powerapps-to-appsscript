@@ -48,6 +48,8 @@ MATCH_PATTERNS = {"Any": ".", "Comma": ",", "Digit": r"\d", "Hyphen": r"\-",
                   "MultipleNonSpaces": r"\S+", "OptionalNonSpaces": r"\S*"}
 MATCH_OPTIONS = {"BeginsWith", "Complete", "Contains", "EndsWith", "IgnoreCase", "Multiline", "NumberedSubMatches"}
 TIME_UNITS = {'Milliseconds', 'Seconds', 'Minutes', 'Hours', 'Days', 'Months', 'Quarters', 'Years'}
+FONT_VALUES = {'Segoe UI': "'Segoe UI', 'Open Sans', sans-serif"}
+FONT_WEIGHT_VALUES = {'Normal': 'normal', 'Semibold': '600', 'Bold': 'bold', 'Lighter': 'lighter'}
 
 # Legacy component exports sometimes serialize Color.White/Color.Black as
 # bare reserved names. Treat the Power Apps constants as colors rather than
@@ -198,6 +200,12 @@ class Emitter:
                 raise lx.FxSyntaxError('Unsupported TimeUnit member: ' + '.'.join(members))
             return _q(members[0])
         if base in ENUM_TYPES and members:
+            # Canvas font enums carry CSS values, not their display names.
+            # Source formulas also compare these values with reference data.
+            if len(members) == 1:
+                values = FONT_VALUES if base == 'Font' else FONT_WEIGHT_VALUES if base == 'FontWeight' else {}
+                if members[0] in values:
+                    return _q(values[members[0]])
             return _q(".".join(members))
         if alias is not None and not global_only:
             access = alias

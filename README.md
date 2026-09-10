@@ -212,13 +212,15 @@ All 19 checks pass. Its `--project` probe reaches project/member creation throug
 native Google People fixtures and saves three distinct edited milestone names and dates.
 All 39 checks pass, including dates across the daylight-saving change, opening
 the second nested color picker, selecting a different color, and preserving each
-milestone's name/date/color in storage. Adding `--workitem` passes 75 checks through
+milestone's name/date/color in storage. Adding `--workitem` passes 77 checks through
 project creation, work-item creation, Google-user assignment, milestone linkage,
 reload, reopening with typed defaults, edit and confirmed deletion. It retains
 the same work-item ID and linked identities through edits, and deletion preserves
 the project and its milestones. These use generated Code.gs and native Google
-API fixtures. Clipped headings, narrow milestone labels, settings/status setup,
-broader workflows and complete app usability remain open. Source/data hashes,
+API fixtures. Its complete icon/localization/character-width tables now survive
+conversion, and the milestone label measures the source formula's 115 pixels.
+Settings/status setup, broader workflows, source-imposed column clipping and
+complete app usability remain open. Source/data hashes,
 records and screenshots are in `.artifacts/browser/`.
 The normal `./pfx2gas soak` enforces the existing
 required regression corpus, including failed required journeys and missing apps.
@@ -344,6 +346,15 @@ Converted apps aim to match the original visually and behaviorally:
 - **Selectors** — Dropdown, ComboBox, and ListBox options preserve their source
   records for `Selected`/`SelectedItems`; `DisplayFields`, default selections,
   and multi-select are wired into native selects.
+- **Exported reference data** — initialization preserves all exported seed rows,
+  including static lookup tables beyond row 100. Sheet rows and columns expand
+  before initialization and API writes. This preserves the export's snapshots;
+  tenant data migration and existing-workbook backfills remain separate work.
+- **Font values** — Segoe UI retains its source CSS fallback stack, and Normal,
+  Semibold, Bold and Lighter retain their CSS weight values for formula comparisons.
+  Static font stacks preserve separate faces. Source-shaped character-width lookups
+  and rendered row dimensions pass; font availability and other enum mappings
+  still require review.
 - **Nested galleries** — each outer row owns an independent child gallery,
   with its own Default/Selected, ThisItem.IsSelected, current control values and
   parent event routing. Node and Chromium check empty/repopulated items, pointer
