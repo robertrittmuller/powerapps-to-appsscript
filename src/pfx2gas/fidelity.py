@@ -63,6 +63,9 @@ def finalize_fidelity(ir: AppIR) -> None:
             notes = [expr.fidelity_note] if expr.fidelity_note else []
             notes.extend(note for note in expr.approximations if note not in expr.fidelity_note)
             expr.fidelity_note = '; '.join(notes)
+        if expr.translation_status == 'llm' and expr.emission_status == 'emitted':
+            expr.emission_status = 'approximated'
+            expr.fidelity_note = expr.fidelity_note or 'LLM output has no behavioral-equivalence evidence'
 
 
 def ledger_rows(ir: AppIR) -> list[dict]:

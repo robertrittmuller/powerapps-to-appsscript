@@ -43,16 +43,30 @@ def main(argv: list[str] | None = None) -> int:
     )
     conv.add_argument("--strict-fidelity", action="store_true",
                       help="exit non-zero when the generated fidelity ledger has gaps")
+    conv.add_argument('--require-stage', choices=('generated', 'bootable'), default='generated',
+                      help='require verified startup in addition to valid generated files')
 
     validate_p = sub.add_parser("validate", help="validate a synthesized project directory")
     validate_p.add_argument("project_dir")
     validate_p.add_argument("--strict-fidelity", action="store_true")
+    validate_p.add_argument('--require-stage', choices=('generated', 'bootable'), default='generated')
+    preflight_p = sub.add_parser('preflight', help='inventory missing source contracts, capabilities and migration prerequisites')
+    preflight_p.add_argument('msapp')
+    preflight_p.add_argument('--solution')
+    preflight_p.add_argument('-o', '--output')
 
     args = parser.parse_args(argv)
 
     if args.command == "validate":
         from .validate import validate_project
         result = validate_project(args.project_dir)
+        if result['ok'] and (args.require_stage == 'bootable' or args.strict_fidelity):
+            from .verification import verify_startup
+            evidence = verify_startup(args.project_dir)
+            out.print(f"startup: {evidence['startup']}; workflows/source comparison/live Google: unassessed")
+            if evidence['startup'] != 'pass':
+                err.print(evidence.get('errors') or evidence.get('reason'))
+                return 1
         if result["ok"] and (not args.strict_fidelity or not result["fidelity_gap_count"]):
             out.print(f"[green]OK[/green] — {result['stub_count']} stub call sites, "
                       f"{result['fidelity_gap_count']} fidelity gaps")
@@ -92,6 +106,24 @@ def main(argv: list[str] | None = None) -> int:
     except (OSError, ValueError) as exc:
         err.print(f"source metadata could not be loaded: {exc}")
         return 1
+    import hashlib
+    import json
+    ir.source_metadata['inputSha256'] = hashlib.sha256(msapp.read_bytes()).hexdigest()
+    if args.solution:
+        ir.source_metadata['solutionSha256'] = hashlib.sha256(Path(args.solution).read_bytes()).hexdigest()
+    if args.command == 'preflight':
+        from .preflight import assess
+        from .synth.build import assess_fidelity
+        assess_fidelity(ir)
+        result = assess(ir)
+        document = json.dumps(result, indent=2) + '\n'
+        if args.output:
+            destination = Path(args.output)
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_text(document)
+        else:
+            out.print_json(document)
+        return int(bool(result['issues'] or result['formulaGaps']))
     ir.webapp_access = args.webapp_access
     ir.webapp_execute_as = args.execute_as
 
@@ -117,31 +149,52 @@ def main(argv: list[str] | None = None) -> int:
         out_dir.mkdir(parents=True, exist_ok=True)
         (out_dir / "conversion-report.md").write_text(report)
         out.print(f"[green]report written:[/green] {out_dir / 'conversion-report.md'}")
+        if args.strict_fidelity or args.require_stage == 'bootable':
+            err.print('Report-only mode cannot satisfy runtime verification; generate the project first')
+            return 1
         return 0
 
     from .synth.build import synthesize
     synthesize(ir, out_dir)
     validation = validate_project(out_dir)
+    verification = {'startup': 'unassessed'}
+    if validation['ok']:
+        from .verification import verify_startup
+        verification = verify_startup(out_dir)
+        out.print(f"startup: {verification['startup']}; workflows/source comparison/live Google: unassessed")
+        for problem in verification.get('errors', []):
+            out.print(f'[yellow]startup:[/yellow] {problem}')
 
     # LLM review seams (review-only; never modify generated code)
     review_rows: list[dict] = []
     qa_scenarios: list[dict] = []
+    from .review import review_candidates
+    candidates = review_candidates(ir)
+    review_coverage = {'status':'not-run', 'eligible':len(candidates), 'reviewed':[],
+                       'unreviewed':[item['context'] for item in candidates]}
     if not args.no_llm and not args.no_review:
         from .llm import LlmClient
         from .review import author_qa_scenarios, review_behavioral_equivalence
         review_client = LlmClient()
         if review_client.available:
             out.print("[dim]LLM review: checking behavioral equivalence...[/dim]")
-            review_rows = review_behavioral_equivalence(ir, review_client)
+            review_rows = review_behavioral_equivalence(ir, review_client, coverage=review_coverage)
             qa_scenarios = author_qa_scenarios(ir, review_client)
             highs = sum(1 for r in review_rows if r["risk"] == "high")
             out.print(f"  review: {len(review_rows)} formulas reviewed, {highs} high-risk")
+    (out_dir / 'review-coverage.json').write_text(json.dumps(review_coverage, indent=2) + '\n')
+    (out_dir / 'qa-candidates.json').write_text(json.dumps({'status':'proposed-unverified', 'scenarios':qa_scenarios,
+        'reviewFindings':review_rows, 'instruction':'Turn source-verified expectations into deterministic regression tests; model suggestions are not acceptance evidence.'}, indent=2) + '\n')
 
     (out_dir / "conversion-report.md").write_text(
-        render_report(ir, validation, review_rows=review_rows, qa_scenarios=qa_scenarios))
+        render_report(ir, validation, review_rows=review_rows, qa_scenarios=qa_scenarios, review_coverage=review_coverage))
 
+    required_startup = args.strict_fidelity or args.require_stage == 'bootable'
+    if required_startup and verification['startup'] != 'pass':
+        err.print('Required startup verification did not pass; see verification.json')
+        return 1
     if validation["ok"] and (not args.strict_fidelity or not validation["fidelity_gap_count"]):
-        out.print(f"[green]converted:[/green] {out_dir}")
+        out.print(f"[green]generated:[/green] {out_dir}")
         out.print(f"  validator: PASS, {validation['stub_count']} stub call sites, "
                   f"{validation['fidelity_gap_count']} fidelity gaps")
         out.print("  next steps:")

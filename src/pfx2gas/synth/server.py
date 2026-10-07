@@ -254,6 +254,29 @@ function encodeCell(ds, field, value) {{
   return value;
 }}
 
+function applyColumnRules_(ds, record, creating) {{
+  var fields = DATA_CONTRACTS[ds].fields, result = {{}};
+  Object.keys(record).forEach(function (key) {{
+    var field = fields[key];
+    // Dataverse ignores invalid create/update input, including calculated fields.
+    if (field[creating ? 'writableCreate' : 'writableUpdate'] !== false && !field.calculated)
+      result[key] = record[key];
+  }});
+  if (creating) Object.keys(fields).forEach(function (key) {{
+    if (result[key] === undefined && Object.prototype.hasOwnProperty.call(fields[key], 'defaultValue'))
+      result[key] = fields[key].defaultValue;
+  }});
+  return result;
+}}
+
+function validateRequiredColumns_(ds, headers, cells) {{
+  headers.forEach(function (key, index) {{
+    if (DATA_CONTRACTS[ds].fields[key].requiredLevel === 'SystemRequired' &&
+        (cells[index] === '' || cells[index] === null || cells[index] === undefined))
+      throw new Error('System-required field is missing: ' + ds + '.' + key);
+  }});
+}}
+
 function decodeCell(ds, field, value) {{
   var spec = DATA_CONTRACTS[ds].fields[field];
   if (!spec) throw new Error('unknown stored field in ' + ds + ': ' + field);
@@ -290,7 +313,7 @@ function listRows(ds) {{
 function createRow(ds, record) {{
   var sh = sheetFor(ds);
   var headers = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
-  record = applyDataverseOwnership_(ds, normalizeRecord(ds, record), true);
+  record = applyDataverseOwnership_(ds, applyColumnRules_(ds, normalizeRecord(ds, record), true), true);
   record = applyDataverseState_(ds, record, true);
   var primary = DATA_CONTRACTS[ds].primaryKey;
   var cells = headers.map(function (h) {{
@@ -299,6 +322,7 @@ function createRow(ds, record) {{
     return encodeCell(ds, h, value);
   }});
   var idIdx = headers.indexOf(primary);
+  validateRequiredColumns_(ds, headers, cells);
   if (idIdx >= 0 && sh.getDataRange().getValues().slice(1).some(function (row) {{ return String(row[idIdx]) === String(cells[idIdx]); }}))
     throw new Error('duplicate primary key in ' + ds);
   sh.appendRow(cells);
@@ -322,7 +346,10 @@ function patchRow(ds, base, record) {{
     if (base) throw new Error('patch base record was not found in ' + ds);
     return createRow(ds, record);
   }}
-  record = applyDataverseOwnership_(ds, normalizeRecord(ds, record), false);
+  record = normalizeRecord(ds, record);
+  if (record[primary] !== undefined && String(record[primary]) !== String(identity))
+    throw new Error('patch cannot change the primary key in ' + ds);
+  record = applyDataverseOwnership_(ds, applyColumnRules_(ds, record, false), false);
   record = applyDataverseState_(ds, record, false, function () {{
     return recordFromCells(ds, headers, values[targetRow - 1]);
   }});
@@ -335,6 +362,7 @@ function patchRow(ds, base, record) {{
     return record[h] !== undefined ? encodeCell(ds, h, value) : value;
   }});
   ensureSheetCapacity_(sh, targetRow, headers.length);
+  validateRequiredColumns_(ds, headers, cells);
   sh.getRange(targetRow, 1, 1, headers.length).setValues([cells]);
   return recordFromCells(ds, headers, cells);
 }}
@@ -487,6 +515,15 @@ def data_contracts(ir: AppIR) -> dict:
                 aliases.append("id") # the runtime's generic row identity points at the source key
             fields[name] = {"type": field.type, "aliases": [alias for alias in aliases if alias != name],
                             "choices": field.choices}
+            if ds.origin == 'dataverse':
+                fields[name].update(requiredLevel=field.required_level,
+                                    writableCreate=field.writable_create,
+                                    writableUpdate=field.writable_update,
+                                    calculated=field.calculated)
+                if field.has_default and not field.calculated and field.source_type not in {'State', 'Status'}:
+                    if not isinstance(field.default_value, (str, int, float, bool, type(None))):
+                        raise ValueError(f'Unsupported column default in {ds.name}.{name}')
+                    fields[name]['defaultValue'] = field.default_value
             if field.type == 'lookup':
                 fields[name].update(lookupSources=[name for target in field.lookup_targets for name in by_logical.get(target, [])],
                                     lookupTargetCount=len(field.lookup_targets))

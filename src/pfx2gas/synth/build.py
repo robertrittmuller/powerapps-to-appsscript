@@ -30,6 +30,12 @@ def synthesize(ir: AppIR, out_dir: str | Path) -> Path:
     screens_html = render_screens_html(ir)
     app_js = render_app_js(ir)
     finalize_fidelity(ir)
+    from ..preflight import assess
+    import hashlib
+    inventory = json.dumps(ir.model_dump(exclude={'media_resources'}), indent=2) + '\n'
+    (out / 'source-inventory.json').write_text(inventory)
+    preflight = assess(ir)
+    (out / 'preflight.json').write_text(json.dumps(preflight, indent=2) + '\n')
     (out / "Code.gs").write_text(render_code_gs(ir))
     (out / "DataInit.gs").write_text(render_data_init(ir))
     if 'Planner' in service_contracts(ir):
@@ -60,6 +66,10 @@ def synthesize(ir: AppIR, out_dir: str | Path) -> Path:
     state_models={name:contract['stateModel'] for name,contract in data_contracts(ir).items() if 'stateModel' in contract}
     (out / "conversion-ledger.json").write_text(
         json.dumps({
+            "schemaVersion": 2,
+            "sourceInventorySha256": hashlib.sha256(inventory.encode()).hexdigest(),
+            "capabilities": preflight['capabilities'],
+            "verification": preflight['verification'],
             "app": ir.name,
             "sourceLayout": ir.layout,
             "sourceMetadata": ir.source_metadata,
@@ -83,7 +93,7 @@ def synthesize(ir: AppIR, out_dir: str | Path) -> Path:
         "dataverseStateModels": state_models,
         "limitations": ["Exported one-to-many lookups and many-to-many links refresh related records on the first source only. Many-to-many links use __pfx2gas_links; retries are idempotent and unmatched Unrelate is a no-op. Cascade deletes, alternate-key relationships and permissions require adapters.",
                         "Dataverse user/team ownership defaults to the migrated Google caller and follows explicit assignment; source privileges, business units, audit defaults and calculated fields require adapters. Lookup fields remain stored snapshots.",
-                        "Dataverse state/status defaults and pairs use exported metadata; missing initial states and custom transition rules fail explicitly. Other column defaults and existing-row backfills are not implemented.",
+                        "Dataverse state/status and literal column defaults use exported metadata. SystemRequired columns and create/update flags are enforced; ApplicationRequired remains an application-level rule. Missing generated audit defaults, calculated/rollup fields, custom transitions and existing-row backfills require adapters.",
                         "Choice codes and boolean values are retained; implicit localized choice-to-text coercion is not yet implemented."],
     }, indent=2) + "\n")
     for static_name in ("gas-runtime.js", "fx-stdlib.js", "fx-charts.js"):

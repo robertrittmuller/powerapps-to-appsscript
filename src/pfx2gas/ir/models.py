@@ -48,6 +48,10 @@ class FieldDef(BaseModel):
     required_level: str | None = None
     writable_create: bool | None = None
     writable_update: bool | None = None
+    has_default: bool = False
+    default_value: object = None
+    calculated: bool = False
+    date_behavior: str | None = None
 
 
 class DataSource(BaseModel):

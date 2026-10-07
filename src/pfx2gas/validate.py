@@ -7,7 +7,9 @@ import tempfile
 from pathlib import Path
 
 REQUIRED_FILES = ["Code.gs", "DataInit.gs", "appsscript.json", "Index.html",
-                  "Screens.html", "App.js.html", "conversion-ledger.json", "data-contract.json"]
+                  "Screens.html", "App.js.html", "conversion-ledger.json", "data-contract.json",
+                  "gas-runtime.js.html", "fx-stdlib.js.html", "fx-charts.js.html",
+                  "source-inventory.json", "preflight.json"]
 
 
 def js_syntax_ok(js: str) -> tuple[bool, str]:
@@ -99,10 +101,28 @@ def validate_project(out_dir: str | Path) -> dict:
             problems.append(f"data-contract.json is invalid or inconsistent: {exc}")
 
     fidelity_gap_count = 0
+    formula_gap_count = capability_gap_count = 0
     ledger_path = out / "conversion-ledger.json"
     if ledger_path.exists():
         try:
             ledger = json.loads(ledger_path.read_text())
+            import hashlib
+            from .preflight import assess
+            from .fidelity import ledger_rows
+            from .ir import AppIR
+            inventory_text = (out / 'source-inventory.json').read_text()
+            inventory = AppIR.model_validate_json(inventory_text)
+            if json.loads(contract_path.read_text()).get('sources') != [ds.model_dump() for ds in inventory.data_sources]:
+                raise ValueError('data contract differs from source inventory')
+            if ledger.get('schemaVersion') != 2:
+                raise ValueError('unsupported ledger schema; regenerate this project')
+            if ledger.get('sourceInventorySha256') != hashlib.sha256(inventory_text.encode()).hexdigest():
+                raise ValueError('source inventory fingerprint differs')
+            expected_preflight = assess(inventory)
+            if ledger.get('capabilities') != expected_preflight['capabilities']:
+                raise ValueError('capability inventory is incomplete or differs from source')
+            if json.loads((out / 'preflight.json').read_text()) != expected_preflight:
+                raise ValueError('preflight differs from source inventory')
             if expected_ownership is not None and ledger.get('dataverseOwnership', {}) != expected_ownership:
                 raise ValueError('ownership adapter differs from exported source contract')
             if expected_states is not None and ledger.get('dataverseStateModels', {}) != expected_states:
@@ -110,11 +130,14 @@ def validate_project(out_dir: str | Path) -> dict:
             rows = ledger.get("formulas", [])
             if not isinstance(rows, list):
                 raise ValueError("formulas must be a list")
-            fidelity_gap_count = sum(
-                1 for row in rows if row.get("emission") != "emitted"
-            )
-        except (json.JSONDecodeError, ValueError, AttributeError) as exc:
+            if rows != ledger_rows(inventory):
+                raise ValueError('formula census differs from source inventory')
+            formula_gap_count = sum(1 for row in rows if row.get('emission') != 'emitted' or row.get('translation') != 'rule')
+            capability_gap_count = len(expected_preflight['issues'])
+            fidelity_gap_count = formula_gap_count + capability_gap_count
+        except (ValueError, AttributeError, TypeError, KeyError, OSError) as exc:
             problems.append(f"conversion-ledger.json is invalid: {exc}")
 
     return {"ok": not problems, "problems": problems, "stub_count": stub_count,
-            "fidelity_gap_count": fidelity_gap_count}
+            "fidelity_gap_count": fidelity_gap_count,
+            "formula_gap_count": formula_gap_count, "capability_gap_count": capability_gap_count}

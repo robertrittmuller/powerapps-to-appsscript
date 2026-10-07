@@ -83,6 +83,7 @@ def apply_source_contract(source: DataSource, raw: dict) -> None:
     mapping = _document(raw.get("NativeCDSDataSourceInfoNameMapping", {}), "Dataverse field name mapping")
     source.logical_name = entity.get("LogicalName") or raw.get("LogicalName")
     choices = {}
+    option_defaults = {}
     state_model = {"defaultState": None, "states": [], "statuses": [],
                    "enforceTransitions": entity.get("EnforceStateTransitions")}
     for category in ("Boolean", "Picklist", "MultiSelectPicklist", "State", "Status"):
@@ -93,6 +94,9 @@ def apply_source_contract(source: DataSource, raw: dict) -> None:
         for attr in option_attributes.get("value", []):
             if attr.get("LogicalName") and isinstance(attr.get("OptionSet"), dict):
                 choices[attr["LogicalName"]] = _options(attr["OptionSet"], category == "Boolean")
+                default = attr.get('DefaultValue', attr.get('DefaultFormValue'))
+                if default is not None and default != -1:
+                    option_defaults[attr['LogicalName']] = default
                 options = attr["OptionSet"].get("Options", [])
                 if category == "State" and attr["LogicalName"] == "statecode":
                     state_model["defaultState"] = attr.get("DefaultFormValue")
@@ -126,12 +130,18 @@ def apply_source_contract(source: DataSource, raw: dict) -> None:
         aliases = [logical]
         if wire in mapping:
             aliases.append(wire)
+        default = attr.get('DefaultValue', attr.get('DefaultFormValue', option_defaults.get(logical)))
+        if attribute_type in {'Picklist', 'MultiSelectPicklist', 'State', 'Status'} and default == -1:
+            default = None  # Dataverse's sentinel means no selected default.
         source.fields.append(FieldDef(name=name, logical_name=logical,
             aliases=[a for a in aliases if snake(a) != snake(name)],
             type=types.get(attribute_type, "unsupported"), source_type=attribute_type,
             choices=choices.get(logical, []), lookup_targets=attr.get("Targets") or [],
             required_level=(attr.get("RequiredLevel") or {}).get("Value"),
-            writable_create=attr.get("IsValidForCreate"), writable_update=attr.get("IsValidForUpdate")))
+            writable_create=attr.get("IsValidForCreate"), writable_update=attr.get("IsValidForUpdate"),
+            has_default=default is not None, default_value=default,
+            calculated=attr.get('SourceType') in (1, 2) or bool(attr.get('FormulaDefinition')),
+            date_behavior=(attr.get('DateTimeBehavior') or {}).get('Value') if isinstance(attr.get('DateTimeBehavior'), dict) else attr.get('DateTimeBehavior')))
         if logical == entity.get("PrimaryIdAttribute"):
             source.primary_key = name
     if not source.primary_key:

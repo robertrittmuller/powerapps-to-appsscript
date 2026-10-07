@@ -87,7 +87,8 @@ def _data_table(ir: AppIR) -> str:
                      "explicit owner assignment updates Owning User/Team. The data contract records this adapter and its limits. "
                      "State/status defaults and dependent values use exported metadata, including source read-only flags. "
                      "Missing initial states and custom state transitions require an adapter; existing rows are not backfilled. "
-                     "Business-unit ownership, audit and other column defaults, calculated fields, "
+                     "General SystemRequired/create/update flags and exported literal defaults are enforced. "
+                     "Business-unit ownership, generated audit defaults, calculated fields, "
                      "Dataverse permissions and implicit localized choice-to-text coercion still require adapters.")
     return "\n".join(lines)
 
@@ -163,11 +164,15 @@ def _followups(ir: AppIR) -> str:
 
 def render_report(ir: AppIR, validation: dict | None = None,
                   review_rows: list[dict] | None = None,
-                  qa_scenarios: list[dict] | None = None) -> str:
+                  qa_scenarios: list[dict] | None = None, review_coverage: dict | None = None) -> str:
     formula_rows = list(iter_expressions(ir))
     counts = Counter(_status(expr) for _s, _c, _p, expr in formula_rows)
     translations = Counter(expr.translation_status for _s, _c, _p, expr in formula_rows)
     total_formulas = len(formula_rows)
+    from .preflight import assess
+    preflight = assess(ir)
+    capability_details = '\n'.join(f"- **{row['status']} / {row['classification']}** `{row['subject']}`: {row['detail']}"
+                                   for row in preflight['issues']) or '_No known capability gaps; runtime verification remains separate._'
     stub_note = ""
     if validation is not None:
         stub_note = f"\n**Validator:** {'PASS' if validation['ok'] else 'FAIL'}"
@@ -198,6 +203,11 @@ consumed the formula; it is not a claim of deployed behavioral equivalence.
 
 ## Data mapping
 
+Capability and migration prerequisites are inventoried in `preflight.json`.
+`verification.json` records generated startup separately from workflows, original-app comparison and live Google access.
+
+{capability_details}
+
 Original data sources are mapped to tabs of one Google Sheet workbook
 (created by running `setup()` from `DataInit.gs` once after deploy).
 
@@ -208,6 +218,10 @@ Original data sources are mapped to tabs of one Google Sheet workbook
 {_screen_table(ir)}
 
 ## Behavioral-equivalence review
+
+Coverage: {(review_coverage or {}).get('status', 'not-run')}; {len((review_coverage or {}).get('reviewed', []))} reviewed,
+{len((review_coverage or {}).get('unreviewed', []))} unreviewed. See `review-coverage.json` for exact contexts.
+Review findings and `qa-candidates.json` are proposals, not runtime acceptance evidence.
 
 {_risk_section(review_rows or [])}
 
