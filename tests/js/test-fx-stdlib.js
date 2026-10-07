@@ -169,7 +169,7 @@ test('groupBy handles multiple typed keys without collisions or mutating source 
 
 test('value coerces text numbers and currency', () => {
   assert.strictEqual(FX.value('$1,234.5'), 1234.5);
-  assert.strictEqual(FX.value('abc'), 0);
+  assert.throws(() => FX.value('abc'), /convert text/);
 });
 
 test('rgba preserves transparency', () => {

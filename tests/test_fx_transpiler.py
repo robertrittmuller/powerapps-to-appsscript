@@ -24,7 +24,7 @@ def test_concat_operator():
 
 
 def test_arithmetic():
-    assert js("1 + 2 * 3") == "FX.add(1, (2 * 3))"
+    assert js("1 + 2 * 3") == "FX.add(1, FX.multiply(2, 3))"
 
 
 def test_this_item():
@@ -44,7 +44,9 @@ def test_lowercase_control_and_parent_refs_use_runtime_context():
 
 def test_optional_function_arguments_never_leak_template_tokens():
     assert js("Text(score)") == "FX.text(state.score)"
-    assert "{a" not in js("Round(score)")
+    assert "{a" not in js("DateAdd(date, 1)")
+    from pfx2gas.fx.lexer import FxSyntaxError
+    with pytest.raises(FxSyntaxError): js('Round(score)')
 
 
 def test_set_behavior():
@@ -130,13 +132,13 @@ def test_if():
 
 def test_filter_lambda():
     assert js('Filter(Tasks, Amount > 100 && Status = "Open")') == (
-        "FX.filter(state.Tasks, (__scope1) => ((FX.scopeValue([__scope1], 'amount', () => state.Amount) > 100) && FX.eq(FX.scopeValue([__scope1], 'status', () => state.Status), 'Open')))"
+        "FX.filter(FX.tableArg(state.Tasks), (__scope1) => ((FX.scopeValue([__scope1], 'amount', () => state.Amount) > 100) && FX.eq(FX.scopeValue([__scope1], 'status', () => state.Status), 'Open')))"
     )
 
 
 def test_lookup_chain():
     assert js("LookUp(Tasks, Id = 5).Name") == (
-        "FX.field(FX.lookUp(state.Tasks, (__scope1) => FX.eq(FX.scopeValue([__scope1], 'id', () => state.Id), 5)), 'name')"
+        "FX.field(FX.lookUp(FX.tableArg(state.Tasks), (__scope1) => FX.eq(FX.scopeValue([__scope1], 'id', () => state.Id), 5)), 'name')"
     )
 
 
@@ -145,7 +147,7 @@ def test_nullable_record_field_read_uses_power_fx_blank_semantics():
 
 
 def test_sum():
-    assert js("Sum(Tasks, Amount)") == "FX.sum(state.Tasks, (__scope1) => FX.scopeValue([__scope1], 'amount', () => state.Amount))"
+    assert js("Sum(Tasks, Amount)") == "FX.sum(FX.tableArg(state.Tasks), (__scope1) => FX.scopeValue([__scope1], 'amount', () => state.Amount))"
 
 
 def test_count_rows():
@@ -216,7 +218,7 @@ def test_multi_statement_value_formula():
 
 
 def test_concat_chain():
-    assert js('Concat(Tasks, Name & ", ", "")').startswith("FX.concat(state.Tasks")
+    assert js('Concat(Tasks, Name & ", ", "")').startswith("FX.concat(FX.tableArg(state.Tasks)")
 
 
 def test_parse_error_raises_transpile_error():

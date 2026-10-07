@@ -153,7 +153,9 @@ def main() -> int:
         problems.append(f"emitter generates FXRuntime.{call}(...) but runtime has no callable helper")
     # Cover both actual generation (special emitter rewrites) and ordinary
     # function-map templates, even before a fixture uses a newly added map.
-    from pfx2gas.fx.function_map import FUNCTION_MAP
+    from pfx2gas.fx.function_map import FUNCTION_MAP, SIGNATURES
+    for name in sorted(FUNCTION_MAP.keys() - SIGNATURES.keys()):
+        problems.append(f'{name}: function mapping has no supported argument signature')
     for spec in FUNCTION_MAP.values():
         if "special-cased" not in spec.note:
             fx_calls.update(re.findall(r"\bFX\.(\w+)\s*\(", spec.js))

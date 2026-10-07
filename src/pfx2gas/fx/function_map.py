@@ -38,7 +38,7 @@ FUNCTION_MAP: dict[str, FnSpec] = {
     "Max": FnSpec("FX.max({args})"),
     "Sum": FnSpec("FX.sum({a0}, ({it}) => {a1})"),
     "Average": FnSpec("FX.average({a0}, ({it}) => {a1})"),
-    "Value": FnSpec("FX.value({a0})"),
+    "Value": FnSpec("FX.value({args})"),
     "Rand": FnSpec("Math.random()"),
     # text
     "Concatenate": FnSpec("[{args}].join('')"),
@@ -55,7 +55,7 @@ FUNCTION_MAP: dict[str, FnSpec] = {
     "Match": FnSpec("FX.match({args})", "constant canvas pattern; record captures"),
     "MatchAll": FnSpec("FX.matchAll({args})", "constant canvas pattern; table of captures"),
     "Proper": FnSpec("FX.proper({a0})"),
-    "Substitute": FnSpec("FX.substitute({a0}, {a1}, {a2})"),
+    "Substitute": FnSpec("FX.substitute({args})"),
     "Replace": FnSpec("FX.replace({a0}, {a1}, {a2}, {a3})"),
     "Text": FnSpec("FX.text({args})"),
     "Char": FnSpec("String.fromCharCode({a0})"),
@@ -97,7 +97,7 @@ FUNCTION_MAP: dict[str, FnSpec] = {
     "Day": FnSpec("FX.day({a0})"),
     "Hour": FnSpec("FX.hour({a0})"),
     "Minute": FnSpec("FX.minute({a0})"),
-    "Weekday": FnSpec("FX.weekday({a0})"),
+    "Weekday": FnSpec("FX.weekday({args})"),
     "DateAdd": FnSpec("FX.dateAdd({a0}, {a1}, {a2})"),
     "DateDiff": FnSpec("FX.dateDiff({a0}, {a1}, {a2})"),
     "Date": FnSpec("FX.date({a0}, {a1}, {a2})"),
@@ -129,7 +129,50 @@ FUNCTION_MAP: dict[str, FnSpec] = {
 
 def js_for(name: str, argc: int) -> FnSpec | None:
     """Return the spec for a known function, or None if unmapped."""
+    validate_arity(name, argc)
     return FUNCTION_MAP.get(name)
+
+
+# Explicit supported signatures. None means variadic, not unknown. Unsupported
+# Power Fx overloads fail instead of losing arguments in a positional template.
+SIGNATURES: dict[str, tuple[int, int | None]] = {}
+for bounds, names in [
+    ((0, 0), 'Rand GUID User Language Today Now Blank Back Exit'),
+    ((1, 1), 'IsBlank IsBlankOrError IsError IsEmpty IsNumeric Abs Int Sqrt Upper Lower Trim TrimEnds Len Proper Char Unicode EncodeUrl PlainText Select SetFocus Launch ColorValue Not Param Year Month Day Hour Minute CountRows CountA First Last JSON Clear SubmitForm ResetForm Reset NewForm EditForm ViewForm Defaults Refresh Choices'),
+    ((2, 2), 'Round RoundUp RoundDown Mod Power Left Right RandBetween RemoveItems Split SaveData ForAll CountIf Distinct Ungroup With Set Relate Unrelate Remove'),
+    ((3, 3), 'Date Time'),
+    ((4, 4), 'Replace RGBA'),
+    ((1, 2), 'Value Weekday TimeValue FirstN LastN'),
+    ((2, 3), 'Mid Find IsMatch Match MatchAll LoadData DateAdd DateDiff LookUp Concat Sort Patch'),
+    ((1, 3), 'Sequence Text Navigate Notify'),
+    ((3, 4), 'Substitute'),
+    ((0, 1), 'ClearData'),
+    ((1, 1), 'UpdateContext'),
+    ((1, None), 'Coalesce Min Max Concatenate And Or'),
+    ((2, None), 'If Switch IfError Concurrent Filter ShowColumns DropColumns SortByColumns Collect ClearCollect RemoveIf'),
+    ((3, None), 'Search RenameColumns AddColumns GroupBy UpdateIf'),
+    ((2, 2), 'Sum Average ColorFade'),
+    ((0, None), 'Table'),
+    ((1, None), 'Summarize'),
+]:
+    SIGNATURES.update({name: bounds for name in names.split()})
+# These support scalar arguments; table overloads need their own implementation.
+SCALAR_ARGUMENTS = set(('Abs Int Round RoundUp RoundDown Mod Sqrt Power Value Upper Lower Trim TrimEnds '
+    'Left Right Mid Len Find Proper Substitute Replace Char Unicode EncodeUrl PlainText '
+    'ColorValue RandBetween Split Not Year Month Day Hour Minute Weekday DateAdd DateDiff Date '
+    'Time TimeValue ColorFade RGBA').split())
+
+
+def validate_arity(name: str, argc: int) -> None:
+    from .lexer import FxSyntaxError
+    signature = SIGNATURES.get(name)
+    if signature is None:
+        return  # unknown functions are handled by the unsupported-function path
+    minimum, maximum = signature
+    if argc < minimum or (maximum is not None and argc > maximum):
+        raise FxSyntaxError(f'{name}: unsupported argument count {argc}; supported {minimum}..{maximum if maximum is not None else "many"}')
+    if name in {'AddColumns', 'RenameColumns'} and argc % 2 != 1:
+        raise FxSyntaxError(f'{name}: expected column/expression pairs')
 
 
 UNMAPPED_WARNING = "function not in coverage map; requires LLM fallback or stub"

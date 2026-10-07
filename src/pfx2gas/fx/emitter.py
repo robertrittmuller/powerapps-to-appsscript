@@ -11,7 +11,7 @@ import json
 from dataclasses import dataclass
 
 from . import lexer as lx
-from .function_map import FUNCTION_MAP
+from .function_map import FUNCTION_MAP, SCALAR_ARGUMENTS, validate_arity
 from .naming import snake as _snake
 from .svg import literal_text_fragments
 
@@ -42,7 +42,7 @@ ENUM_TYPES = {"Color", "Icon", "Font", "FontWeight", "Align", "Image",
               "ImagePosition", "ImagePlacement", "HeaderStyle", "TextRole", "ImageRotation", "TextPosition", "FontWeight2",
               "BorderStyle", "TextRole", "TextMode", "Live", "DateTimeFormat", "Layout",
               "ButtonLayout", "ButtonAppearance", "IconStyle", "ButtonCanvas.Layout",
-              "ButtonCanvas.Appearance", "ButtonCanvas.IconStyle"}
+              "ButtonCanvas.Appearance", "ButtonCanvas.IconStyle", "StartOfWeek"}
 
 MATCH_PATTERNS = {"Any": ".", "Comma": ",", "Digit": r"\d", "Hyphen": r"\-",
                   "LeftParen": r"\(", "RightParen": r"\)", "Period": r"\.", "Tab": r"\t",
@@ -297,6 +297,8 @@ class Emitter:
         if op in {'+', '-'}:
             helper = 'add' if op == '+' else 'subtract'
             return f"FX.{helper}({l}, {r})"
+        if op in {'*', '/'}:
+            return f"FX.{'multiply' if op == '*' else 'divide'}({l}, {r})"
         if op == "=":
             return f"FX.eq({l}, {r})"
         if op == "<>":
@@ -318,6 +320,9 @@ class Emitter:
     def call(self, node) -> str:
         name = str(node.value)
         args = node.children
+        validate_arity(name, len(args))
+        if name in SCALAR_ARGUMENTS and any(arg.kind in {'table', 'record'} for arg in args):
+            raise lx.FxSyntaxError(f'{name}: table/record overload is not implemented')
         if name == 'EncodeUrl' and len(args) == 1:
             def is_control_text(part):
                 if part.kind == 'ident':
@@ -405,6 +410,8 @@ class Emitter:
             owner = _q(self.screen_name) if self.screen_name is not None else "null"
             return f"FXRuntime.updateContext({owner}, {{{fields}}})"
         if name == "Navigate":
+            if len(args) > 1:
+                self.res.approximations.append('Navigate preserves destination/context; transition animations are not implemented')
             if not 1 <= len(args) <= 3:
                 raise lx.FxSyntaxError("Navigate requires a destination, optional transition and context record")
             target = args[0]
@@ -427,8 +434,11 @@ class Emitter:
         if name == "Back":
             return "goBack()"
         if name == "Notify":
+            if len(args) > 1:
+                self.res.approximations.append('Notify displays text; source notification severity and duration are not implemented')
             return f"toast(String({self.expr(args[0])}))"
         if name == "Defaults":
+            self.res.approximations.append('Defaults is a create-record sentinel; exported literal defaults apply on server create, but reading source default fields before save is not implemented')
             return "null"
         if name == "If":
             if len(args) < 2:
@@ -578,6 +588,8 @@ class Emitter:
 
     def lambda_call(self, name: str, args: list, spec) -> str:
         """Only predicate/projection arguments introduce a fresh record scope."""
+        if args[0].kind in {'num','str','bool','record'}:
+            raise lx.FxSyntaxError(f'{name}: this mapping requires a table; scalar/record overload is not implemented')
         scope = self.new_scope()
         source, binding = self.scoped_source(args[0], scope)
         def view_reference(node):
@@ -630,6 +642,7 @@ class Emitter:
             js_args = [js_args[0], " && ".join(f"({arg})" for arg in js_args[1:])]
         if has_await and name != "ForAll":
             raise lx.FxSyntaxError(f"asynchronous {name} record expression needs an explicit adapter")
+        js_args[0] = f'FX.tableArg({js_args[0]})'
         if name == "LookUp" and len(js_args) > 2:
             return f"FX.lookUp({js_args[0]}, ({scope}) => {js_args[1]}, ({scope}) => {js_args[2]})"
         if name == "AddColumns":
@@ -647,7 +660,23 @@ class Emitter:
         if name == 'Split':
             self.res.approximations.append('Split exposes Value and a legacy Result alias; Result survives AddColumns but is not retained through JSON, collection normalization or other table-copy operations')
         js_args = [self.expr(a) for a in args]
-        return self._fill(spec.js, js_args)
+        if name in {'DateAdd', 'DateDiff'} and len(args) == 3:
+            unit = args[2]
+            if (unit.kind == 'ident' and unit.value in TIME_UNITS and unit.value not in self.global_names
+                    and unit.value.casefold() not in self.named_formulas and unit.value not in self.control_names):
+                value = _q(unit.value)
+                value = f'FXRuntime.variable({_q(self.screen_name)}, {_q(unit.value)}, () => {value})' if self.screen_name else value
+                if self.scopes:
+                    value = (f"FX.scopeValue([{', '.join(scope.variable for scope in reversed(self.scopes))}], "
+                             f"{_q(_snake(unit.value))}, () => {value})")
+                js_args[2] = value
+        if name in SCALAR_ARGUMENTS:
+            js_args = [value if arg.kind in {'num','str','bool','blank'} else f'FX.scalar({value})'
+                       for arg, value in zip(args, js_args)]
+        emitted = self._fill(spec.js, js_args)
+        if any(value not in emitted for value in js_args):
+            raise lx.FxSyntaxError(f'{name}: mapping would discard an argument')
+        return emitted
 
     def _fill(self, tmpl: str, js_args: list[str]) -> str:
         out = tmpl
@@ -766,6 +795,9 @@ class Emitter:
         # instead of round-tripping through the Sheet API.
         if ds in self.collections:
             return self.collection_call(name, ds, node, ex, row_scope)
+
+        if name in {'Collect','ClearCollect'} and len(args) != 2:
+            raise lx.FxSyntaxError(f'{name}: external sources currently support one record argument')
 
         if name == 'UpdateIf':
             self.res.unmapped.append('UpdateIf against an external data source')

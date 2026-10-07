@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "sources": [
+    "https://learn.microsoft.com/power-platform/power-fx/reference/function-value",
+    "https://learn.microsoft.com/power-platform/power-fx/reference/function-dateadd-datediff",
+    "https://learn.microsoft.com/power-platform/power-fx/reference/function-datetime-parts",
+    "https://learn.microsoft.com/power-platform/power-fx/reference/function-replace-substitute",
+    "https://learn.microsoft.com/power-platform/power-fx/reference/function-round",
+    "https://learn.microsoft.com/power-platform/power-fx/error-handling",
+    "https://raw.githubusercontent.com/microsoft/Power-Fx/main/src/libraries/Microsoft.PowerFx.Interpreter/Functions/Library.cs",
+    "https://raw.githubusercontent.com/microsoft/Power-Fx/main/src/libraries/Microsoft.PowerFx.Interpreter/Functions/LibraryDate.cs"
+  ],
+  "cases": [
+    {"id":"invalid-number","formula":"IfError(Value(\"abc\"), -1)","expected":-1},
+    {"id":"mixed-text-number","formula":"IfError(Value(\"12cats\"), -1)","expected":-1},
+    {"id":"percentage","formula":"Value(\"12.34%\")","expected":0.1234},
+    {"id":"locale-comma","formula":"Value(\"123,456\", \"es-ES\")","expected":123.456},
+    {"id":"locale-group","formula":"Value(\"123.456\", \"es-ES\")","expected":123456},
+    {"id":"empty-number","formula":"IsBlank(Value(Blank()))","expected":true},
+    {"id":"currency-percent-error","formula":"IfError(Value(\"$12%\"), -1)","expected":-1},
+    {"id":"overflow-error","formula":"IfError(Value(\"1e999\"), -1)","expected":-1},
+    {"id":"substitute-instance","formula":"Substitute(\"a a a\", \"a\", \"b\", 2)","expected":"a b a"},
+    {"id":"substitute-all","formula":"Substitute(\"a a a\", \"a\", \"b\")","expected":"b b b"},
+    {"id":"substitute-missing","formula":"Substitute(\"a a\", \"a\", \"b\", 3)","expected":"a a"},
+    {"id":"weekday-monday","formula":"Weekday(Date(2026, 10, 5), 2)","expected":1},
+    {"id":"weekday-monday-zero","formula":"Weekday(Date(2026, 10, 5), StartOfWeek.MondayZero)","expected":0},
+    {"id":"date-hour-boundary","formula":"DateDiff(TimeValue(\"09:45:00\"), TimeValue(\"10:15:36\"), TimeUnit.Hours)","expected":1},
+    {"id":"date-minute-boundary","formula":"DateDiff(TimeValue(\"09:45:00\"), TimeValue(\"10:15:36\"), TimeUnit.Minutes)","expected":30},
+    {"id":"date-milliseconds","formula":"DateDiff(Date(2026, 1, 1), Date(2026, 1, 2), TimeUnit.Milliseconds)","expected":86400000},
+    {"id":"date-quarter","formula":"DateDiff(Date(2026, 3, 31), Date(2026, 4, 1), TimeUnit.Quarters)","expected":1},
+    {"id":"date-blank-start","formula":"DateDiff(Blank(), Date(1899, 12, 31))","expected":1},
+    {"id":"date-blank-end","formula":"DateDiff(Date(1899, 12, 31), Blank())","expected":-1},
+    {"id":"date-blank-add","formula":"Day(DateAdd(Blank(), 1))","expected":31},
+    {"id":"date-negative-hour","formula":"DateDiff(TimeValue(\"10:15:36\"), TimeValue(\"09:45:00\"), TimeUnit.Hours)","expected":-1},
+    {"id":"month-end","formula":"Day(DateAdd(Date(2024, 1, 31), 1, TimeUnit.Months))","expected":29},
+    {"id":"division-error","formula":"IfError(1 / 0, -1)","expected":-1},
+    {"id":"nested-division-error","formula":"IfError(Text(1 / 0), \"error\")","expected":"error"},
+    {"id":"unselected-error","formula":"If(false, 1 / 0, 3)","expected":3},
+    {"id":"negative-round","formula":"Round(-1.5, 0)","expected":-2},
+    {"id":"negative-round-up","formula":"RoundUp(-1.1, 0)","expected":-2},
+    {"id":"negative-round-down","formula":"RoundDown(-1.9, 0)","expected":-1}
+  ]
+}

@@ -35,12 +35,59 @@
     return typeof v === 'number' && !Number.isFinite(v);
   }
   function toNum(v) {
-    if (typeof v === 'number') return v;
-    if (typeof v === 'boolean') return v ? 1 : 0;
-    var n = parseFloat(String(v).replace(/[^0-9eE+\-.]/g, ''));
-    return isNaN(n) ? 0 : n;
+    return isBlank(v) ? 0 : numberValue(v);
+  }
+  function finiteNumber(value) {
+    if (typeof value === 'number' && !Number.isFinite(value)) throw new Error('Numeric result is not finite');
+    return value;
+  }
+  function scalar(value) {
+    if (value !== null && typeof value === 'object' && !(value instanceof Date))
+      throw new Error('This function requires a scalar; table/record overload is not implemented');
+    return finiteNumber(value);
+  }
+  function numberValue(value, language) {
+    scalar(value);
+    if (isBlank(value)) return null;
+    if (value instanceof Date) return finiteNumber(value.getTime());
+    if (typeof value === 'number') return finiteNumber(value);
+    if (typeof value === 'boolean') return value ? 1 : 0;
+    if (typeof value !== 'string') throw new Error('Value requires numeric text');
+    var locale = language || (global.navigator && global.navigator.language) || 'en-US';
+    var tag = new Intl.Locale(locale).maximize();
+    if (!Intl.NumberFormat.supportedLocalesOf([locale]).length) throw new Error('Unsupported numeric language: ' + locale);
+    var parts = new Intl.NumberFormat(locale).formatToParts(12345.6);
+    var decimal = parts.find(function (p) { return p.type === 'decimal'; }).value;
+    var group = parts.find(function (p) { return p.type === 'group'; });
+    var text = value.trim(), percent = /%$/.test(text);
+    if (percent) text = text.slice(0, -1).trim();
+    // Currency must belong to the requested culture; never strip arbitrary text.
+    var currencies = {US:'USD',GB:'GBP',ES:'EUR',FR:'EUR',DE:'EUR',IT:'EUR',PT:'EUR',NL:'EUR',IE:'EUR',
+      CA:'CAD',AU:'AUD',NZ:'NZD',IN:'INR',JP:'JPY',CN:'CNY',BR:'BRL',MX:'MXN',CH:'CHF'};
+    var currency = currencies[tag.region];
+    if (currency) {
+      var symbol = new Intl.NumberFormat(locale, {style:'currency',currency:currency}).formatToParts(1)
+        .find(function (p) { return p.type === 'currency'; }).value;
+      if (text.includes(symbol)) {
+        if (percent) throw new Error('Value cannot mix currency and percentage');
+        if (text.startsWith(symbol)) text = text.slice(symbol.length).trim();
+        else if (text.endsWith(symbol)) text = text.slice(0, -symbol.length).trim();
+        else throw new Error('Invalid currency position');
+      }
+    }
+    if (group) text = text.split(group.value).join('');
+    if (decimal !== '.') {
+      if (text.includes('.')) throw new Error('Invalid numeric separator');
+      text = text.replace(decimal, '.');
+    }
+    if (!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(text))
+      throw new Error('Value cannot convert text to a number');
+    return finiteNumber(Number(text) / (percent ? 100 : 1));
   }
   function toDate(v) {
+    // Power Fx replaces blank date arithmetic operands with its civil epoch.
+    // Undefined initial state must behave like Blank(), not Invalid Date.
+    if (isBlank(v)) return new Date(1899, 11, 30);
     if (v instanceof Date) return v;
     return new Date(v);
   }
@@ -343,7 +390,7 @@
     ifError: function (tryFn, catchFn) {
       try {
         var result = tryFn();
-        return result && typeof result.then === 'function' ? result.catch(catchFn) : result;
+        return result && typeof result.then === 'function' ? result.then(finiteNumber).catch(catchFn) : finiteNumber(result);
       } catch (e) { return catchFn(e); }
     },
     withRow: function (record, fn) { return fn(Object.assign({}, record)); },
@@ -597,19 +644,31 @@
     max: function () { return Math.max.apply(null, flattenArgs(arguments).map(toNum)); },
 
     // --- numbers -----------------------------------------------------------
-    value: toNum,
+    scalar: scalar,
+    tableArg: function (value) {
+      if (isBlank(value)) return [];
+      if (!Array.isArray(value)) throw new Error('This mapping requires a table; scalar/record overload is not implemented');
+      return value;
+    },
+    value: numberValue,
+    multiply: function (a, b) { return finiteNumber(arithmeticNumber(a) * arithmeticNumber(b)); },
+    divide: function (a, b) {
+      var denominator = arithmeticNumber(b);
+      if (denominator === 0) throw new Error('Division by zero');
+      return finiteNumber(arithmeticNumber(a) / denominator);
+    },
     mod: function (a, b) { return ((toNum(a) % toNum(b)) + toNum(b)) % toNum(b); },
     round: function (v, places) {
       var p = Math.pow(10, places == null ? 0 : toNum(places));
-      return Math.round(toNum(v) * p) / p;
+      var n = toNum(v); return finiteNumber(Math.sign(n) * Math.round(Math.abs(n) * p) / p);
     },
     roundUp: function (v, places) {
       var p = Math.pow(10, places == null ? 0 : toNum(places));
-      return Math.ceil(toNum(v) * p) / p;
+      var n = toNum(v); return finiteNumber(Math.sign(n) * Math.ceil(Math.abs(n) * p) / p);
     },
     roundDown: function (v, places) {
       var p = Math.pow(10, places == null ? 0 : toNum(places));
-      return Math.floor(toNum(v) * p) / p;
+      return finiteNumber(Math.trunc(toNum(v) * p) / p);
     },
 
     // --- text --------------------------------------------------------------
@@ -625,8 +684,18 @@
         return w.charAt(0).toUpperCase() + w.slice(1).toLowerCase();
       });
     },
-    substitute: function (s, old, rep) {
-      return String(s == null ? '' : s).split(String(old)).join(String(rep));
+    substitute: function (s, old, rep, instance) {
+      var text = String(s == null ? '' : s), needle = String(old == null ? '' : old), replacement = String(rep == null ? '' : rep);
+      if (instance != null && (!Number.isInteger(instance) || instance < 1)) throw new Error('Substitute instance must be a positive integer');
+      if (!needle) return text;
+      if (instance == null) return text.split(needle).join(replacement);
+      var from = 0, at = -1;
+      for (var i = 0; i < instance; i++) {
+        at = text.indexOf(needle, from);
+        if (at < 0) return text;
+        from = at + needle.length;
+      }
+      return text.slice(0, at) + replacement + text.slice(from);
     },
     replace: function (s, start, count, rep) {
       var str = String(s == null ? '' : s);
@@ -758,7 +827,13 @@
     day: function (d) { return toDate(d).getDate(); },
     hour: function (d) { return toDate(d).getHours(); },
     minute: function (d) { return toDate(d).getMinutes(); },
-    weekday: function (d) { return toDate(d).getDay() + 1; }, // Sunday=1 like Power Fx
+    weekday: function (d, start) {
+      var codes = {Sunday:1,Monday:2,MondayZero:3,Tuesday:12,Wednesday:13,Thursday:14,Friday:15,Saturday:16};
+      var code = start == null ? 1 : (codes[start] || start);
+      var first = {1:0,2:1,3:1,11:1,12:2,13:3,14:4,15:5,16:6,17:0}[code];
+      if (first === undefined) throw new Error('Unsupported Weekday start');
+      return (toDate(d).getDay() - first + 7) % 7 + (code === 3 ? 0 : 1);
+    },
     dateAdd: function (d, n, unit) {
       var x = new Date(toDate(d).getTime()), k = toNum(n);
       switch (String(unit || 'days').toLowerCase()) {
@@ -766,27 +841,33 @@
         case 'seconds': return new Date(x.getTime() + k * 1000);
         case 'minutes': return new Date(x.getTime() + k * 60000);
         case 'hours': return new Date(x.getTime() + k * 3600000);
-        case 'days': default:
+        case 'days':
           return addDateDays(x, k);
-        case 'months':
-          x.setMonth(x.getMonth() + k); return x;
-        case 'quarters':
-          x.setMonth(x.getMonth() + k * 3); return x;
-        case 'years':
-          x.setFullYear(x.getFullYear() + k); return x;
+        case 'months': case 'quarters': case 'years': {
+          var scale = {months:1,quarters:3,years:12}[String(unit).toLowerCase()];
+          var day = x.getDate();
+          x.setDate(1); x.setMonth(x.getMonth() + Math.trunc(k) * scale);
+          var last = new Date(x.getFullYear(), x.getMonth() + 1, 0).getDate();
+          x.setDate(Math.min(day, last)); return x;
+        }
+        default: throw new Error('Unsupported DateAdd unit');
       }
     },
     dateDiff: function (a, b, unit) {
-      var ms = toDate(b).getTime() - toDate(a).getTime();
+      var start = toDate(a), end = toDate(b), startStamp = civilStamp(start);
+      var endStamp = civilStamp(end) + (end.getTimezoneOffset() - start.getTimezoneOffset()) * 60000;
+      function boundaries(size) { return Math.floor(endStamp / size) - Math.floor(startStamp / size); }
       switch (String(unit || 'days').toLowerCase()) {
-        case 'seconds': return ms / 1000;
-        case 'minutes': return ms / 60000;
-        case 'hours': return ms / 3600000;
-        case 'days': default: return Math.round(ms / 86400000);
+        case 'milliseconds': return boundaries(1);
+        case 'seconds': return boundaries(1000);
+        case 'minutes': return boundaries(60000);
+        case 'hours': return boundaries(3600000);
+        case 'days': return boundaries(86400000);
         case 'months': return (toDate(b).getFullYear() - toDate(a).getFullYear()) * 12 +
           (toDate(b).getMonth() - toDate(a).getMonth());
-        case 'quarters': return FX.dateDiff(a, b, 'years') * 4;
+        case 'quarters': return FX.dateDiff(a, b, 'years') * 4 + Math.floor(end.getMonth()/3) - Math.floor(start.getMonth()/3);
         case 'years': return toDate(b).getFullYear() - toDate(a).getFullYear();
+        default: throw new Error('Unsupported DateDiff unit');
       }
     },
     date: function (y, m, d) { return new Date(toNum(y), toNum(m) - 1, toNum(d)); },
