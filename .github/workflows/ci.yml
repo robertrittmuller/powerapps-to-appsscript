@@ -83,12 +83,17 @@ jobs:
       - name: Generated client and server browser journeys
         run: ./pfx2gas browser
 
+      - name: Source-target comparison capture regression
+        run: ./pfx2gas browser scripts/check_comparison_capture.py
+
       - name: Publish browser evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: generated-app-browser-evidence
-          path: .artifacts/browser
+          path: |
+            .artifacts/browser
+            .artifacts/comparison-selftest
           if-no-files-found: error
 
       - name: CLI smoke — convert a fixture, validate it, syntax-check the .gs

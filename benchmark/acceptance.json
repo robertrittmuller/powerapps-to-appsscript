@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "description": "Authoritative ten-app release acceptance. Missing or partial evidence never passes.",
+  "setupCommands": [["scripts/fetch_samples.py"], ["scripts/fetch_microsoft_samples.py"]],
+  "baselineCommands": [["scripts/soak_check.py"], ["scripts/assess_microsoft_samples.py"]],
+  "apps": [
+    {"id":"expandable-nav","source":"samples/real/expandable-nav.msapp","journeys":["expand-and-navigate"],"liveChecks":["authorization","directoryProfile"],"runner":["scripts/assess_public_workflows.py"],"result":".artifacts/browser/public-expandable-nav/result.json","dataSetup":"Explicit Google directory account mappings and profile fixtures"},
+    {"id":"modern-card","source":"samples/real/modern-card.msapp","journeys":["exercise-card-actions"],"liveChecks":["authorization","documentAction","failureRecovery"],"runner":["scripts/assess_modern_card_workflow.py"],"result":".artifacts/browser/public-modern-card/result.json","dataSetup":"Complete source MyFiles schema and document records required; currently missing"},
+    {"id":"svg-app","source":"samples/real/svg-app.msapp","journeys":["render-svg-states"],"liveChecks":["rendering","reloadDefaults"],"runner":["scripts/assess_svg_workflow.py"],"result":".artifacts/browser/public-svg-app/result.json","dataSetup":"Source inputs, SVG states and accessible interaction expectations"},
+    {"id":"sentiment-feedback","source":"samples/real/sentiment-feedback.msapp","journeys":["submit-feedback"],"runner":null,"result":null,"dataSetup":"A faithful sentiment service adapter with source save/failure behavior is required"},
+    {"id":"milestones","source":"samples/microsoft/milestones.msapp","solution":"samples/microsoft/Milestones.solution.zip","journeys":["project-task-lifecycle"],"runner":["scripts/assess_milestones_workflow.py","--filters"],"result":".artifacts/browser/milestones-populated-filters/result.json","dataSetup":"Source users, Google directory mappings, project and work-item records; broader usability remains required"},
+    {"id":"employee-ideas","source":"samples/microsoft/employee-ideas.msapp","solution":"samples/microsoft/EmployeeIdeas.solution.zip","journeys":["submit-vote-reopen"],"runner":["scripts/assess_employee_workflow.py","--voting","--chat"],"result":".artifacts/browser/employee-populated-voting-chat/result.json","dataSetup":"Source campaigns/users, Google Chat mappings, persisted idea and voter relationships"},
+    {"id":"employee-ideas-manager","source":"samples/microsoft/employee-ideas-manager.msapp","solution":"samples/microsoft/EmployeeIdeas.solution.zip","journeys":["campaign-lifecycle"],"runner":null,"result":null,"dataSetup":"Manager/member roles, campaign dates/status and Chat mappings"},
+    {"id":"inspection","source":"samples/microsoft/inspection.msapp","solution":"samples/microsoft/Inspection.solution.zip","journeys":["inspection-submit"],"runner":null,"result":null,"dataSetup":"Imported Planner board, users, areas, checklists and saved answers"},
+    {"id":"inspection-manager","source":"samples/microsoft/inspection-manager.msapp","solution":"samples/microsoft/Inspection.solution.zip","journeys":["configure-inspection"],"runner":null,"result":null,"dataSetup":"Manager roles and persistent area/checklist/step records"},
+    {"id":"review-inspections","source":"samples/microsoft/review-inspections.msapp","solution":"samples/microsoft/Inspection.solution.zip","journeys":["review-filter-followup"],"runner":null,"result":null,"dataSetup":"Saved responses, chart totals, directory and Planner/Chat follow-up mappings"}
+  ]
+}

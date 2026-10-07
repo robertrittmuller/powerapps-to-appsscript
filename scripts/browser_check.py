@@ -486,6 +486,8 @@ def run_case(browser, name, source, journey, clock=False, launch_parameters=None
               "inputSha256": hashlib.sha256(source.read_bytes()).hexdigest(),
               "sourceMetadata": ir.source_metadata,
               "converterSourceSha256": converter_fingerprint(), "browserVersion": browser.version}
+    if solution:
+        result['solutionSha256'] = hashlib.sha256(solution.read_bytes()).hexdigest()
     if fixed_time or running_time or timezone_id:
         result['dateContext'] = {'now':fixed_time or running_time,'timeZone':timezone_id,
                                  'clock':'running' if running_time else 'fixed' if fixed_time else 'system'}

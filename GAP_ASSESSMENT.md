@@ -1,4 +1,54 @@
-# pfx2gas — Gap Assessment & Roadmap (updated 2026-09-10)
+# pfx2gas — Gap Assessment & Roadmap (updated 2026-10-07)
+
+## October fidelity review implementation
+
+The seven review enhancements are implemented in the deterministic pipeline
+and assurance tooling; they do not establish ten-app acceptance. See
+[Fidelity and acceptance](benchmark/FIDELITY_ACCEPTANCE.md) for commands and
+evidence requirements.
+
+- Conversion emits a source inventory, control/service capability census and
+  generated startup evidence. Strict fidelity requires startup plus zero
+  formula and capability gaps, including formula-free unsupported controls and
+  every LLM fallback. Workflow/source/live stages remain separate.
+- Documented conformance cases cover invalid numbers, percentages/locales,
+  division and nonfinite errors, optional Substitute/Weekday arguments,
+  DateDiff boundaries/units, month-end DateAdd and negative rounding. Cases
+  execute through emitted formulas in four time zones and generated labels.
+- Every mapped function has explicit supported argument counts. Scalar-only
+  mappings reject literal table/record overloads, check dynamic scalar inputs,
+  and reject templates that discard supplied arguments. This is not a complete
+  Power Fx type checker; unsupported overloads remain ledgered.
+- Source SystemRequired, read-only/calculated flags and literal defaults survive
+  parsing into the generated server contract. Invalid writes fail before row
+  mutation. Privileges, computed values, audit defaults, lookup propagation and
+  non-UserLocal date storage remain explicit gaps.
+- `benchmark/acceptance.json` is the authoritative ten-app release manifest.
+  A dedicated CI gate fails on missing runners, partial coverage, failed steps,
+  missing comparisons/live evidence or stale source/converter/runner hashes.
+  Ordinary CI remains a regression gate. Missing full-app journeys remain work
+  to implement; they are not waived by passing narrow fixture tests.
+- `preflight` distinguishes incomplete exports, converter gaps and migration
+  prerequisites. A Chromium capture runner compares declared source/target
+  observations with common locale, time zone, viewport, roles and data snapshot;
+  it retains screenshots and supports separate actor sessions and nested frames.
+  Actual source sessions, imports and Google deployments are still required.
+- Optional LLM review ranks startup, mutations, validations and value formulas
+  across the entire app, records unreviewed contexts and rejects unrelated or
+  duplicate verdicts. QA suggestions remain proposals for deterministic tests.
+
+The new safeguards expose remaining functionality gaps more accurately; they
+must not be interpreted as evidence that those gaps have been repaired.
+
+Verification on this change: 683 Python tests passed (3 skipped), 119 JavaScript
+tests passed, and 43 generated Chromium journeys passed, including separate
+expected-failure checks for the evidence harness. The source/target capture
+self-test and packaged CLI startup checks passed. The public soak remains
+3/5 bootable: Student Tracker metadata and directory migration are missing in
+the two failing generic starts. Full release acceptance is 0/10 because complete
+workflows and original/live evidence are still missing. Required-field checks
+also reject incomplete Users seed records in the Employee Ideas and Milestones
+workflow fixtures; no required source values were fabricated to bypass them.
 
 The product goal is to convert common business Power Apps canvas apps into
 Google-hosted apps that work correctly and preserve as much of the original UI

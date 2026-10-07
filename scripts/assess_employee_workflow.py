@@ -225,6 +225,7 @@ def main(voting=False,chat=False):
     result.update(sourceAppId='employee-ideas', steps=steps,
         assessmentScope='populated campaign browsing, custom text questions, idea submission, reload and reopening' + ('; voting probe' if voting else '') + ('; native Chat notification fixtures' if chat else ''),
         completeUsability='unassessed', mutationAndSubmission='assessed by individual steps',
+        assessmentScriptSha256=hashlib.sha256((REPO/'scripts/assess_employee_workflow.py').read_bytes()).hexdigest(),
         externalPosting=('native Google Chat create with explicit API fixtures; live delivery unverified' if chat else
                          'unmigrated; source warning/recovery path is exercised'))
     (OUT / name / 'result.json').write_text(json.dumps(result, indent=2) + '\n')

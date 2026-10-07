@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "sourceExport": "samples/real/YOUR-APP.msapp",
+  "sourceUrl": "https://apps.powerapps.com/play/REPLACE-WITH-SOURCE-APP",
+  "targetUrl": "https://script.google.com/macros/s/REPLACE-WITH-DEPLOYMENT/exec",
+  "deploymentVersion": "REPLACE-WITH-DEPLOYED-VERSION",
+  "context": {
+    "locale": "en-US",
+    "timezone": "America/New_York",
+    "viewport": {"width": 1440, "height": 900},
+    "dataSnapshotSha256": "REPLACE-WITH-REVIEWED-INITIAL-DATA-HASH",
+    "launchParameters": {}
+  },
+  "actors": [
+    {"id": "member", "role": "member", "sessions": {"source": ".artifacts/sessions/source-member.json", "target": ".artifacts/sessions/target-member.json"}},
+    {"id": "manager", "role": "manager", "sessions": {"source": ".artifacts/sessions/source-manager.json", "target": ".artifacts/sessions/target-manager.json"}}
+  ],
+  "journeys": ["REPLACE-WITH-MANIFEST-JOURNEY"],
+  "steps": [
+    {
+      "id": "initial-title",
+      "actor": "member",
+      "action": "observe",
+      "journey": "REPLACE-WITH-MANIFEST-JOURNEY",
+      "read": "text",
+      "expected": "REPLACE-WITH-ORIGINAL-EXPECTED-TITLE",
+      "locators": {
+        "source": "REPLACE-WITH-SOURCE-SELECTOR",
+        "target": {"frames": ["iframe", "iframe"], "selector": "[data-control=REPLACE]"}
+      }
+    }
+  ]
+}

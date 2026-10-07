@@ -47,10 +47,11 @@ Dataverse state and status reason fields use their exported option relationships
 and per-state defaults. The standard Active/Inactive model creates active rows;
 other models need an exported initial state. State changes choose the matching
 default reason, explicit reasons must belong to the selected state, and source
-read-only flags are honored. Missing metadata and custom transition rules fail
-explicitly. Both the ledger and data contract retain the adapter. Existing rows
-are not backfilled, and audit timestamps, plugins and other column defaults
-remain unsupported.
+read-only flags are honored. General create/update flags, SystemRequired columns
+and exported literal defaults now also reach the server contract. ApplicationRequired
+remains a client/application rule, matching Dataverse's server distinction.
+Missing metadata and custom transitions fail explicitly. Calculated/rollup
+fields, audit defaults, plugins and existing-row backfills remain unsupported.
 
 MicrosoftTeams team/channel selectors and notifications now use native Google
 Chat. `ChatMigration.gs` and `chat-migration.md` map original IDs to named Google
@@ -84,8 +85,9 @@ app.msapp ──▶ unpack ──▶ parse ──▶ analyze ──▶ synthesiz
   fields from mutations, references, and Form DataCards, and transpiles every formula
   with a coverage ledger of what succeeded.
 - **Synthesize** — emits the Apps Script project (see layout below).
-- **Validate** — `node --check` every generated script, structural checks,
-  count of unsupported-function stubs.
+- **Validate** — syntax and structure checks, source-inventory/contract consistency,
+  and formula plus control/service fidelity gaps. Conversion also boots the
+  generated client and server under the simulator and records the result.
 - **Report** — `conversion-report.md`: per-formula status table, data mapping,
   manual follow-ups, capacity notes.
 
@@ -157,7 +159,8 @@ converted app and never hit the Sheet.
 
 ```
 ./pfx2gas convert <file.msapp> [-o DIR] [--report-only] [--no-llm]
-./pfx2gas validate <project_dir> [--strict-fidelity]
+./pfx2gas preflight <file.msapp> [--solution ZIP_OR_XML] [-o FILE.json]
+./pfx2gas validate <project_dir> [--strict-fidelity] [--require-stage bootable]
 ```
 
 | Option | Meaning |
@@ -169,10 +172,25 @@ converted app and never hit the Sheet.
 | `--solution ZIP_OR_XML` | Load saved-view FetchXML from an exported solution ZIP or `customizations.xml` |
 | `--webapp-access` | `ANYONE` (signed-in default), `MYSELF`, `DOMAIN`, or explicit `ANYONE_ANONYMOUS` |
 | `--execute-as` | `USER_ACCESSING` (default) or explicit `USER_DEPLOYING` |
-| `--strict-fidelity` | Exit non-zero when the generated fidelity ledger contains gaps |
+| `--strict-fidelity` | Require verified startup and zero formula/control/service/migration gaps; LLM fallback remains a gap |
+| `--require-stage bootable` | Require generated client/server startup to pass; dynamic launch expectations remain unassessed |
+| `preflight <file>` | Inventory source, converter and migration gaps before generation; exit 1 when attention is needed |
 | `validate <dir>` | Re-run structural/syntax checks on a converted project |
 
 Exit codes: `0` success (validator PASS), `1` validation failure or bad input.
+
+The default success threshold is **generated**, so a reported startup failure
+does not silently change legacy exit-code behavior. Select `--require-stage
+bootable` to make startup mandatory. Neither mode certifies workflows or source
+equivalence. `verification.json` records those separate stages and fingerprints
+the generated project; `source-inventory.json` and the schema-2 ledger prevent
+formula-free unsupported controls or unverified LLM formulas disappearing from
+the fidelity count. Regenerate older projects before validating them.
+
+The [fidelity and acceptance guide](benchmark/FIDELITY_ACCEPTANCE.md) describes
+the seven assurance enhancements, the ten-app release gate, source/target
+capture plans and live Google evidence. `review-coverage.json` lists exactly
+which formulas the optional risk-ranked LLM review did and did not assess.
 
 ## What the converter produces
 

@@ -210,7 +210,7 @@ def build_scorecard(
 
 
 def gate_errors(scorecard: dict[str, Any]) -> list[str]:
-    """Release gate: absent evidence stays unassessed; executed failures never pass."""
+    """Regression gate; release acceptance is enforced separately by acceptance.py."""
     errors = []
     if not scorecard.get("apps"):
         errors.append("no benchmark apps were exercised")
