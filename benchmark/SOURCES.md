@@ -38,6 +38,13 @@ Two complete source formulas are retained in
 screen/control names, under `tests/fixtures/MICROSOFT-LICENSE.txt`. The generated
 `fixtureSourceFormulas.msapp` wraps those unchanged formulas in test controls and
 sample collections. It is a regression fixture, not a real acceptance app.
+Six complete voting actions are retained separately in
+`tests/fixtures/microsoft-voting-formulas.json` under that same Microsoft license.
+The three distinct source fingerprints authorize a deterministic voting repair:
+the emitted action chooses Relate or Unrelate exclusively instead of running an
+unconditional Unrelate branch. This is an intentional behavioral deviation
+approved for this conversion, recorded with original formula/hash in the ledger;
+the `.msapp` itself remains unchanged. Changed formulas are never auto-repaired.
 
 Reproduce with Docker:
 
@@ -60,10 +67,10 @@ one authored user, four campaigns and three questions through generated Code.gs:
 fields and labels, required-title validation, single/multiline custom responses,
 submission, persistence, reload, reopening and per-campaign idea counts. The unrelated campaign question
 is excluded. The source warning path handles the unsupported Teams post.
-The optional `--voting` probe persists a count of one and executes Relate/Unrelate,
-but fails its membership assertion. The source Concurrent contains an
-unconditional Unrelate branch that removes the voting-user link in this run;
-the ordering risk is ledgered and retained for source review.
+The optional `--voting` probe checks the documented source repair through cast,
+reload, withdrawal and reload, including both count and voter membership. Vote
+count writes retain the source's independent read/modify/write branch;
+simultaneous users and multi-operation atomicity remain unverified.
 Ratings, attachments, manager workflows and complete usability remain
 unassessed. Source app and solution bytes stay unchanged.
 The combined scorecard retains failures with matching source/converter/solution
@@ -71,6 +78,14 @@ hashes. Authored record contents and a data hash accompany the populated probe.
 All six remain below complete usability acceptance. See `GAP_ASSESSMENT.md` for the fix
 sequence. This is a separate acceptance baseline, not a hidden allowance in
 the existing passing regression corpus.
+
+The October follow-up retains valid code for all six exports, but only Employee
+Ideas passes the generic startup probe. Inspection's empty duration collections
+now fail the stricter division checks; other starts need identity/connector
+migrations. Separate synthetic-snapshot workflows pass 47 Employee Ideas
+submission/voting/Chat-fixture checks and all 260 Milestones lifecycle/filter
+checks. These do not promote generic startup failures or establish complete
+business-app usability, source equivalence or live Google acceptance.
 
 ## Existing modern regression corpus
 
@@ -82,6 +97,11 @@ Cached mismatches fail without overwriting local exports. These files are
 downloaded for testing, not redistributed; their redistribution license has not
 been established by this assessment. Editable Grid lacks its Student Tracker
 metadata and initialization, so it is not the sole persistent CRUD target.
+These five exports are community examples, not Microsoft-published templates.
+Modern Card's [pinned README](https://github.com/sunilshetty07/Microsoft-PowerApps-Canvas/blob/3e60c764a51d63061064e2902e247e6daeaa8468/Modern%20Card%20Control/README.md)
+requires a document-library connection. That folder supplies only the canvas
+export and README, with no MyFiles library schema/data to recover. The missing
+document contract remains source-incomplete; it is not replaced with invented files.
 
 `benchmark/apps.json.requiredApps` names those five reproducible CI inputs.
 Five additional local exports (including HelpDesk) remain optional and their

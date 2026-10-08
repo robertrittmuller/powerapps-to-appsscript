@@ -17,11 +17,17 @@ def load_manifest(path: Path) -> dict:
     apps = manifest.get('apps')
     if manifest.get('schemaVersion') != 1 or not isinstance(apps,list) or not apps:
         raise ValueError('Acceptance manifest requires schemaVersion 1 and apps')
+    def validate_files(files):
+        if (not isinstance(files,list) or any(not isinstance(file,str) or not file for file in files)
+                or len(set(files)) != len(files)):
+            raise ValueError('Assessment dependencies must be unique file paths')
+    validate_files(manifest.get('harnessFiles', []))
     ids = set()
     for app in apps:
         if not isinstance(app,dict) or not app.get('id') or app['id'] in ids:
             raise ValueError('Acceptance app IDs must be unique')
         ids.add(app['id'])
+        validate_files(app.get('dependencies', []))
         if not app.get('source') or not app.get('dataSetup') or not app.get('journeys') or len(set(app['journeys'])) != len(app['journeys']):
             raise ValueError('Every acceptance app requires source, setup and unique required journeys')
         if app.get('runner') is not None and (not isinstance(app['runner'],list) or not app['runner'] or not all(isinstance(arg,str) for arg in app['runner']) or not app.get('result')):
@@ -56,6 +62,9 @@ def assess_manifest(root: Path, manifest_path: Path, *, require_source=False, re
                 errors.append('Evidence was produced by a different converter revision')
             if evidence.get('assessmentScriptSha256') != sha256(root/spec['runner'][0]):
                 errors.append('Assessment-script fingerprint is missing or stale')
+            for file in [*manifest.get('harnessFiles', []), *spec.get('dependencies', [])]:
+                if evidence.get('assessmentDependencySha256', {}).get(file) != sha256(root/file):
+                    errors.append('Assessment dependency fingerprint is missing or stale: ' + file)
             if spec.get('solution') and (root/spec['solution']).is_file() and evidence.get('solutionSha256') != sha256(root/spec['solution']):
                 errors.append('Solution-metadata fingerprint is missing or stale')
             if evidence.get('status') != 'pass' or evidence.get('consoleErrors'):

@@ -117,3 +117,19 @@ def test_malformed_steps_and_missing_solution_metadata_fail_closed(tmp_path):
     manifest=json.loads(path.read_text()); manifest['apps'][0]['solution']='solution.zip'
     path.write_text(json.dumps(manifest))
     assert assess_manifest(tmp_path,path)['status']=='fail'
+
+
+@pytest.mark.parametrize('scope',['harness','app'])
+def test_changed_harness_and_data_fixtures_invalidate_workflow_evidence(tmp_path,scope):
+    path,result=make_manifest(tmp_path)
+    fixture=tmp_path/'fixture.json';fixture.write_text('{"user":"original"}')
+    manifest=json.loads(path.read_text())
+    container=manifest if scope=='harness' else manifest['apps'][0]
+    container['harnessFiles' if scope=='harness' else 'dependencies']=['fixture.json']
+    path.write_text(json.dumps(manifest))
+    assert assess_manifest(tmp_path,path)['status']=='fail'
+    result['assessmentDependencySha256']={'fixture.json':sha256(fixture)}
+    (tmp_path/'result.json').write_text(json.dumps(result))
+    assert assess_manifest(tmp_path,path)['status']=='pass'
+    fixture.write_text('{"user":"changed"}')
+    assert assess_manifest(tmp_path,path)['status']=='fail'

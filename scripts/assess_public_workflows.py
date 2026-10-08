@@ -145,7 +145,8 @@ def main():
 
     with sync_playwright() as p:
         browser = p.chromium.launch()
-        result = run_case(browser, name, REPO/'samples/real/expandable-nav.msapp', journey, setup_backend=setup_directory)
+        result = run_case(browser, name, REPO/'samples/real/expandable-nav.msapp', journey, setup_backend=setup_directory,
+                          assessment_dependencies=['tests/fixtures/google-directory.json'])
         browser.close()
     if result['status']=='pass' and (len(steps)!=75 or any(step['status']!='pass' for step in steps)):
         result.update(status='fail',error='Incomplete required navigation/UI checks')

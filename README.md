@@ -233,21 +233,38 @@ first actions for Milestones, Employee Ideas and Inspection in Chromium,
 retaining delayed connector errors and unreadable primary controls as failures.
 These are partial workflow checks; complete usability remains unproven.
 `./pfx2gas browser scripts/assess_employee_workflow.py` adds explicitly authored
-campaign/user/question records through generated Code.gs before startup. Its 29 checks
-pass: campaign filtering/order/search/selection, mobile field layout and labels,
-required-title validation, single/multiline custom responses, campaign idea counts, submission,
-persistence, reload and reopening. The unmigrated Teams post follows the source
-warning/recovery path. Adding `--voting` persists a count of one, but fails the
-membership assertion: the exported Concurrent runs both Relate and an
-unconditional Unrelate, leaving no voter link in this run. That source ordering
-risk is ledgered; the converter preserves the source actions.
+campaign/user/question snapshots through generated Code.gs before startup. The
+probe covers campaign filtering/order/search/selection, mobile field layout and
+labels, required-title validation, custom text responses, submission, persistence,
+reload and reopening. The unmigrated Teams post follows the source warning path.
+Adding `--voting` exercises a documented repair of Microsoft's release-44 source
+defect: six fingerprinted controls now choose Relate or Unrelate exclusively,
+instead of unconditionally removing voter membership. Original formula bytes,
+hashes and the behavioral deviation are retained in the fidelity ledger.
+Cross-user vote-count concurrency remains unverified.
 Adding `--chat` imports reviewed example space mappings and an explicitly active
-notification settings record. Its 31 checks include the unchanged source's native
+notification settings record. Its checks include the source's native
 Chat request, preserved team/channel IDs, successful submission and reload without
 reposting. Google API responses are fixtures; this is partial workflow evidence.
+The combined `--voting --chat` probe passes 47 checks, including persisted voter
+membership, withdrawal/reload and disclosure of all six repaired actions.
 The browser gate waits for dispatched server calls and includes errors that
 arrive during capture before assigning a verdict.
 Ratings, attachments, manager workflows and complete app usability remain unassessed.
+
+Dataverse conversions also emit `TableMigration.gs` and `table-migration.md`.
+After `setup()`, an operator supplies reviewed source records and runs the private
+`migrateTableData_()` entrypoint in the Apps Script editor. This append-only path
+preserves source primary keys and read-only/calculated snapshots while validating
+the whole table batch before writes. It does not invent required user provisioning
+values, recompute fields, enforce foreign keys or provide a multi-table transaction.
+Re-conversion preserves the operator-edited entrypoint. Browser assessments use
+explicit synthetic migration records; production imports require actual source data.
+Read-only logical lookup companions with exported `AttributeOf` metadata are
+treated as derived projections, while required stored columns remain enforced.
+Global `Choices('Exported option set')` supports exported integer codes and labels
+in selection, transport and local-draft reload; wider Dataverse choice typing
+and dynamic localization remain ledgered gaps.
 `./pfx2gas browser scripts/assess_milestones_workflow.py` verifies original
 Milestones onboarding and persisted settings across two simulated Google users.
 All 19 checks pass. Its `--project` probe reaches project/member creation through

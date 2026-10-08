@@ -37,18 +37,58 @@ evidence requirements.
   across the entire app, records unreviewed contexts and rejects unrelated or
   duplicate verdicts. QA suggestions remain proposals for deterministic tests.
 
-The new safeguards expose remaining functionality gaps more accurately; they
-must not be interpreted as evidence that those gaps have been repaired.
+The safeguards expose remaining functionality gaps more accurately; they do
+not themselves repair those gaps. The follow-up adds these bounded repairs:
 
-Verification on this change: 683 Python tests passed (3 skipped), 119 JavaScript
+- Dataverse `IsLogical`/`AttributeOf` metadata identifies read-only lookup
+  companions as derived projections. Required stored fields stay enforced.
+  This fixes the lookup-label requirement that blocked valid template writes.
+- A private, operator-edited table import preserves reviewed read-only and
+  calculated source snapshots, including required Users provisioning columns.
+  Every table batch validates before writing. No source values/defaults are
+  invented, and imports do not recompute fields or provide multi-table atomicity.
+  Workflow fixtures now use fully disclosed synthetic Users snapshots.
+- Global `Choices` supports exported integer labels/codes, browser selection,
+  server transport and typed local-draft reload. Boolean overloads, dynamic
+  localization and full choice typing outside these tables remain unsupported
+  or unverified. Generated browser and executed formula regressions cover it.
+- The approved Employee Ideas voting repair applies only to three exact
+  release-44 formula hashes across six controls. It moves the unconditional
+  Unrelate into the If fallback, retaining the original formula and recording
+  an intentional behavioral deviation in every repaired ledger row. Changed
+  formulas are not auto-repaired. Source vote-count concurrency remains open.
+- Acceptance results now fingerprint browser harness files and declared
+  migration-fixture dependencies; stale data or harness evidence cannot pass.
+
+The business templates come from Microsoft's release 44. Modern Card comes from
+a separate community repository; its pinned README requires a document-library
+connection, and the repository supplies no MyFiles contract/data. That source
+gap remains explicit. See [sample provenance](benchmark/SOURCES.md).
+
+Follow-up verification: 715 Python tests passed (3 skipped), 121 JavaScript
+tests passed, and 44 generated Chromium regression journeys passed with the
+three deliberate failure probes rejected. Employee Ideas passes 47 combined
+submission/voting/Chat-fixture checks; Milestones passes all 260 settings,
+project/task lifecycle, reload, filter and deletion checks. Navigation retains
+75 passing critical workflow/UI checks. The comparison-capture self-test and
+rebuilt container CLI startup check pass. All of these use generated code with
+explicit synthetic/native API fixtures, not live Google authorization or source
+tenant data. The complete-workflow gate passes 1/10 (Navigation); requiring
+source comparison and live Google evidence passes 0/10. Skipping the external
+checks still leaves five missing runners and incomplete coverage in four other
+apps. Modern Card's source contract, manager/inspection workflows, ratings,
+attachments and broader choice semantics remain work to complete.
+
+Verification of the preceding review checkpoint: 683 Python tests passed (3 skipped), 119 JavaScript
 tests passed, and 43 generated Chromium journeys passed, including separate
 expected-failure checks for the evidence harness. The source/target capture
 self-test and packaged CLI startup checks passed. The public soak remains
 3/5 bootable: Student Tracker metadata and directory migration are missing in
 the two failing generic starts. Full release acceptance is 0/10 because complete
 workflows and original/live evidence are still missing. Required-field checks
-also reject incomplete Users seed records in the Employee Ideas and Milestones
-workflow fixtures; no required source values were fabricated to bypass them.
+also rejected the incomplete Users fixture records at that checkpoint. The
+follow-up retains those constraints and imports explicit synthetic snapshots
+instead; these fixtures are never production provisioning defaults.
 
 The product goal is to convert common business Power Apps canvas apps into
 Google-hosted apps that work correctly and preserve as much of the original UI
@@ -216,17 +256,19 @@ a nonempty error list. Deliberate pending-callback and late-capture errors now
 fail their regression probes, alongside the existing screenshot-failure gate.
 
 Eleven pinned source exports are available here: five public regression apps
-and six Microsoft business apps. **All eleven generate valid code; five pass
-the short startup check. None has complete usability acceptance evidence.**
-Inspection's recent-date views now pass startup; its primary action reaches
-Items Screen. Its Planner calls now use an explicit Google Sheets task-board
+and six Microsoft business apps. **All eleven generate valid code; four pass
+the generic short startup check. Only Expandable Navigation has complete local
+critical workflow/UI evidence; no app has full source/live release acceptance.**
+Inspection's recent-date views passed startup at the earlier checkpoint, but
+the current arithmetic error checks expose division by zero on empty duration
+collections. Its Planner calls now use an explicit Google Sheets task-board
 adapter; all five first-action checks pass with an authored imported board and
 zero runtime errors. Missing migration still fails. Editable Grid's unexported
 Student Tracker choice source is now correctly rejected by the startup simulator,
 which previously returned an empty success for unknown RPCs. Expanding the modern
 navigation component also exposes its Google directory migration requirement,
 which was hidden while its child controls were missing. Missing
-identity mappings, layout errors and connector dependencies leave four Microsoft
+identity mappings, arithmetic and connector dependencies leave five Microsoft
 apps failing short startup, and all three default first-action probes still fail.
 With one explicitly authored
 user, four campaigns and three questions, Employee Ideas now passes 29 checks covering active
@@ -239,10 +281,12 @@ mappings, a separate 31-check scenario executes the unchanged source notificatio
 through native Google Chat API fixtures and reloads without reposting. No live
 message is sent; native Google authorization and formatting remain unverified.
 Its title remains deliberately truncated under source Wrap=false/Overflow.Hidden.
-The optional voting probe now persists a count of one and executes relationship
-operations, but fails its membership assertion: the exported Concurrent's
-unconditional Unrelate leaves no voting-user link in this run. This is a source
-race risk requiring original-app review; the converter does not rewrite it.
+The original voting probe exposed a source defect: an unconditional Unrelate
+removed voter membership after a new vote. The approved, fingerprinted conversion
+repair now passes cast/reload/withdraw/reload with both membership and count
+assertions. All six repaired controls retain their original source and ledgered
+deviation. The combined text-submission/voting/Chat-fixture probe passes 47 checks;
+simultaneous-user vote-count writes and multi-operation atomicity remain open.
 Ratings, attachments, manager workflows and
 complete usability remain unassessed.
 Milestones' previously nonfinite settings-card dimensions are repaired. Its
@@ -567,8 +611,8 @@ complete Milestones usability and live Google access remain unassessed.
 | Milestones populated workflow | Expanded filter probe passes 260 checks with zero runtime errors: onboarding/project/settings creation and reload; two persisted work items with Google assignee and distinct milestone/status links; edit/reopen, search, combined multi-select filters, resets and announcements; keyboard filter actions at three viewports and targeted deletion preserving the other item | Arbitrary completion-status positioning, tenant sequence population, broader task variants, complete app usability, source column clipping, native searchable selectors and original UI comparison remain open |
 | Exported seed data and sheet capacity | All exported rows are retained. Generated-server tests initialize 1,005 rows and 29 fields in static and external tables, append another record, initialize 30 choice columns and retain data on repeated setup. The Sheets double rejects ranges outside its current grid. The rebuilt CLI preserves every source seed count across Milestones' 18 tables | Exported snapshots do not replace tenant data migration. Existing workbooks are not backfilled, and large-workbook quotas/live Google capacity behavior need deployment evidence |
 | Microsoft generated-server initialization | Six exports: setup and reads across 124 tables and 302 choice fields pass in the Sheets test double | Tenant data migration, real Google writes, source defaults, calculations, relationships and permissions |
-| Microsoft business baseline | 6/6 convert and validate; 2/6 pass short startup (Employee Ideas, Inspection) | Migrated identities and Teams/Planner dependencies still fail prerequisites |
-| Microsoft first actions | All three default probes fail. A separate Inspection probe with an authored imported Google task board passes all five checks and has zero runtime errors; it cannot overwrite the default missing-migration failure. Populated Employee Ideas passes 29 checks through mobile submission and reload. Optional voting persists its count but source Concurrent removes the voter link | Complete inspection/task creation, voting ordering, ratings, attachments, real Google persistence, identities and UI parity; partial success never promotes an app to Usable |
+| Microsoft business baseline | 6/6 convert and validate; 1/6 passes generic short startup (Employee Ideas) | Empty Inspection duration collections now fail division checks; migrated identities and Teams/Planner dependencies still fail prerequisites |
+| Microsoft first actions | All three default probes fail. Explicit migrated task-board records permit the separate five-check Inspection probe. Synthetic Users snapshots restore the populated Milestones and Employee Ideas workflows; the latter passes 47 submission/voting/Chat-fixture checks including the documented source repair | Complete inspection/task creation, simultaneous-user voting, ratings, attachments, manager workflows, live persistence and source UI comparisons; partial success never promotes an app to Usable |
 | CI configuration | Existing tests plus required-app/journey gates and new Chromium artifact job | Browser job configured and locally tested, not yet verified in remote CI; local HelpDesk remains optional |
 
 Evidence: `.artifacts/benchmark/benchmark-scorecard.json`,
@@ -695,12 +739,21 @@ full dependency list:
 
 | Microsoft export | Latest observed blocker | Additional source dependencies to preserve |
 |---|---|---|
-| Employee Ideas | Default first action stops on an unmigrated current user. Populated data passes 29 checks; native Chat fixture variant passes 31. Voting membership still fails on the source's opposing relationship writes | Ratings, attachments, complete manager workflows, live target services and original visual comparison |
+| Employee Ideas | Default first action needs user migration. Explicit synthetic snapshots support submission/reopening and Chat API fixtures. Fingerprinted source voting actions now carry an intentional conditional-membership repair | Ratings, attachments, complete manager workflows, simultaneous-user vote counts, live target services and original visual comparison |
 | Employee Ideas Manager | GetAllTeams requires explicit Chat migration and native authorization | Complete team/channel setup, campaign editing and notifications with migrated data |
 | Inspection | Leaves Landing for Welcome/Items; all five first-action checks pass with an explicitly imported Sheets task board. Unmigrated Planner fails | Local drafts, shared tasks and native Google directory assignment pass in fixtures; full real inspection/task submission, migrated identities and Teams-to-Chat posting remain |
 | Inspection Manager | Current-user identity and required Chat/Planner migrations | Plan/bucket/task/group-plan setup and complete inspection management; URL validation formula has executed evidence |
 | Milestones | Default initialization needs user/directory migration. With migrated users, 77 checks pass through project/work-item lifecycle, assignment/relationships, complete reference data and label dimensions | Status/category/priority setup, broader task variants, complete workflows and source UI comparison |
 | Review Inspections | Current-user identity; Planner migration is also required | Complete review workflow, inspection data, task associations and live authorization |
+
+Diagnostic probes with explicit Users/Chat/Planner/launch-context fixtures now
+reach additional source initialization, but do not exercise complete journeys.
+Employee Ideas Manager's empty-data startup invokes an unsupported source sample
+randomizer. Inspection's empty duration collections encounter a division error.
+Review Inspections reaches its review screen, but a raw numeric work-type field
+still produces `299600000` in captions; global Choices table support does not
+yet supply full Dataverse choice-to-text semantics. These are retained gaps,
+not successful manager/inspection acceptance runs.
 
 Typed toggle values, source canvas dimensions, OnHidden initialization and
 editable-gallery focus/selection now have regression evidence. Extend the

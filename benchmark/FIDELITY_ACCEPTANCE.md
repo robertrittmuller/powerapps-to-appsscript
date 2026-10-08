@@ -80,6 +80,8 @@ required gap. Source fetch and baseline assessments are diagnostic; per-app
 workflow results and original/live comparisons determine acceptance. A failed
 runner cannot reuse its previous result. Source export, converter source and
 assessment-script hashes bind workflow evidence to the assessed revision.
+The browser harness and declared migration-fixture dependencies are fingerprinted
+as well; changed fixture data or bridge/server doubles invalidate prior evidence.
 
 The `Release acceptance` Actions workflow runs on version tags or manual
 dispatch. It optionally downloads `source-live-evidence` from a supplied Actions
@@ -131,10 +133,20 @@ Unavailable original sessions, incomplete source exports, missing migrations
 or missing Google deployments leave these stages unassessed and block release
 acceptance. They do not justify marking an app high fidelity.
 
-The stricter server checks also expose incomplete synthetic user migration
-records in the existing Employee Ideas and Milestones workflow runners. For
-example, `Users.user__license__type` is SystemRequired and has no exported
-default. These runs now fail during setup. Complete imported source records
-and an explicit migration policy are needed; inventing defaults or disabling
-validation would hide this gap. Narrow generated fixtures still exercise
-required fields, read-only writes, defaults and failed-save atomicity.
+The stricter server checks exposed incomplete synthetic user migration records.
+For example, `Users.user__license__type` is SystemRequired with no exported
+default. Generated projects now include a private reviewed-record import path;
+the Employee Ideas and Milestones probes use explicit synthetic Users snapshots
+through that path. Real source data and identity mapping remain deployment
+prerequisites. No provisioning defaults are invented or required stored fields
+disabled. Exported read-only logical lookup companions are treated as derived
+projections only when their parent lookup metadata is complete and unambiguous.
+
+Employee Ideas' six release-44 voting actions also carry an approved source
+repair, limited to three exact formula hashes. The generated action chooses
+Relate or Unrelate exclusively instead of unconditionally unlinking a new vote.
+The ledger retains each original formula, fingerprint and intentional deviation.
+These repaired actions remain approximated; they are not unchanged-source
+equivalence claims. Chromium verifies casting/withdrawal and reload persistence
+against generated code and a Sheets double. Live concurrency and original-app
+comparison remain separate release checks.
