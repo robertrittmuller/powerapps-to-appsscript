@@ -336,6 +336,8 @@ def analyze(ir: AppIR, uncovered: list[dict] | None = None, solution=None) -> Ap
     relationship_keys = {key for contract in relationship_contracts(ir).values() for key in contract['navigation']}
     from .services import service_contracts
     adapters = service_contracts(ir)
+    option_sets = {name:source.option_values for source in ir.data_sources if source.origin == 'option_set'
+                   for name in [source.name, *source.aliases]}
 
     def convert_formula(expr: FxExpr, row_alias: str | None = None, screen_name: str | None = None) -> None:
         if not expr.raw:
@@ -350,11 +352,13 @@ def analyze(ir: AppIR, uncovered: list[dict] | None = None, solution=None) -> Ap
                             relationship_keys=relationship_keys,
                             service_adapters=adapters, power_fx_v1=ir.power_fx_v1,
                             named_formulas=set(ir.named_formulas), control_aliases=expr.control_aliases,
-                            component_owner=expr.component_owner, component_private=expr.component_private)
+                            component_owner=expr.component_owner, component_private=expr.component_private,
+                            option_sets=option_sets)
             expr.js = res.js
             expr.translation_status = "stubbed" if res.unmapped else "rule"
             expr.blocked_dependencies = [name for name in res.unmapped if name.startswith('Dataverse view')]
             expr.approximations = sorted(set(res.approximations))
+            expr.source_repairs = res.source_repairs
             if expr.blocked_dependencies:
                 expr.fidelity_note = '; '.join(expr.blocked_dependencies)
             if res.unmapped:

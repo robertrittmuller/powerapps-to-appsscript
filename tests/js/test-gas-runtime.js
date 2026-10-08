@@ -474,6 +474,16 @@ test('serverRun encodes nested dates without changing client records or hiding i
   await assert.rejects(RT.serverRun('api', cyclic), /circular/);
 });
 
+test('serverRun transports exported choices as codes and retains their client labels', async () => {
+  let sent;
+  global.google={script:{run:{withSuccessHandler(fn){this.success=fn;return this;},
+    withFailureHandler(){return this;},save(arg){sent=arg;this.success(true);}}}};
+  const choice=FX.globalChoices([{name:'Audit',value:299600001}])[0].value;
+  await RT.serverRun('save',{kind:choice,nested:[choice],ordinary:{value:1}});
+  assert.deepStrictEqual(sent,{kind:299600001,nested:[299600001],ordinary:{value:1}});
+  assert.strictEqual(FX.text(choice),'Audit');
+});
+
 test('apiChoices bridges the emitted client call to Apps Script', async () => {
   installGoogleMock('ok');
   const out = await global.apiChoices('Students', 'Subject');

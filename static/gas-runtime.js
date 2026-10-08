@@ -62,6 +62,8 @@
   // guessing whether ordinary strings happen to look like dates or type tags.
   function packCache(value, ancestors) {
     if (value == null) return ['blank'];
+    var choice = global.FX && global.FX.choiceDescriptor && global.FX.choiceDescriptor(value);
+    if (choice) return ['choice', choice];
     if (value instanceof Date) {
       if (!isFinite(value.getTime())) throw new Error('Cannot save an invalid date');
       return ['date', value.toISOString()];
@@ -80,6 +82,10 @@
     var type = value[0], data = value[1];
     if (type === 'blank' && value.length === 1) return null;
     if (value.length !== 2) throw new Error('Invalid cached value');
+    if (type === 'choice' && data && typeof data === 'object' && !Array.isArray(data) &&
+        JSON.stringify(Object.keys(data).sort()) === JSON.stringify(['name','value']) &&
+        global.FX && typeof global.FX.globalChoices === 'function')
+      return global.FX.globalChoices([data])[0].value;
     if (['string', 'number', 'boolean'].indexOf(type) >= 0 && typeof data === type) {
       if (type === 'number' && !isFinite(data)) throw new Error('Invalid cached number');
       return data;
@@ -149,6 +155,7 @@
   // inside a nested record. Keep the instant as ISO text without mutating
   // client state; malformed values must reach the source's IfError.
   function wireValue(value, ancestors) {
+    if (global.FX && typeof global.FX.choiceScalar === 'function') value = global.FX.choiceScalar(value);
     if (value == null) return null;
     if (value instanceof Date) {
       if (!isFinite(value.getTime())) throw new Error('Cannot send an invalid date');
@@ -524,7 +531,11 @@
     for (var i = 0; i < ['id', 'value', 'key'].length; i++) {
       var key = ['id', 'value', 'key'][i];
       if (left[key] !== undefined && right[key] !== undefined) {
-        return String(left[key]) === String(right[key]);
+        var a = left[key], b = right[key];
+        if (global.FX && typeof global.FX.choiceScalar === 'function') {
+          a = global.FX.choiceScalar(a); b = global.FX.choiceScalar(b);
+        }
+        return String(a) === String(b);
       }
     }
     return JSON.stringify(left) === JSON.stringify(right);
@@ -845,19 +856,23 @@
       var scalar = String(row);
       return { value: scalar, label: scalar };
     }
-    function scalarAt(key) {
+    function scalarAt(key, wire) {
       var value = row[key];
+      if (global.FX && typeof global.FX.choiceScalar === 'function') {
+        var code = global.FX.choiceScalar(value);
+        if (code !== value) return String(wire ? code : value);
+      }
       return value !== null && value !== undefined && typeof value !== 'object'
         ? String(value) : null;
     }
-    function first(keys) {
+    function first(keys, wire) {
       for (var i = 0; i < keys.length; i++) {
         var key = String(keys[i]);
         var variants = [key, key.charAt(0).toLowerCase() + key.slice(1),
           key.replace(/([a-z0-9])([A-Z])/g, '$1_$2').replace(/[^A-Za-z0-9]+/g, '_').toLowerCase()];
         for (var v = 0; v < variants.length; v++) {
           if (Object.prototype.hasOwnProperty.call(row, variants[v])) {
-            var found = scalarAt(variants[v]);
+            var found = scalarAt(variants[v], wire);
             if (found !== null) return found;
           }
         }
@@ -872,7 +887,7 @@
       label = first(ownKeys);
     }
     if (label === null) label = JSON.stringify(row);
-    var value = first(['value', 'Value', 'id', 'ID', 'key', 'Key']);
+    var value = first(['value', 'Value', 'id', 'ID', 'key', 'Key'], true);
     return { value: value === null ? label : value, label: label };
   }
 

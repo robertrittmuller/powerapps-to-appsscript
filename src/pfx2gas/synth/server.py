@@ -271,7 +271,8 @@ function applyColumnRules_(ds, record, creating) {{
 
 function validateRequiredColumns_(ds, headers, cells) {{
   headers.forEach(function (key, index) {{
-    if (DATA_CONTRACTS[ds].fields[key].requiredLevel === 'SystemRequired' &&
+    var field = DATA_CONTRACTS[ds].fields[key];
+    if (field.requiredLevel === 'SystemRequired' && !field.derivedFrom &&
         (cells[index] === '' || cells[index] === null || cells[index] === undefined))
       throw new Error('System-required field is missing: ' + ds + '.' + key);
   }});
@@ -493,6 +494,7 @@ def data_sources_with_fields(ir: AppIR) -> list:
 
 
 def data_contracts(ir: AppIR) -> dict:
+    from ..data_contract import derived_lookup_parent
     from ..fx.naming import snake
     from .ownership import ownership_contract
     from .dataverse_state import state_contract
@@ -520,6 +522,9 @@ def data_contracts(ir: AppIR) -> dict:
                                     writableCreate=field.writable_create,
                                     writableUpdate=field.writable_update,
                                     calculated=field.calculated)
+                parent = derived_lookup_parent(ds, field)
+                if parent:
+                    fields[name]['derivedFrom'] = parent
                 if field.has_default and not field.calculated and field.source_type not in {'State', 'Status'}:
                     if not isinstance(field.default_value, (str, int, float, bool, type(None))):
                         raise ValueError(f'Unsupported column default in {ds.name}.{name}')
@@ -555,6 +560,7 @@ def render_code_gs(ir: AppIR) -> str:
     from .chat import SERVER as CHAT_SERVER
     from .ownership import SERVER as OWNERSHIP_SERVER
     from .dataverse_state import SERVER as STATE_SERVER
+    from .table_migration import SERVER as TABLE_MIGRATION_SERVER
     from ..services import service_contracts
 
     allowed = [ds.name for ds in data_sources_with_fields(ir)]
@@ -563,7 +569,7 @@ def render_code_gs(ir: AppIR) -> str:
     return CODE_GS.format(app_name=ir.name, data_sources_json=json.dumps(allowed),
                           contracts_json=json.dumps(data_contracts(ir)),
                           relationships_json=json.dumps(relationship_contracts(ir)),
-                          services_json=json.dumps(service_contracts(ir))) + SERVER + PLANNER_SERVER + DIRECTORY_SERVER + CHAT_SERVER + OWNERSHIP_SERVER + STATE_SERVER
+                          services_json=json.dumps(service_contracts(ir))) + SERVER + PLANNER_SERVER + DIRECTORY_SERVER + CHAT_SERVER + OWNERSHIP_SERVER + STATE_SERVER + TABLE_MIGRATION_SERVER
 
 
 def render_data_init(ir: AppIR) -> str:

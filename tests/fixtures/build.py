@@ -1800,7 +1800,31 @@ def button_icons_fixture_files() -> dict[str,str]:
             'Src/Home.pa.yaml':json.dumps({'Screens':{'Home':{'Children':children}}})}
 
 
+def global_choices_fixture_files():
+    files = dataverse_fixture_files()
+    def control(name, kind, y, props):
+        return {'Name':name,'Template':{'Name':kind},'Rules':[
+            {'Property':key,'InvariantScript':str(value)} for key,value in
+            {'X':20,'Y':y,'Width':360,'Height':44,**props}.items()]}
+    controls = [
+        control('GlobalPick','dropdown',20,{'Items':"Choices('Project Status')",
+            'Value':'"Value"',
+            'DefaultSelectedItems':'Table({Value:selectedProject.Status})',
+            'AccessibleLabel':'"Project status"'}),
+        control('GlobalCaption','label',80,{'Text':'Text(GlobalPick.Selected.Value)'}),
+        control('SaveGlobalChoice','button',140,{'Text':'"Save status"',
+            'OnSelect':'Set(selectedProject, Patch(Projects, selectedProject, {Status:GlobalPick.Selected.Value}))'}),
+    ]
+    files['Properties.json']=json.dumps({'Name':'FixtureGlobalChoices'})
+    files['Controls\\1.json']=json.dumps({'TopParent':control('App','appinfo',0,{
+        'OnStart':'Set(selectedProject, LookUp(Projects, Project = "project-two"))'})})
+    files['Controls\\2.json']=json.dumps({'TopParent':{
+        **control('GlobalChoicesScreen','screen',0,{'Width':800,'Height':500}), 'Children':controls}})
+    return files
+
+
 def build_fixtures() -> None:
+    _write_msapp(FIXTURE_DIR/'fixtureGlobalChoices.msapp',global_choices_fixture_files())
     _write_msapp(FIXTURE_DIR / 'fixtureButtonIcons.msapp', button_icons_fixture_files())
     _write_msapp(FIXTURE_DIR / 'fixtureSelectionDefaults.msapp', selection_defaults_fixture_files())
     _write_msapp(FIXTURE_DIR / 'fixtureModernSelectionDefaults.msapp', selection_defaults_fixture_files(True))

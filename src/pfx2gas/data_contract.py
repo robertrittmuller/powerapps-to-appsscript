@@ -139,6 +139,7 @@ def apply_source_contract(source: DataSource, raw: dict) -> None:
             choices=choices.get(logical, []), lookup_targets=attr.get("Targets") or [],
             required_level=(attr.get("RequiredLevel") or {}).get("Value"),
             writable_create=attr.get("IsValidForCreate"), writable_update=attr.get("IsValidForUpdate"),
+            is_logical=attr.get('IsLogical'), attribute_of=attr.get('AttributeOf'),
             has_default=default is not None, default_value=default,
             calculated=attr.get('SourceType') in (1, 2) or bool(attr.get('FormulaDefinition')),
             date_behavior=(attr.get('DateTimeBehavior') or {}).get('Value') if isinstance(attr.get('DateTimeBehavior'), dict) else attr.get('DateTimeBehavior')))
@@ -161,3 +162,17 @@ def apply_source_contract(source: DataSource, raw: dict) -> None:
 
 def field_aliases(field):
     return {snake(field.name), *(snake(name) for name in field.aliases)}
+
+
+def derived_lookup_parent(source: DataSource, field: FieldDef) -> str | None:
+    """Internal lookup labels are projections, not required stored columns.
+
+    IsLogical alone also covers attributes stored in other tables. Require the
+    exported parent lookup and both read-only flags before making this exception.
+    https://learn.microsoft.com/dotnet/api/microsoft.xrm.sdk.metadata.attributemetadata.attributeof
+    """
+    if (field.is_logical is not True or not field.attribute_of or
+            field.writable_create is not False or field.writable_update is not False):
+        return None
+    parents = [parent for parent in source.fields if parent.logical_name == field.attribute_of]
+    return snake(parents[0].name) if len(parents) == 1 and parents[0].type == 'lookup' else None

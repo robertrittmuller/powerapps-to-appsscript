@@ -122,3 +122,70 @@ def test_exported_choice_defaults_false_and_no_default_sentinel_survive_parsing(
     assert not fields['choice'].has_default
     assert fields['enabled'].has_default and fields['enabled'].default_value is False
     assert fields['defaultchoice'].has_default and fields['defaultchoice'].default_value==0
+
+
+def lookup_projection_source():
+    from pfx2gas.data_contract import apply_source_contract
+    attributes = [
+        {'LogicalName':'key', 'AttributeType':'Uniqueidentifier'},
+        {'LogicalName':'title', 'AttributeType':'String', 'RequiredLevel':{'Value':'SystemRequired'}},
+        {'LogicalName':'optionaluser', 'AttributeType':'Lookup', 'Targets':['systemuser']},
+        {'LogicalName':'optionalusername', 'AttributeType':'String', 'IsLogical':True,
+         'AttributeOf':'optionaluser', 'IsValidForCreate':False, 'IsValidForUpdate':False,
+         'RequiredLevel':{'Value':'SystemRequired'}},
+    ]
+    source = DataSource(name='Rows')
+    apply_source_contract(source, {'Type':'NativeCDSDataSourceInfo', 'TableDefinition':{
+        'EntityMetadata':{'LogicalName':'rows', 'PrimaryIdAttribute':'key', 'Attributes':attributes}}})
+    return source
+
+
+def test_required_internal_lookup_projection_does_not_reject_optional_parent(tmp_path):
+    source = lookup_projection_source()
+    label = source.fields[-1]
+    assert label.is_logical is True and label.attribute_of == 'optionaluser'
+    ir = AppIR(name='LookupRules', data_sources=[source])
+    for call in run_backend(ir, tmp_path):
+        row = call('api','Rows','create',{'record':{'key':'one','title':'Stored'}})['result']
+        assert row['optionaluser'] is None and row['optionalusername'] is None
+        assert 'error' in call('api','Rows','create',{'record':{'key':'two'}})
+        row = call('api','Rows','patch',{'base':{'key':'one'},
+                                      'record':{'title':'Edited','optionalusername':'Ignored'}})['result']
+        assert row['title'] == 'Edited' and row['optionalusername'] is None
+        assert 'error' in call('api','Rows','patch',{'base':{'key':'one'},'record':{'title':None}})
+        assert call('api','Rows','list',{})['result'][0]['title'] == 'Edited'
+    issues = assess(ir)['issues']
+    assert any(row['kind']=='projection' and row['subject']=='Rows.optionalusername' for row in issues)
+    assert not any(row['kind']=='default' and row['subject']=='Rows.optionalusername' for row in issues)
+
+
+@pytest.mark.parametrize('change', [
+    {'is_logical':False}, {'attribute_of':None}, {'attribute_of':'missing'},
+    {'writable_create':True}, {'writable_update':True},
+])
+def test_projection_exception_requires_complete_exported_metadata(tmp_path, change):
+    source = lookup_projection_source()
+    source.fields[-1] = source.fields[-1].model_copy(update=change)
+    for call in run_backend(AppIR(name='StoredRules',data_sources=[source]),tmp_path):
+        assert 'error' in call('api','Rows','create',{'record':{'key':'one','title':'Stored'}})
+        assert call('api','Rows','list',{})['result'] == []
+
+
+def test_validator_guards_projection_contract_drift(tmp_path):
+    out = synthesize(AppIR(name='LookupRules',data_sources=[lookup_projection_source()]), tmp_path)
+    gs = out/'Code.gs'
+    gs.write_text(gs.read_text().replace('"derivedFrom": "optionaluser"', '"derivedFrom": "title"'))
+    assert not validate_project(out)['ok']
+
+
+@pytest.mark.parametrize('ambiguous', [False, True])
+def test_projection_parent_must_be_one_unambiguous_exported_lookup(tmp_path, ambiguous):
+    source = lookup_projection_source()
+    if ambiguous:
+        source.fields.append(FieldDef(name='Other user',logical_name='optionaluser',type='lookup'))
+    else:
+        source.fields[2].type='text'
+    for call in run_backend(AppIR(name='StoredRules',data_sources=[source]),tmp_path):
+        result=call('api','Rows','create',{'record':{'key':'one','title':'Stored'}})
+        assert 'System-required field is missing' in result['error'],result
+        assert call('api','Rows','list',{})['result']==[]

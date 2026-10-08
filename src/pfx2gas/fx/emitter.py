@@ -21,6 +21,7 @@ class TranspileResult:
         self.js: str | None = None
         self.unmapped: list[str] = []
         self.approximations: list[str] = []
+        self.source_repairs: list[dict] = []
         self.statement_count = 0
 
 
@@ -80,12 +81,14 @@ class Emitter:
                  relationship_keys: set[str] | None = None, service_adapters: dict | None = None,
                  power_fx_v1: bool = False, named_formulas: set[str] | None = None,
                  control_aliases: dict[str, str] | None = None,
-                 component_owner: str | None = None, component_private: bool = False):
+                 component_owner: str | None = None, component_private: bool = False,
+                 option_sets: dict[str, list[dict]] | None = None):
         self.res = res
         self.behavior = behavior
         self.view_sets = view_sets or {}
         self.relationship_keys = relationship_keys or set()
         self.service_adapters = service_adapters or {}
+        self.option_sets = option_sets or {}
         self.power_fx_v1 = power_fx_v1
         self.row_fields = row_fields or set()
         self.control_names = control_names or set()
@@ -562,6 +565,14 @@ class Emitter:
         if name == "Choices":
             # Choices('Data Source'.Field) -> await apiChoices('DS', 'Field')
             arg = args[0] if args else None
+            source = self.source_name(arg) if arg is not None else None
+            if source in self.option_sets:
+                options = self.option_sets[source]
+                if not options or any(type(option['value']) is not int for option in options):
+                    raise lx.FxSyntaxError('Global Choices currently requires exported integer choices; boolean option tables are unsupported')
+                self.res.approximations.append('Global Choices uses exported labels/codes; dynamic localization and complete Dataverse choice typing outside this table require verification')
+                literal = json.dumps(options).replace('<', '\\u003c')
+                return f"FX.globalChoices({literal})"
             ds_name = field = None
             if arg is not None and arg.kind == "ident" and len(lx.reference_parts(str(arg.value))) == 2:
                 ds_name, field = lx.reference_parts(str(arg.value))

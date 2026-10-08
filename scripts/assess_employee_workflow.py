@@ -1,7 +1,9 @@
 """Populated Microsoft Employee Ideas campaign-to-submission probe.
 
-Uses the unmodified release-44 app and its saved views, with explicitly
+Uses the original release-44 export and its saved views, with explicitly
 authored migration records written through generated Code.gs before startup.
+Conversion repairs the fingerprinted source voting defect and records that
+intentional deviation in the fidelity ledger; the export bytes stay unchanged.
 This is partial workflow evidence, never whole-app usability acceptance.
 Run: ./pfx2gas browser scripts/assess_employee_workflow.py
 """
@@ -9,14 +11,15 @@ import hashlib
 import json
 
 from browser_check import OUT, REPO, control, run_case
+from workflow_data import import_rows, migration_evidence, user_records
 from playwright.sync_api import expect, sync_playwright
 
 NAME = 'employee-populated'
-RECORDS = {'Users': [{'systemuserid':'test-source-user',
-    'internalemailaddress':'business.tester@example.test', 'fullname':'Business Tester'}],
+RECORDS = {'Users': user_records('test-source-user'),
     'Employee Idea Campaigns': [
         {'msft_employeeidea_campaignid':f'campaign-{index}', 'msft_name':title,
          'msft_description':title + ' description', 'msft_calc_employeeidea_campaignstatuscode':status,
+         'ownerid':{'systemuserid':'test-source-user'}, 'owneridtype':'systemuser', 'statecode':0,
          'msft_campaignstartdate':'2026-09-01T00:00:00Z', 'msft_campaignenddate':'2026-10-01T00:00:00Z',
          'createdon':f'2026-09-0{index + 1}T00:00:00Z'}
         for index, (title, status) in enumerate([
@@ -34,11 +37,13 @@ RECORDS = {'Users': [{'systemuserid':'test-source-user',
 
 def seed(backend):
     for source, records in RECORDS.items():
+        if source in {'Users','Employee Idea Campaigns'}:
+            import_rows(backend,source,records)
+            continue
         for record in records:
             result = backend({'fn':'api','args':[source,'create',{'record':record}]})
             assert 'error' not in result, result
-    return {'kind':'authored-example-records', 'records':RECORDS,
-            'sha256':hashlib.sha256(json.dumps(RECORDS, sort_keys=True).encode()).hexdigest()}
+    return migration_evidence(RECORDS)
 
 
 def seed_chat(backend):
@@ -212,6 +217,21 @@ def main(voting=False,chat=False):
                 check('remove-vote-server-callbacks-settle', lambda: page.wait_for_function(
                     'async () => await window.__waitForGasIdle()', timeout=10000))
                 check('voting-user-membership-removed', lambda: membership(False))
+                def zero_votes():
+                    records = backend({'fn':'api','args':['Employee Ideas','list',{}]})['result']
+                    assert records[0]['vote__count'] == 0, records
+                check('withdrawn-vote-count-persisted', zero_votes)
+                page.reload()
+                control(page,'btnMobileBrowseCampaigns').click()
+                control(page,'galMobileCampaignSummary').locator('[data-control="btnMobileCampaignSummary_SelectBorder"]').first.click()
+                check('withdrawn-vote-count-survives-reload', lambda: expect(vote).to_have_text('0 votes'))
+                check('withdrawn-vote-membership-stays-absent-after-reload', lambda: membership(False))
+                def documented_repair():
+                    ledger = json.loads((OUT/name/'project/conversion-ledger.json').read_text())
+                    rows = [row for row in ledger['formulas'] if row.get('sourceRepairs')]
+                    assert len(rows) == 6, [(row['control'],row['property']) for row in rows]
+                    assert all(row['emission']=='approximated' and 'Intentional source repair' in row['note'] for row in rows), rows
+                check('all-six-source-voting-deviations-recorded', documented_repair)
             finally:
                 (OUT / name / 'vote-records.json').write_text(json.dumps(
                     backend({'fn':'api','args':['Employee Ideas','list',{}]}), indent=2))
@@ -220,7 +240,8 @@ def main(voting=False,chat=False):
         browser = p.chromium.launch()
         result = run_case(browser, name, REPO / 'samples/microsoft/employee-ideas.msapp', journey,
             launch_parameters={'hostClientType':'ios'}, viewport={'width':390,'height':844},
-            solution=REPO / 'samples/microsoft/EmployeeIdeas.solution.zip', setup_backend=seed_chat if chat else seed)
+            solution=REPO / 'samples/microsoft/EmployeeIdeas.solution.zip', setup_backend=seed_chat if chat else seed,
+            assessment_dependencies=['scripts/workflow_data.py','tests/fixtures/business-users.json','tests/fixtures/google-chat.json'])
         browser.close()
     result.update(sourceAppId='employee-ideas', steps=steps,
         assessmentScope='populated campaign browsing, custom text questions, idea submission, reload and reopening' + ('; voting probe' if voting else '') + ('; native Chat notification fixtures' if chat else ''),
@@ -236,7 +257,7 @@ def main(voting=False,chat=False):
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--voting', action='store_true', help='Continue into the currently unsupported voting workflow')
+    parser.add_argument('--voting', action='store_true', help='Exercise the documented source voting repair, persistence and withdrawal')
     parser.add_argument('--chat',action='store_true',help='Import explicit Chat mappings and exercise native notification API fixtures')
     args=parser.parse_args()
     raise SystemExit(main(voting=args.voting,chat=args.chat))

@@ -22,6 +22,7 @@ class FxExpr(BaseModel):
     fidelity_note: str = ""
     blocked_dependencies: list[str] = Field(default_factory=list)
     approximations: list[str] = Field(default_factory=list)
+    source_repairs: list[dict] = Field(default_factory=list)
     # Names in a reusable definition resolve within its particular instance.
     # Keep the source formula intact: strings, comments and row fields are not renamed.
     control_aliases: dict[str, str] = Field(default_factory=dict)
@@ -48,6 +49,8 @@ class FieldDef(BaseModel):
     required_level: str | None = None
     writable_create: bool | None = None
     writable_update: bool | None = None
+    is_logical: bool | None = None
+    attribute_of: str | None = None
     has_default: bool = False
     default_value: object = None
     calculated: bool = False

@@ -108,10 +108,16 @@ def validate_project(out_dir: str | Path) -> dict:
             ledger = json.loads(ledger_path.read_text())
             import hashlib
             from .preflight import assess
-            from .fidelity import ledger_rows
+            from .fidelity import ledger_rows, iter_expressions
+            from .fx.source_repairs import validate_source_repairs
             from .ir import AppIR
             inventory_text = (out / 'source-inventory.json').read_text()
             inventory = AppIR.model_validate_json(inventory_text)
+            for _screen, _control, _property, expr in iter_expressions(inventory):
+                validate_source_repairs(expr.raw, expr.source_repairs)
+                if expr.source_repairs and (expr.emission_status == 'emitted' or any(
+                        repair['deviation'] not in expr.approximations for repair in expr.source_repairs)):
+                    raise ValueError('source repair cannot be reported as unchanged source equivalence')
             if json.loads(contract_path.read_text()).get('sources') != [ds.model_dump() for ds in inventory.data_sources]:
                 raise ValueError('data contract differs from source inventory')
             if ledger.get('schemaVersion') != 2:

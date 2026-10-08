@@ -1,0 +1,30 @@
+{
+  "kind": "synthetic-migration-records",
+  "description": "Authored user snapshots for generated workflow tests. These are not Microsoft tenant records or runtime defaults, and confer no security role or license.",
+  "common": {
+    "azurestate": 0,
+    "setupuser": false,
+    "islicensed": false,
+    "isactivedirectoryuser": true,
+    "userlicensetype": 0,
+    "emailrouteraccessapproval": 0,
+    "outgoingemaildeliverymethod": 1,
+    "deletedstate": 0,
+    "incomingemaildeliverymethod": 1,
+    "organizationid": "fixture-organization",
+    "organizationidname": "Synthetic workflow organization",
+    "defaultfilterspopulated": false,
+    "accessmode": 0,
+    "isintegrationuser": false,
+    "caltype": 0,
+    "isemailaddressapprovedbyo365admin": false,
+    "issyncwithdirectory": false,
+    "businessunitid": "fixture-business-unit",
+    "isdisabled": false
+  },
+  "users": [
+    {"systemuserid":"user-a", "identityid":101, "internalemailaddress":"business.tester@example.test", "domainname":"business.tester@example.test", "fullname":"Ada Lovelace", "defaultodbfoldername":"fixture-user-a"},
+    {"systemuserid":"user-b", "identityid":102, "internalemailaddress":"second@example.test", "domainname":"second@example.test", "fullname":"Grace Hopper", "defaultodbfoldername":"fixture-user-b"},
+    {"systemuserid":"test-source-user", "identityid":103, "internalemailaddress":"business.tester@example.test", "domainname":"business.tester@example.test", "fullname":"Business Tester", "defaultodbfoldername":"fixture-employee-user"}
+  ]
+}

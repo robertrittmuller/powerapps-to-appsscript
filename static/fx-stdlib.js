@@ -20,6 +20,11 @@
   // A Symbol survives object copies (gallery AllItems) without becoming a
   // source field or leaking into JSON/Sheets. Plain records never coerce.
   var primaryOutputProperty = Symbol('Power Fx primary output');
+  var choiceCode = Symbol('Power Fx exported choice');
+  function choiceScalar(value) {
+    return value && typeof value === 'object' && Object.prototype.hasOwnProperty.call(value, choiceCode)
+      ? value[choiceCode] : value;
+  }
   function controlReference(record, property) {
     if (property) Object.defineProperty(record, primaryOutputProperty, {value:property, enumerable:true});
     return record;
@@ -290,7 +295,10 @@
       return arithmeticNumber(a) - arithmeticNumber(b);
     },
     // --- predicates / equality -------------------------------------------
-    eq: function (a, b) { return a instanceof Date && b instanceof Date ? a.getTime() === b.getTime() : a == b; },
+    eq: function (a, b) {
+      a = choiceScalar(a); b = choiceScalar(b);
+      return a instanceof Date && b instanceof Date ? a.getTime() === b.getTime() : a == b;
+    },
     neq: function (a, b) { return !FX.eq(a, b); },
     concatStr: function (a, b) {
       return (a == null ? '' : String(a)) + (b == null ? '' : String(b));
@@ -709,6 +717,26 @@
       if (v instanceof Date || /[ymdhs]|^(Long|Short)|^UTC$/i.test(f)) return dateText(v, f, language);
       if (/^#,#/.test(f)) return toNum(v).toLocaleString();
       return str;
+    },
+    globalChoices: function (options) {
+      if (!Array.isArray(options)) throw new Error('Global Choices requires exported options');
+      return options.map(function (option) {
+        if (!option || !Number.isInteger(option.value) || typeof option.name !== 'string')
+          throw new Error('Invalid exported global choice');
+        var code = option.value, label = option.name;
+        var value = {};
+        Object.defineProperty(value, choiceCode, {value:code});
+        Object.defineProperties(value, {
+          toString: {value:function () { return label; }},
+          valueOf: {value:function () { return code; }},
+          toJSON: {value:function () { return code; }}
+        });
+        return {value:Object.freeze(value), name:label};
+      });
+    },
+    choiceScalar: function (value) { return choiceScalar(value); },
+    choiceDescriptor: function (value) {
+      return choiceScalar(value) === value ? null : {name:String(value), value:choiceScalar(value)};
     },
     guid: function () {
       return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {

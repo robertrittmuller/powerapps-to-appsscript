@@ -205,10 +205,10 @@ readline.createInterface({input: process.stdin}).on('line', line => {
     }
     // Test-only administrative hooks; private Apps Script functions are never RPC endpoints.
     const administrative = {__importPlanner:'importPlanner_', __plannerSnapshot:'plannerDocument_', __setup:'setup',
-      __importDirectory:'importDirectory_',__importChat:'importChat_'};
+      __importDirectory:'importDirectory_',__importChat:'importChat_',__importRows:'importTableRows_'};
     const admin = Object.prototype.hasOwnProperty.call(administrative, request.fn) && administrative[request.fn];
     if (!admin && !['api', 'apiChoices', 'whoami', 'doGet', 'connector'].includes(request.fn)) throw new Error('unknown test endpoint');
-    mutationRequest = request.fn === '__importPlanner' || request.fn === '__importDirectory' || request.fn === '__importChat' || request.fn === 'connector' ||
+    mutationRequest = request.fn === '__importRows' || request.fn === '__importPlanner' || request.fn === '__importDirectory' || request.fn === '__importChat' || request.fn === 'connector' ||
       (request.fn === 'api' && !['list', 'links', 'relationshipSnapshot'].includes(request.args[1]));
     if (admin) request.fn = admin;
     context.requestJSON = JSON.stringify(request);

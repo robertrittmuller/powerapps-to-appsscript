@@ -36,6 +36,23 @@ test('cache reload appends all typed nested values without sharing object identi
   assert.equal(next.rt.state.Drafts[1].nested.rows[0].value, 'date');
 });
 
+test('exported global choices retain labels and numeric identity across cache reload', () => {
+  const first = session();
+  first.run("state.Drafts=[{kind:FX.globalChoices([{name:'Inspection',value:299600000}])[0].value}]");
+  first.rt.saveData(first.rt.state.Drafts, 'choices');
+  const next = session(first.saved);
+  next.rt.loadData('Drafts', 'choices', false);
+  assert.equal(next.run('FX.text(state.Drafts[0].kind)'), 'Inspection');
+  assert.equal(next.run('FX.eq(state.Drafts[0].kind, 299600000)'), true);
+  assert.equal(next.run('JSON.stringify(state.Drafts)'), '[{"kind":299600000}]');
+  const key = [...first.saved.keys()][0];
+  const corrupt = JSON.parse(first.saved.get(key));
+  corrupt.rows[1][0][1][0][1][1].value = 'invalid';
+  first.saved.set(key,JSON.stringify(corrupt));
+  assert.throws(()=>next.rt.loadData('Drafts','choices',false),/Invalid exported global choice/);
+  assert.equal(next.rt.state.Drafts.length,1);
+});
+
 test('ignoreMissing only suppresses missing entries, not invalid or unavailable storage', () => {
   const s = session();
   s.rt.setState({Drafts: [{note: 'keep'}]});

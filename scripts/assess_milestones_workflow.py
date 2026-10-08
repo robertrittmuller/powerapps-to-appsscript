@@ -9,22 +9,19 @@ import json
 import time
 
 from browser_check import OUT, REPO, control, run_case
+from workflow_data import import_rows, migration_evidence, user_records
 from playwright.sync_api import expect, sync_playwright
 
 NAME='milestones-populated'
 DIRECTORY=json.loads((REPO/'tests/fixtures/google-directory.json').read_text())
-USERS=[{'systemuserid':mapping['id'],'internalemailaddress':mapping['google_email'],
-        'fullname':person['names'][0]['displayName']}
-       for mapping,person in zip(DIRECTORY['migration']['users'],DIRECTORY['people'])]
+USERS=user_records('user-a','user-b')
 
 
 def seed(backend):
-    for record in USERS:
-        result=backend({'fn':'api','args':['Users','create',{'record':record}]})
-        assert 'error' not in result,result
+    import_rows(backend,'Users',USERS)
     result=backend({'fn':'__importDirectory','args':[DIRECTORY['migration']]})
     assert result=={'result':{'ok':True,'users':2}},result
-    return {'kind':'authored-example-records','records':{'Users':USERS},
+    return {**migration_evidence({'Users':USERS}),
             'directoryMigration':DIRECTORY['migration'],
             'sha256':hashlib.sha256(json.dumps([USERS,DIRECTORY],sort_keys=True).encode()).hexdigest(),
             'googlePeople':'explicit native API fixtures; no live Google authorization'}
@@ -523,6 +520,7 @@ def main(project=False,workitem=False,settings=False,filters=False):
         browser=p.chromium.launch()
         result=run_case(browser,name,REPO/'samples/microsoft/milestones.msapp',journey,
             solution=REPO/'samples/microsoft/Milestones.solution.zip',setup_backend=seed,
+            assessment_dependencies=['scripts/workflow_data.py','tests/fixtures/business-users.json','tests/fixtures/google-directory.json'],
             timezone_id='America/New_York',running_time='2026-03-01T16:00:00+00:00')
         browser.close()
     result.update(sourceAppId='milestones',steps=steps,assessmentScope='first-run onboarding and persisted settings across two simulated Google users'+('; source global category/priority/status setup and reload' if settings else '')+('; project creation probe' if project else '')+('; work-item create/edit/delete and preserved assignment/milestone links' if workitem else '')+('; two persisted work items, search, combined multi-select filters, filtered editing and targeted deletion' if filters else ''),

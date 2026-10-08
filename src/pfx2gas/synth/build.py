@@ -38,6 +38,12 @@ def synthesize(ir: AppIR, out_dir: str | Path) -> Path:
     (out / 'preflight.json').write_text(json.dumps(preflight, indent=2) + '\n')
     (out / "Code.gs").write_text(render_code_gs(ir))
     (out / "DataInit.gs").write_text(render_data_init(ir))
+    if any(source.origin == 'dataverse' for source in ir.data_sources):
+        from .table_migration import MIGRATION_TEMPLATE, MIGRATION_GUIDE
+        migration = out / 'TableMigration.gs'
+        if not migration.exists():
+            migration.write_text(MIGRATION_TEMPLATE)
+        (out / 'table-migration.md').write_text(MIGRATION_GUIDE)
     if 'Planner' in service_contracts(ir):
         from .planner import MIGRATION_TEMPLATE, MIGRATION_GUIDE
         # This is an operator-edited import entry point; keep reviewed data

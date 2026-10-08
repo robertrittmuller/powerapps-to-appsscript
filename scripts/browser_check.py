@@ -439,7 +439,7 @@ def check_timers(page, _backend):
     page.screenshot(path=str(OUT / "timer-lifecycle/ready.png"))
 
 
-def run_case(browser, name, source, journey, clock=False, launch_parameters=None, viewport=None, solution=None, setup_backend=None, timezone_id=None, fixed_time=None, running_time=None):
+def run_case(browser, name, source, journey, clock=False, launch_parameters=None, viewport=None, solution=None, setup_backend=None, timezone_id=None, fixed_time=None, running_time=None, assessment_dependencies=()):
     if sum(bool(mode) for mode in (clock, fixed_time, running_time)) > 1:
         raise ValueError('Choose exactly one simulated clock mode')
     ir = analyze(parse(unpack(source)), solution=solution)
@@ -486,6 +486,8 @@ def run_case(browser, name, source, journey, clock=False, launch_parameters=None
               "inputSha256": hashlib.sha256(source.read_bytes()).hexdigest(),
               "sourceMetadata": ir.source_metadata,
               "converterSourceSha256": converter_fingerprint(), "browserVersion": browser.version}
+    files=['scripts/browser_check.py','tests/browser/bridge.js','tests/browser/gas-server.cjs',*assessment_dependencies]
+    result['assessmentDependencySha256']={file:hashlib.sha256((REPO/file).read_bytes()).hexdigest() for file in files}
     if solution:
         result['solutionSha256'] = hashlib.sha256(solution.read_bytes()).hexdigest()
     if fixed_time or running_time or timezone_id:
@@ -1743,11 +1745,32 @@ def check_responsive_gallery(page,_backend):
     page.screenshot(path=str(OUT/'responsive-gallery/empty-template-geometry.png'),full_page=True)
 
 
+def check_global_choices(page, backend):
+    picker=control(page,'GlobalPick')
+    expect(picker).to_have_accessible_name('Project status')
+    expect(picker.locator('option')).to_have_text(['Open','Closed'])
+    expect(picker).to_have_value('1')
+    expect(control(page,'GlobalCaption')).to_have_text('Closed')
+    picker.select_option(value='0')
+    expect(control(page,'GlobalCaption')).to_have_text('Open')
+    control(page,'SaveGlobalChoice').click()
+    page.wait_for_function('async()=>await window.__waitForGasIdle()')
+    rows=backend({'fn':'api','args':['Projects','list',{}]})['result']
+    assert [row['status'] for row in rows]==[0,0],rows
+    page.reload()
+    expect(picker).to_have_value('0')
+    expect(control(page,'GlobalCaption')).to_have_text('Open')
+    picker.focus();picker.press('ArrowDown')
+    expect(control(page,'GlobalCaption')).to_have_text('Closed')
+    page.screenshot(path=str(OUT/'global-choices/labels-and-codes.png'))
+
+
 def main():
     subprocess.run([sys.executable, str(REPO / "tests/fixtures/build.py")], check=True, capture_output=True)
     cases = [("business-form", REPO / "tests/fixtures/fixtureForm.msapp", check_form),
              ("business-charts", REPO / "tests/fixtures/fixtureCharts.msapp", check_charts),
              ("record-scopes", REPO / "tests/fixtures/fixtureScopes.msapp", check_scopes)]
+    cases.append(('global-choices',REPO/'tests/fixtures/fixtureGlobalChoices.msapp',check_global_choices))
     cases.append(("editable-gallery", REPO / "tests/fixtures/fixtureGallery.msapp", check_gallery))
     cases.append(('nested-gallery',REPO/'tests/fixtures/fixtureNestedGallery.msapp',check_nested_gallery))
     cases.append(('control-coercion',REPO/'tests/fixtures/fixtureControlCoercion.msapp',check_control_coercion))

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from .controls import EXPLICITLY_UNSUPPORTED_INPUTS
+from .data_contract import derived_lookup_parent
 from .fidelity import iter_expressions
 from .fx import lexer as lx
 from .ir import AppIR
@@ -55,7 +56,10 @@ def capabilities(ir: AppIR) -> list[dict]:
                         add('lookup', subject, 'approximated', 'converter-gap', 'Lookup values are stored snapshots; live lookup propagation and cascade behavior require verification')
                     if field.date_behavior and field.date_behavior != 'UserLocal':
                         add('date', subject, 'unsupported', 'converter-gap', f'{field.date_behavior} storage semantics require an explicit adapter')
-                    if field.required_level == 'SystemRequired' and field.writable_create is False and not field.has_default and field.name != source.primary_key:
+                    if derived_lookup_parent(source, field):
+                        add('projection', subject, 'approximated', 'converter-gap',
+                            'Internal lookup companion is not an independently required stored column; imported labels are snapshots, with live projection unverified')
+                    elif field.required_level == 'SystemRequired' and field.writable_create is False and not field.has_default and field.name != source.primary_key:
                         add('default', subject, 'unsupported', 'converter-gap', 'System-required read-only field has no implemented generated default')
     known = {source.name for source in ir.data_sources} | set(ir.global_vars)
     for screen, control, prop, expr in iter_expressions(ir):

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from . import lexer as lx
 from .emitter import Emitter, TranspileResult
+from .source_repairs import apply_source_repairs
 
 
 class TranspileError(Exception):
@@ -20,15 +21,18 @@ def transpile(fx: str, behavior: bool = False, row_fields: set[str] | None = Non
               view_sets: dict | None = None, relationship_keys: set[str] | None = None,
               service_adapters: dict | None = None, power_fx_v1: bool = False,
               named_formulas: set[str] | None = None, control_aliases: dict[str, str] | None = None,
-              component_owner: str | None = None, component_private: bool = False) -> TranspileResult:
+              component_owner: str | None = None, component_private: bool = False,
+              option_sets: dict[str, list[dict]] | None = None) -> TranspileResult:
     """Transpile one Power Fx formula (may contain ;-chained statements)."""
     res = TranspileResult()
     try:
         stmts = lx.parse_formula(fx)
     except lx.FxSyntaxError as exc:
         raise TranspileError(f"cannot parse formula: {fx!r}: {exc}") from exc
+    res.source_repairs = apply_source_repairs(fx, stmts, behavior)
+    res.approximations.extend(repair['deviation'] for repair in res.source_repairs)
     em = Emitter(res, behavior, row_fields, control_names, collections, screen_names, global_names, media_resources, row_alias,
                  screen_name, control_screens, view_sets, relationship_keys, service_adapters, power_fx_v1, named_formulas,
-                 control_aliases, component_owner, component_private)
+                 control_aliases, component_owner, component_private, option_sets)
     res.js = em.emit(stmts)
     return res

@@ -78,6 +78,7 @@ def ledger_rows(ir: AppIR) -> list[dict]:
             "emission": expr.emission_status,
             "note": expr.fidelity_note,
             "formula": expr.raw,
+            "sourceRepairs": expr.source_repairs,
         }
         for screen, control, prop_name, expr in iter_expressions(ir)
     ]
